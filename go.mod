@@ -5,13 +5,13 @@ go 1.24.0
 toolchain go1.24.4
 
 require (
-	github.com/cli/go-gh/v2 v2.11.2
-	github.com/google/go-github/v68 v68.0.0
+	github.com/cli/go-gh/v2 v2.12.1
+	github.com/google/go-github/v73 v73.0.0
 	github.com/sigstore/cosign/v2 v2.5.2
 	github.com/sigstore/sigstore-go v1.0.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
-	oras.land/oras-go/v2 v2.5.0
+	oras.land/oras-go/v2 v2.6.0
 )
 
 require (
@@ -40,7 +40,7 @@ require (
 	github.com/go-openapi/strfmt v0.23.0 // indirect
 	github.com/go-openapi/swag v0.23.1 // indirect
 	github.com/go-openapi/validate v0.24.0 // indirect
-	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
+	github.com/go-viper/mapstructure/v2 v2.3.0 // indirect
 	github.com/google/certificate-transparency-go v1.3.2 // indirect
 	github.com/google/go-containerregistry v0.20.6 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
