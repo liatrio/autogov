@@ -8,7 +8,7 @@ require (
 	github.com/cli/go-gh/v2 v2.12.1
 	github.com/google/go-github/v73 v73.0.0
 	github.com/sigstore/cosign/v2 v2.5.2
-	github.com/sigstore/sigstore-go v1.0.0
+	github.com/sigstore/sigstore-go v1.1.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
 	oras.land/oras-go/v2 v2.6.0
