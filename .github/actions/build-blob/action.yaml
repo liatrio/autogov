@@ -1,0 +1,26 @@
+
+steps:
+  - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+  - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+    with:
+      go-version: 1.24.4
+      cache: true
+      cache-dependency-path: go.sum
+  - name: Build
+    run: |
+      mkdir -p bin
+      VERSION=${{ github.ref_name }}
+      if [[ "${{ github.ref_type }}" == "branch" ]]; then
+        VERSION="${VERSION}-${GITHUB_SHA::8}"
+      fi
+      echo "VERSION=${VERSION}" >> $GITHUB_ENV
+      go build -ldflags "-X main.version=${VERSION}" -o bin/autogov-verify .
+  - name: Install Binary
+    run: |
+      sudo cp bin/autogov-verify /usr/local/bin/
+      autogov-verify --help
+  - name: Upload binary
+    uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+    with:
+      name: autogov-verify
+      path: bin/autogov-verify

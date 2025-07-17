@@ -1,13 +1,7 @@
 name: Build and Test
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    paths-ignore:
-      - README.md
-      - catalog-info.yaml
-      - renovate.json
+  workflow_dispatch:
 
 env:
   GITHUB_TOKEN: ${{ secrets.UTIL_REPO_ACCESS }}
