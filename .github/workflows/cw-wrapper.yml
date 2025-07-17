@@ -24,7 +24,7 @@ jobs:
       attestations: write
       packages: read
       contents: write
-    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-build-blob.yaml@main # v0.7.3
+    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-build-blob.yaml@044a38426046e24e1c960a734e6d071eb5388989 # v0.7.3
     secrets: inherit
     with:
       subject-path: |
