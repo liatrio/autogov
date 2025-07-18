@@ -127,7 +127,7 @@ func run(cmd *cobra.Command, args []string) error {
 			CertIdentity:           certIdentity,
 			CertIssuer:             certIssuer,
 			BlobPath:               viper.GetString(flagBlobPath),
-			ExpectedRef:            sourceRef,
+			SourceRef:             sourceRef,
 			Quiet:                  viper.GetBool(flagQuiet),
 			CertIdentityValidation: certIdentityOpts,
 		},

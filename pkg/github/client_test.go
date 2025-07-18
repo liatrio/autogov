@@ -7,39 +7,54 @@ import (
 	"github.com/spf13/viper"
 )
 
-func TestGetToken(t *testing.T) {
-	// save original env vars
-	originalVars := map[string]string{
+// helper function to save original environment variables
+func saveOriginalEnvVars() map[string]string {
+	return map[string]string{
 		"GITHUB_TOKEN":      os.Getenv("GITHUB_TOKEN"),
 		"GH_TOKEN":          os.Getenv("GH_TOKEN"),
 		"GITHUB_AUTH_TOKEN": os.Getenv("GITHUB_AUTH_TOKEN"),
 	}
+}
 
-	// reset viper for clean state
-	viper.Reset()
-
-	// clear all tokens first
-	for key := range originalVars {
+// helper function to clear all GitHub token environment variables
+func clearTokenEnvVars(t *testing.T) {
+	for _, key := range []string{"GITHUB_TOKEN", "GH_TOKEN", "GITHUB_AUTH_TOKEN"} {
 		if err := os.Unsetenv(key); err != nil {
 			t.Logf("Warning: failed to unset environment variable %s: %v", key, err)
 		}
 	}
+}
 
-	// restore original env vars after test
-	defer func() {
-		viper.Reset()
-		for key, value := range originalVars {
-			if value == "" {
-				if err := os.Unsetenv(key); err != nil {
-					t.Logf("Warning: failed to unset environment variable %s: %v", key, err)
-				}
-			} else {
-				if err := os.Setenv(key, value); err != nil {
-					t.Logf("Warning: failed to restore environment variable %s: %v", key, err)
-				}
+// helper function to restore original environment variables
+func restoreEnvVars(t *testing.T, originalVars map[string]string) {
+	for key, value := range originalVars {
+		if value == "" {
+			if err := os.Unsetenv(key); err != nil {
+				t.Logf("Warning: failed to unset environment variable %s: %v", key, err)
+			}
+		} else {
+			if err := os.Setenv(key, value); err != nil {
+				t.Logf("Warning: failed to restore environment variable %s: %v", key, err)
 			}
 		}
-	}()
+	}
+}
+
+// helper function to setup test environment with clean state
+func setupTestEnv(t *testing.T) (cleanup func()) {
+	originalVars := saveOriginalEnvVars()
+	viper.Reset()
+	clearTokenEnvVars(t)
+
+	return func() {
+		viper.Reset()
+		restoreEnvVars(t, originalVars)
+	}
+}
+
+func TestGetToken(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
 
 	tests := []struct {
 		name          string
@@ -129,38 +144,8 @@ func TestGetToken(t *testing.T) {
 }
 
 func TestGetTokenOrPanic(t *testing.T) {
-	// save original env vars
-	originalVars := map[string]string{
-		"GITHUB_TOKEN":      os.Getenv("GITHUB_TOKEN"),
-		"GH_TOKEN":          os.Getenv("GH_TOKEN"),
-		"GITHUB_AUTH_TOKEN": os.Getenv("GITHUB_AUTH_TOKEN"),
-	}
-
-	// reset viper for clean state
-	viper.Reset()
-
-	// clear all tokens first
-	for key := range originalVars {
-		if err := os.Unsetenv(key); err != nil {
-			t.Logf("Warning: failed to unset environment variable %s: %v", key, err)
-		}
-	}
-
-	// restore original env vars after test
-	defer func() {
-		viper.Reset()
-		for key, value := range originalVars {
-			if value == "" {
-				if err := os.Unsetenv(key); err != nil {
-					t.Logf("Warning: failed to unset environment variable %s: %v", key, err)
-				}
-			} else {
-				if err := os.Setenv(key, value); err != nil {
-					t.Logf("Warning: failed to restore environment variable %s: %v", key, err)
-				}
-			}
-		}
-	}()
+	cleanup := setupTestEnv(t)
+	defer cleanup()
 
 	t.Run("panic when no token", func(t *testing.T) {
 		defer func() {
@@ -191,38 +176,8 @@ func TestGetTokenOrPanic(t *testing.T) {
 }
 
 func TestNewClient(t *testing.T) {
-	// save original env vars
-	originalVars := map[string]string{
-		"GITHUB_TOKEN":      os.Getenv("GITHUB_TOKEN"),
-		"GH_TOKEN":          os.Getenv("GH_TOKEN"),
-		"GITHUB_AUTH_TOKEN": os.Getenv("GITHUB_AUTH_TOKEN"),
-	}
-
-	// reset viper for clean state
-	viper.Reset()
-
-	// clear all tokens first
-	for key := range originalVars {
-		if err := os.Unsetenv(key); err != nil {
-			t.Logf("Warning: failed to unset environment variable %s: %v", key, err)
-		}
-	}
-
-	// restore original env vars after test
-	defer func() {
-		viper.Reset()
-		for key, value := range originalVars {
-			if value == "" {
-				if err := os.Unsetenv(key); err != nil {
-					t.Logf("Warning: failed to unset environment variable %s: %v", key, err)
-				}
-			} else {
-				if err := os.Setenv(key, value); err != nil {
-					t.Logf("Warning: failed to restore environment variable %s: %v", key, err)
-				}
-			}
-		}
-	}()
+	cleanup := setupTestEnv(t)
+	defer cleanup()
 
 	t.Run("creates client without token", func(t *testing.T) {
 		client := NewClient()
@@ -266,6 +221,7 @@ func TestNewClientWithToken(t *testing.T) {
 				t.Error("Expected client to be created")
 			}
 			// note: we can't easily test that the token is actually set without making API calls
+			// the important thing is that the client is created successfully with both valid and empty tokens
 		})
 	}
 }

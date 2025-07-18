@@ -68,7 +68,7 @@ type Options struct {
 	BlobPath string
 	// expected repository ref (e.g., refs/heads/main)
 	// verifies that the source repo ref in the build provenance attestation matches this value (e.g., ${{ github.ref }})
-	ExpectedRef string
+	SourceRef string
 	// expected certificate identity (e.g., gha workflow url)
 	// format: https://github.com/OWNER/REPO/.github/workflows/WORKFLOW.yml@REF
 	// example: https://github.com/myorg/myrepo/.github/workflows/build.yml@refs/heads/main
@@ -442,7 +442,7 @@ func verifyAttestation(ctx context.Context, att *github.Attestation, artifactDig
 	}
 
 	// verify source repository ref if expected ref is set
-	if opts.ExpectedRef != "" {
+	if opts.SourceRef != "" {
 		// check if build provenance attestation
 		if statement.PredicateType != "https://slsa.dev/provenance/v1" {
 			// skip non-provenance attestations
@@ -455,8 +455,8 @@ func verifyAttestation(ctx context.Context, att *github.Attestation, artifactDig
 		}
 
 		// verify source repository ref matches expected ref
-		if sourceRef != opts.ExpectedRef {
-			return nil, fmt.Errorf("source repository ref %s does not match expected ref %s", sourceRef, opts.ExpectedRef)
+		if sourceRef != opts.SourceRef {
+			return nil, fmt.Errorf("source repository ref %s does not match expected ref %s", sourceRef, opts.SourceRef)
 		}
 
 		if !opts.Quiet {
