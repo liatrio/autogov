@@ -117,7 +117,7 @@ func (v *Validator) LoadIdentities(ctx context.Context) error {
 	// add github token for authentication if accessing github raw files
 	if strings.Contains(v.options.URL, "raw.githubusercontent.com") {
 		if token := github.GetToken(); token != "" {
-			req.Header.Set("Authorization", "token "+token)
+			req.Header.Set("Authorization", "Bearer "+token)
 		}
 	}
 
