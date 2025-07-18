@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/liatrio/autogov-verify/pkg/github"
 )
 
 // default url for the cert-identity list
@@ -110,6 +112,13 @@ func (v *Validator) LoadIdentities(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(httpCtx, http.MethodGet, v.options.URL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// add github token for authentication if accessing github raw files
+	if strings.Contains(v.options.URL, "raw.githubusercontent.com") {
+		if token := github.GetToken(); token != "" {
+			req.Header.Set("Authorization", "token "+token)
+		}
 	}
 
 	resp, err := http.DefaultClient.Do(req)
