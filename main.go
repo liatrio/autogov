@@ -27,14 +27,14 @@ certificate identity and issuer.`,
 )
 
 const (
-	flagArtifactDigest     = "artifact-digest"
-	flagBlobPath           = "blob-path"
-	flagCertIdentity       = "cert-identity"
-	flagCertIssuer         = "cert-issuer"
-	flagExpectedRef        = "expected-ref"
-	flagQuiet              = "quiet"
-	flagCertIdentitySource = "cert-identity-source"
-	flagNoCache            = "no-cache"
+	flagArtifactDigest   = "artifact-digest"
+	flagBlobPath         = "blob-path"
+	flagCertIdentity     = "cert-identity"
+	flagCertIssuer       = "cert-issuer"
+	flagSourceRef        = "source-ref"
+	flagQuiet            = "quiet"
+	flagCertIdentityList = "cert-identity-list"
+	flagNoCache          = "no-cache"
 )
 
 func init() {
@@ -43,11 +43,11 @@ func init() {
 	rootCmd.Flags().String(flagBlobPath, "", "Path to a blob file to verify attestations against")
 	rootCmd.Flags().StringP(flagCertIdentity, "i", "", "Certificate identity to verify against (required)")
 	rootCmd.Flags().StringP(flagCertIssuer, "s", "https://token.actions.githubusercontent.com", "Certificate issuer to verify against")
-	rootCmd.Flags().StringP(flagExpectedRef, "r", "", "Expected repository ref to verify against (e.g., refs/heads/main)")
+	rootCmd.Flags().StringP(flagSourceRef, "r", "", "Source repository ref to verify against (e.g., refs/heads/main)")
 	rootCmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final results")
 
 	// certificate identity validation flags
-	rootCmd.Flags().String(flagCertIdentitySource, "", fmt.Sprintf("URL to the certificate identity list. If provided, validates cert-identity against this source. Default: %s", certid.DefaultIdentityListURL))
+	rootCmd.Flags().String(flagCertIdentityList, "", fmt.Sprintf("URL to the certificate identity list. If provided, validates cert-identity against this source. Default: %s", certid.DefaultIdentityListURL))
 	rootCmd.Flags().Bool(flagNoCache, false, "Disable caching of the certificate identity list")
 
 	rootCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
@@ -71,12 +71,12 @@ func init() {
 
 	// bind env vars
 	envBinds := map[string]string{
-		flagCertIdentity:       "CERT_IDENTITY",
-		flagCertIssuer:         "CERT_ISSUER",
-		flagQuiet:              "QUIET",
-		flagExpectedRef:        "EXPECTED_REF",
-		flagCertIdentitySource: "CERT_IDENTITY_SOURCE",
-		flagNoCache:            "NO_CACHE",
+		flagCertIdentity:     "CERT_IDENTITY",
+		flagCertIssuer:       "CERT_ISSUER",
+		flagQuiet:            "QUIET",
+		flagSourceRef:        "SOURCE_REF",
+		flagCertIdentityList: "CERT_IDENTITY_LIST",
+		flagNoCache:          "NO_CACHE",
 	}
 
 	for key, env := range envBinds {
@@ -93,22 +93,25 @@ func run(cmd *cobra.Command, args []string) error {
 		fmt.Println("---")
 	}
 
-	// set up certificate identity validation options if cert-identity-source is provided
+	artifactDigest := viper.GetString(flagArtifactDigest)
+	certIdentity := viper.GetString(flagCertIdentity)
+	certIssuer := viper.GetString(flagCertIssuer)
+	sourceRef := viper.GetString(flagSourceRef)
+	client := github.NewClient()
+
+	// set up certificate identity validation options if cert-identity-list is provided
 	var certIdentityOpts *certid.Options
-	if viper.GetString(flagCertIdentitySource) != "" {
+	if viper.GetString(flagCertIdentityList) != "" {
 		opts := certid.DefaultOptions()
 		opts.DisableCache = viper.GetBool(flagNoCache)
 
-		// Use provided URL if specified, otherwise use default
-		if viper.GetString(flagCertIdentitySource) != "" {
-			opts.URL = viper.GetString(flagCertIdentitySource)
-		}
+		opts.URL = viper.GetString(flagCertIdentityList)
 
 		certIdentityOpts = &opts
 
 		if !quiet {
 			fmt.Println("Certificate identity validation enabled")
-			fmt.Printf("Using identity source: %s\n", opts.URL)
+			fmt.Printf("Using identity list: %s\n", opts.URL)
 			if opts.DisableCache {
 				fmt.Println("Cache disabled")
 			}
@@ -118,13 +121,13 @@ func run(cmd *cobra.Command, args []string) error {
 
 	sigs, err := attestations.GetFromGitHub(
 		context.Background(),
-		viper.GetString(flagArtifactDigest),
-		github.NewClient(),
+		artifactDigest,
+		client,
 		attestations.Options{
-			CertIdentity:           viper.GetString(flagCertIdentity),
-			CertIssuer:             viper.GetString(flagCertIssuer),
+			CertIdentity:           certIdentity,
+			CertIssuer:             certIssuer,
 			BlobPath:               viper.GetString(flagBlobPath),
-			ExpectedRef:            viper.GetString(flagExpectedRef),
+			ExpectedRef:            sourceRef,
 			Quiet:                  viper.GetBool(flagQuiet),
 			CertIdentityValidation: certIdentityOpts,
 		},
