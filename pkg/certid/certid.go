@@ -209,29 +209,23 @@ func (v *Validator) IsValidIdentity(certIdentity string) (bool, error) {
 	return false, fmt.Errorf("certificate identity not found in approved lists")
 }
 
-// normalizes the cert identity and extracts the sha if present
+// extracts SHA from cert identity if present, otherwise returns the identity as-is
 func normalizeIdentity(certIdentity string) (string, string) {
-	certSHA := ""
-	normalizedIdentity := certIdentity
-	if strings.Contains(certIdentity, "@") {
-		parts := strings.Split(certIdentity, "@")
-		if len(parts) == 2 {
-			if len(parts[1]) == 40 && isHexString(parts[1]) {
-				certSHA = parts[1]
-			}
-			if !strings.Contains(certIdentity, "@refs/") && certSHA == "" {
-				if strings.HasPrefix(parts[1], "heads/") {
-					normalizedIdentity = parts[0] + "@refs/" + parts[1]
-				} else if strings.HasPrefix(parts[1], "tags/") {
-					normalizedIdentity = parts[0] + "@refs/" + parts[1]
-				} else if !strings.HasPrefix(parts[1], "refs/") {
-					normalizedIdentity = parts[0] + "@refs/heads/" + parts[1]
-				}
-			}
-		}
+	if !strings.Contains(certIdentity, "@") {
+		return certIdentity, ""
 	}
 
-	return normalizedIdentity, certSHA
+	parts := strings.Split(certIdentity, "@")
+	if len(parts) != 2 {
+		return certIdentity, ""
+	}
+
+	// check if the part after @ is a 40-character hex SHA
+	if len(parts[1]) == 40 && isHexString(parts[1]) {
+		return certIdentity, parts[1]
+	}
+
+	return certIdentity, ""
 }
 
 // checks if an identity is revoked
@@ -253,6 +247,21 @@ func checkIfRevoked(id Identity, certIdentity, normalizedIdentity, certSHA strin
 	return nil
 }
 
+// checks if an identity has expired
+func isExpired(id Identity) bool {
+	if id.Expires == "" {
+		return false
+	}
+
+	expiryDate, err := time.Parse("2006-01-02", id.Expires)
+	if err != nil {
+		return true // treat invalid dates as expired
+	}
+	// add a day to consider it valid throughout the expiry date itself
+	expiryDate = expiryDate.AddDate(0, 0, 1)
+	return time.Now().After(expiryDate)
+}
+
 // checks if an identity is valid and not expired
 func checkIfValid(id Identity, certIdentity, normalizedIdentity, certSHA string) (bool, error) {
 	if id.Status != "latest" && id.Status != "approved" {
@@ -267,19 +276,13 @@ func checkIfValid(id Identity, certIdentity, normalizedIdentity, certSHA string)
 		}
 	}
 
+	// require either identity match or SHA match
 	if !identityMatch && (certSHA == "" || id.Sha != certSHA) {
 		return false, nil
 	}
 
-	if id.Expires != "" {
-		expiryDate, err := time.Parse("2006-01-02", id.Expires)
-		if err != nil {
-			return false, fmt.Errorf("invalid expiry date format: %w", err)
-		}
-		expiryDate = expiryDate.AddDate(0, 0, 1)
-		if time.Now().After(expiryDate) {
-			return false, fmt.Errorf("certificate identity has expired")
-		}
+	if isExpired(id) {
+		return false, fmt.Errorf("certificate identity has expired")
 	}
 
 	return true, nil
@@ -310,19 +313,7 @@ func (v *Validator) GetValidIdentities() ([]Identity, error) {
 
 	// get valid identities (latest and non-expired approved)
 	for _, id := range v.list.Identities {
-		if id.Status == "latest" || id.Status == "approved" {
-			// check if approved / expired
-			if id.Status == "approved" && id.Expires != "" {
-				expiryDate, err := time.Parse("2006-01-02", id.Expires)
-				if err != nil {
-					continue // skip invalid expiry dates
-				}
-				// add a day to consider it valid throughout the expiry date itself
-				expiryDate = expiryDate.AddDate(0, 0, 1)
-				if time.Now().After(expiryDate) {
-					continue // skip expired identities
-				}
-			}
+		if id.Status == "latest" || (id.Status == "approved" && !isExpired(id)) {
 			validIdentities = append(validIdentities, id)
 		}
 	}

@@ -32,7 +32,7 @@ func TestValidator_IsValidIdentity(t *testing.T) {
 			},
 			{
 				"version": "0.9.0",
-				"sha": "1234567890abcdef",
+				"sha": "1234567890abcdef1234567890abcdef12345678",
 				"status": "approved",
 				"identities": ["https://github.com/liatrio/test-repo/.github/workflows/test.yaml@refs/tags/v1.0.0"],
 				"added": "` + yesterday + `",
@@ -114,8 +114,8 @@ func TestValidator_IsValidIdentity(t *testing.T) {
 			errContains:  "revoked",
 		},
 		{
-			name:         "Normalization - Without refs/ prefix",
-			certIdentity: "https://github.com/liatrio/test-repo/.github/workflows/test.yaml@tags/v1.0.0",
+			name:         "SHA - Valid with SHA",
+			certIdentity: "https://github.com/liatrio/test-repo/.github/workflows/test.yaml@1234567890abcdef1234567890abcdef12345678",
 			want:         true,
 			errContains:  "",
 		},
