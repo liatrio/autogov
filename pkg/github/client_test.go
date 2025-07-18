@@ -7,7 +7,10 @@ import (
 	"github.com/spf13/viper"
 )
 
-// helper function to save original environment variables
+// note: we can't easily test that the token is actually set without making API calls
+// the important thing is that the client is created successfully with both valid and empty tokens
+
+// helper function to save original env vars
 func saveOriginalEnvVars() map[string]string {
 	return map[string]string{
 		"GITHUB_TOKEN":      os.Getenv("GITHUB_TOKEN"),
@@ -16,7 +19,7 @@ func saveOriginalEnvVars() map[string]string {
 	}
 }
 
-// helper function to clear all GitHub token environment variables
+// helper function to clear all gh token env vars
 func clearTokenEnvVars(t *testing.T) {
 	for _, key := range []string{"GITHUB_TOKEN", "GH_TOKEN", "GITHUB_AUTH_TOKEN"} {
 		if err := os.Unsetenv(key); err != nil {
@@ -25,7 +28,7 @@ func clearTokenEnvVars(t *testing.T) {
 	}
 }
 
-// helper function to restore original environment variables
+// helper function to restore original env vars
 func restoreEnvVars(t *testing.T, originalVars map[string]string) {
 	for key, value := range originalVars {
 		if value == "" {
@@ -119,7 +122,7 @@ func TestGetToken(t *testing.T) {
 				viper.Set("token", tt.viperToken)
 			}
 
-			// set environment variables
+			// set env vars
 			for key, value := range tt.envVars {
 				if err := os.Setenv(key, value); err != nil {
 					t.Fatalf("Failed to set environment variable %s: %v", key, err)
@@ -195,7 +198,6 @@ func TestNewClient(t *testing.T) {
 		if client == nil {
 			t.Error("Expected client to be created")
 		}
-		// note: we can't easily test that the token is actually set without making API calls
 	})
 }
 
@@ -220,8 +222,6 @@ func TestNewClientWithToken(t *testing.T) {
 			if client == nil {
 				t.Error("Expected client to be created")
 			}
-			// note: we can't easily test that the token is actually set without making API calls
-			// the important thing is that the client is created successfully with both valid and empty tokens
 		})
 	}
 }
