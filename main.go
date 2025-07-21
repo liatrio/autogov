@@ -98,16 +98,15 @@ func run(cmd *cobra.Command, args []string) error {
 	certIssuer := viper.GetString(flagCertIssuer)
 	sourceRef := viper.GetString(flagSourceRef)
 	blobPath := viper.GetString(flagBlobPath)
-	quietMode := viper.GetBool(flagQuiet)
 	client := github.NewClient()
 
 	// set up certificate identity validation options if cert-identity-list is provided
 	var certIdentityOpts *certid.Options
-	if viper.GetString(flagCertIdentityList) != "" {
+	if certIdentityListURL := viper.GetString(flagCertIdentityList); certIdentityListURL != "" {
 		opts := certid.DefaultOptions()
 		opts.DisableCache = viper.GetBool(flagNoCache)
 
-		opts.URL = viper.GetString(flagCertIdentityList)
+		opts.URL = certIdentityListURL
 
 		certIdentityOpts = &opts
 
@@ -130,7 +129,7 @@ func run(cmd *cobra.Command, args []string) error {
 			CertIssuer:             certIssuer,
 			BlobPath:               blobPath,
 			SourceRef:              sourceRef,
-			Quiet:                  quietMode,
+			Quiet:                  quiet,
 			CertIdentityValidation: certIdentityOpts,
 		},
 	)
@@ -138,7 +137,7 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("error getting attestations: %w", err)
 	}
 
-	if !quietMode {
+	if !quiet {
 		fmt.Println("\nSummary:")
 		fmt.Printf("✓ Successfully verified %d attestations\n", len(sigs))
 		fmt.Println("\nAttestation Types:")

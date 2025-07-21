@@ -71,14 +71,17 @@ type Validator struct {
 }
 
 // creates a new cert-id validator
-func NewValidator(opts Options) *Validator {
+func NewValidator(opts Options) (*Validator, error) {
 	// URL is required and must be explicitly provided
+	if opts.URL == "" {
+		return nil, fmt.Errorf("URL is required for certificate identity validation")
+	}
 	if opts.CacheDir == "" {
 		opts.CacheDir = DefaultOptions().CacheDir
 	}
 	return &Validator{
 		options: opts,
-	}
+	}, nil
 }
 
 // loads the cert-id list from the remote source or cache

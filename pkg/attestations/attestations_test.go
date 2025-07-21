@@ -427,7 +427,7 @@ func TestVerifyAttestation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := verifyAttestation(context.Background(), tt.att, blobPath, trust, cacheDir, 0, tt.opts)
+			_, err := verifyAttestation(tt.att, blobPath, trust, 0, tt.opts)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("verifyAttestation() error = %v, wantErr %v", err, tt.wantErr)
 			}

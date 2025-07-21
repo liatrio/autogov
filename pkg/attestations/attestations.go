@@ -144,7 +144,10 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 	// validate certificate identity if validation options provided
 	if opts.CertIdentity != "" && opts.CertIdentityValidation != nil {
 		// create cert identity validator
-		validator := certid.NewValidator(*opts.CertIdentityValidation)
+		validator, err := certid.NewValidator(*opts.CertIdentityValidation)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create certificate identity validator: %w", err)
+		}
 
 		// load identities
 		if err := validator.LoadIdentities(ctx); err != nil {
@@ -294,7 +297,7 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
-			sig, err := verifyAttestation(ctx, att, artifactRef.String(), trust, cacheDir, i, opts)
+			sig, err := verifyAttestation(att, artifactRef.String(), trust, i, opts)
 			if err != nil {
 				return nil, err
 			}
@@ -382,7 +385,7 @@ func getManifestWithOras(ctx context.Context, org, repository, artifactRef strin
 	return io.ReadAll(manifestReader)
 }
 
-func verifyAttestation(ctx context.Context, att *github.Attestation, artifactDigest, trust, cacheDir string, index int, opts Options) (oci.Signature, error) {
+func verifyAttestation(att *github.Attestation, artifactDigest, trust string, index int, opts Options) (oci.Signature, error) {
 	if att == nil {
 		return nil, fmt.Errorf("attestation is nil")
 	}
@@ -456,7 +459,7 @@ func verifyAttestation(ctx context.Context, att *github.Attestation, artifactDig
 
 		// verify source repository ref matches expected ref
 		if sourceRef != opts.SourceRef {
-			return nil, fmt.Errorf("source repository ref %s does not match expected ref %s", sourceRef, opts.SourceRef)
+			return nil, fmt.Errorf("source repository ref %s does not match SourceRef %s", sourceRef, opts.SourceRef)
 		}
 
 		if !opts.Quiet {
@@ -573,7 +576,7 @@ func handleBlobVerification(ctx context.Context, artifactRef *Digest, org string
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
-			sig, err := verifyAttestation(ctx, att, opts.BlobPath, trust, cacheDir, i, opts)
+			sig, err := verifyAttestation(att, opts.BlobPath, trust, i, opts)
 			if err != nil {
 				return nil, err
 			}
