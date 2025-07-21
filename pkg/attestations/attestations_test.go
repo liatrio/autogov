@@ -400,7 +400,7 @@ func TestVerifyAttestation(t *testing.T) {
 			opts: Options{
 				CertIdentity: verifyCertIdentity,
 				CertIssuer:   testCertIssuer,
-				SourceRef:   "refs/heads/other",
+				SourceRef:    "refs/heads/other",
 			},
 			wantErr: true,
 			errMsg:  "failed to unmarshal bundle: invalid bundle: validation error: missing verification material",

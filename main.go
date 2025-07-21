@@ -129,7 +129,7 @@ func run(cmd *cobra.Command, args []string) error {
 			CertIdentity:           certIdentity,
 			CertIssuer:             certIssuer,
 			BlobPath:               blobPath,
-			SourceRef:             sourceRef,
+			SourceRef:              sourceRef,
 			Quiet:                  quietMode,
 			CertIdentityValidation: certIdentityOpts,
 		},

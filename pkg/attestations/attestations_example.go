@@ -19,7 +19,7 @@ const (
 // example container/blob options
 var (
 	ExampleContainerOptions = Options{
-		SourceRef:   "refs/heads/main",
+		SourceRef:    "refs/heads/main",
 		CertIdentity: "https://github.com/myorg/myrepo/.github/workflows/rw-hp-attest-image.yaml@refs/heads/main",
 		CertIssuer:   DefaultCertIssuer,
 		Quiet:        false,
@@ -27,7 +27,7 @@ var (
 
 	ExampleBlobOptions = Options{
 		BlobPath:     "/path/to/my/file.txt",
-		SourceRef:   "refs/heads/main",
+		SourceRef:    "refs/heads/main",
 		CertIdentity: "https://github.com/myorg/myrepo/.github/workflows/rw-hp-attest-blob.yaml@refs/heads/main",
 		CertIssuer:   DefaultCertIssuer,
 		Quiet:        false,
@@ -50,7 +50,7 @@ func ExampleGetFromGitHub() {
 	opts := Options{
 		CertIdentity: "https://github.com/myorg/myrepo/.github/workflows/verify.yml@refs/heads/main",
 		CertIssuer:   DefaultCertIssuer,
-		SourceRef:   "refs/heads/main",
+		SourceRef:    "refs/heads/main",
 	}
 
 	_, err := GetFromGitHub(context.Background(), imageRef, client, opts)
@@ -62,7 +62,7 @@ func ExampleGetFromGitHub() {
 		BlobPath:     "testdata/example.txt",
 		CertIdentity: "https://github.com/myorg/myrepo/.github/workflows/verify.yml@refs/heads/main",
 		CertIssuer:   DefaultCertIssuer,
-		SourceRef:   "refs/heads/main",
+		SourceRef:    "refs/heads/main",
 	}
 
 	_, err = GetFromGitHub(context.Background(), "", client, blobOpts)
