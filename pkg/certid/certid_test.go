@@ -128,7 +128,10 @@ func TestValidator_IsValidIdentity(t *testing.T) {
 				DisableCache: true,
 			}
 
-			v := NewValidator(opts)
+			v, err := NewValidator(opts)
+			if err != nil {
+				t.Fatalf("Failed to create validator: %v", err)
+			}
 
 			if err := v.LoadIdentities(context.Background()); err != nil {
 				t.Fatalf("Failed to load identities: %v", err)
@@ -238,7 +241,10 @@ func TestValidator_GetValidIdentities(t *testing.T) {
 			DisableCache: true,
 		}
 
-		v := NewValidator(opts)
+		v, err := NewValidator(opts)
+		if err != nil {
+			t.Fatalf("Failed to create validator: %v", err)
+		}
 
 		if err := v.LoadIdentities(context.Background()); err != nil {
 			t.Fatalf("Failed to load identities: %v", err)
@@ -312,7 +318,10 @@ func TestCaching(t *testing.T) {
 		}
 
 		// First request should hit server
-		v := NewValidator(opts)
+		v, err := NewValidator(opts)
+		if err != nil {
+			t.Fatalf("Failed to create validator: %v", err)
+		}
 		if err := v.LoadIdentities(context.Background()); err != nil {
 			t.Fatalf("Failed to load identities: %v", err)
 		}
@@ -320,7 +329,10 @@ func TestCaching(t *testing.T) {
 		initialHits := serverHits
 
 		// Second request should use cache
-		v = NewValidator(opts)
+		v, err = NewValidator(opts)
+		if err != nil {
+			t.Fatalf("Failed to create validator: %v", err)
+		}
 		if err := v.LoadIdentities(context.Background()); err != nil {
 			t.Fatalf("Failed to load identities: %v", err)
 		}
@@ -341,7 +353,10 @@ func TestCaching(t *testing.T) {
 		initialHits := serverHits
 
 		// With cache disabled, should hit server
-		v := NewValidator(opts)
+		v, err := NewValidator(opts)
+		if err != nil {
+			t.Fatalf("Failed to create validator: %v", err)
+		}
 		if err := v.LoadIdentities(context.Background()); err != nil {
 			t.Fatalf("Failed to load identities: %v", err)
 		}
