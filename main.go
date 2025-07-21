@@ -97,6 +97,8 @@ func run(cmd *cobra.Command, args []string) error {
 	certIdentity := viper.GetString(flagCertIdentity)
 	certIssuer := viper.GetString(flagCertIssuer)
 	sourceRef := viper.GetString(flagSourceRef)
+	blobPath := viper.GetString(flagBlobPath)
+	quietMode := viper.GetBool(flagQuiet)
 	client := github.NewClient()
 
 	// set up certificate identity validation options if cert-identity-list is provided
@@ -126,9 +128,9 @@ func run(cmd *cobra.Command, args []string) error {
 		attestations.Options{
 			CertIdentity:           certIdentity,
 			CertIssuer:             certIssuer,
-			BlobPath:               viper.GetString(flagBlobPath),
+			BlobPath:               blobPath,
 			SourceRef:             sourceRef,
-			Quiet:                  viper.GetBool(flagQuiet),
+			Quiet:                  quietMode,
 			CertIdentityValidation: certIdentityOpts,
 		},
 	)
@@ -136,7 +138,7 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("error getting attestations: %w", err)
 	}
 
-	if !viper.GetBool(flagQuiet) {
+	if !quietMode {
 		fmt.Println("\nSummary:")
 		fmt.Printf("✓ Successfully verified %d attestations\n", len(sigs))
 		fmt.Println("\nAttestation Types:")
