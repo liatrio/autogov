@@ -118,14 +118,14 @@ And one of the following:
 ### Optional Flags
 
 - `--cert-issuer, -s`: Certificate issuer to verify against (default: https://token.actions.githubusercontent.com)
-- `--expected-ref, -r`: Expected repository ref to verify against (e.g., refs/heads/main)
+- `--source-ref, -r`: Source repository ref to verify against (e.g., refs/heads/main)
 - `--quiet, -q`: Only show errors and final results
 
 #### Certificate Identity Validation Flags
 
 The tool supports validating certificate identities against a source of truth list:
 
-- `--cert-identity-source`: URL to the certificate identity list for validation. If provided, validates the cert-identity against this source. Default: https://raw.githubusercontent.com/liatrio/liatrio-gh-autogov-workflows/main/cert-identities.json
+- `--cert-identity-list`: URL to the certificate identity list for validation. If provided, validates the cert-identity against this source (optional). Example: `https://raw.githubusercontent.com/liatrio/liatrio-gh-autogov-workflows/refs/heads/main/cert-identities.json`
 - `--no-cache`: Disable caching of the certificate identity list
 
 The certificate identity source of truth is a JSON file with the following structure:
@@ -182,9 +182,9 @@ All command line flags can be set via environment variables:
 
 - `CERT_IDENTITY`: Alternative to --cert-identity flag
 - `CERT_ISSUER`: Alternative to --cert-issuer flag
-- `EXPECTED_REF`: Alternative to --expected-ref flag
+- `SOURCE_REF`: Alternative to --source-ref flag
 - `QUIET`: Alternative to --quiet flag
-- `CERT_IDENTITY_SOURCE`: Alternative to --cert-identity-source flag
+- `CERT_IDENTITY_LIST`: Alternative to --cert-identity-list flag
 - `NO_CACHE`: Alternative to --no-cache flag
 
 ## Examples
@@ -196,7 +196,7 @@ export GITHUB_AUTH_TOKEN=your_token
 autogov-verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
   --artifact-digest "ghcr.io/liatrio/demo-gh-autogov-workflows@sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
-  --expected-ref refs/heads/main
+  --source-ref refs/heads/main
 ```
 
 Verify a blob file:
@@ -206,7 +206,7 @@ export GITHUB_AUTH_TOKEN=your_token
 autogov-verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
   --blob-path path/to/your/file \
-  --expected-ref refs/heads/main
+  --source-ref refs/heads/main
 ```
 
 Using environment variables:
@@ -225,7 +225,7 @@ export GITHUB_AUTH_TOKEN=your_token
 autogov-verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
   --artifact-digest "ghcr.io/liatrio/demo-gh-autogov-workflows@sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
-  --cert-identity-source "https://raw.githubusercontent.com/liatrio/liatrio-gh-autogov-workflows/main/cert-identities.json"
+  --cert-identity-list "https://raw.githubusercontent.com/liatrio/liatrio-gh-autogov-workflows/refs/heads/main/cert-identities.json"
 ```
 
 ## Output

@@ -400,7 +400,7 @@ func TestVerifyAttestation(t *testing.T) {
 			opts: Options{
 				CertIdentity: verifyCertIdentity,
 				CertIssuer:   testCertIssuer,
-				ExpectedRef:  "refs/heads/other",
+				SourceRef:    "refs/heads/other",
 			},
 			wantErr: true,
 			errMsg:  "failed to unmarshal bundle: invalid bundle: validation error: missing verification material",
@@ -427,7 +427,7 @@ func TestVerifyAttestation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := verifyAttestation(context.Background(), tt.att, blobPath, trust, cacheDir, 0, tt.opts)
+			_, err := verifyAttestation(tt.att, blobPath, trust, 0, tt.opts)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("verifyAttestation() error = %v, wantErr %v", err, tt.wantErr)
 			}
