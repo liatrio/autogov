@@ -14,9 +14,6 @@ import (
 	"github.com/liatrio/autogov-verify/pkg/github"
 )
 
-// default url for the cert-identity list
-const DefaultIdentityListURL = "https://raw.githubusercontent.com/liatrio/liatrio-gh-autogov-workflows/main/cert-identities.json"
-
 // default cache dir
 const CacheDir = ".autogov-verify"
 
@@ -61,7 +58,7 @@ type Options struct {
 // returns the default id validator options
 func DefaultOptions() Options {
 	return Options{
-		URL:          DefaultIdentityListURL,
+		URL:          "", // URL must be explicitly provided
 		DisableCache: false,
 		CacheDir:     filepath.Join(os.Getenv("HOME"), CacheDir),
 	}
@@ -75,9 +72,7 @@ type Validator struct {
 
 // creates a new cert-id validator
 func NewValidator(opts Options) *Validator {
-	if opts.URL == "" {
-		opts.URL = DefaultOptions().URL
-	}
+	// URL is required and must be explicitly provided
 	if opts.CacheDir == "" {
 		opts.CacheDir = DefaultOptions().CacheDir
 	}
