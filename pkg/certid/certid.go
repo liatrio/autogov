@@ -84,10 +84,15 @@ func NewValidator(opts Options) (*Validator, error) {
 	}, nil
 }
 
-// loads the cert-id list from the remote source or cache
+// loads the cert-id list from the remote source, local file, or cache
 func (v *Validator) LoadIdentities(ctx context.Context) error {
 	var data []byte
 	var err error
+
+	// check if URL is actually a local file path
+	if isLocalFile(v.options.URL) {
+		return v.loadFromLocalFile()
+	}
 
 	// check cache if enabled
 	if !v.options.DisableCache {
@@ -154,6 +159,37 @@ func (v *Validator) LoadIdentities(ctx context.Context) error {
 		}
 	}
 
+	return nil
+}
+
+// checks if the provided string is a local file path
+func isLocalFile(path string) bool {
+	// check if it's a URL scheme
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return false
+	}
+	// only return true if the file actually exists
+	if _, err := os.Stat(path); err == nil {
+		return true
+	}
+	// if it contains path separators but doesn't exist, it's likely an invalid file path
+	// let it fall through to the URL handling which will provide a clearer error
+	return false
+}
+
+// loads the cert-id list from a local file
+func (v *Validator) loadFromLocalFile() error {
+	data, err := os.ReadFile(v.options.URL)
+	if err != nil {
+		return fmt.Errorf("failed to read local identity file: %w", err)
+	}
+
+	var list IdentityList
+	if err := json.Unmarshal(data, &list); err != nil {
+		return fmt.Errorf("failed to parse identity list: %w", err)
+	}
+
+	v.list = &list
 	return nil
 }
 

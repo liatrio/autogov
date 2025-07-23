@@ -47,7 +47,7 @@ func init() {
 	rootCmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final results")
 
 	// certificate identity validation flags
-	rootCmd.Flags().String(flagCertIdentityList, "", "URL to the certificate identity list. If provided, enables cert-identity validation against this source (optional)")
+	rootCmd.Flags().String(flagCertIdentityList, "", "URL or file path to the certificate identity list. If provided, enables cert-identity validation against this source (optional)")
 	rootCmd.Flags().Bool(flagNoCache, false, "Disable caching of the certificate identity list")
 
 	rootCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
