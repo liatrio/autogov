@@ -1,0 +1,70 @@
+name: Build Blob Composite Action
+
+description: >-
+  A composite action that is placed in ./.github/actions/build-blob/action.yaml whereby
+  ./.github/workflows/rw-<permissions_path>-attest-blob.yaml will trigger this action to build the blob(s). The steps
+  can be adjusted per the user's need just as long as the result blob file(s) is referenced for
+  downstream jobs.
+
+inputs:
+  go-version:
+    description: 'Go version to use'
+    required: false
+    default: '1.24.4'
+  binary-name:
+    description: 'Name of output binary'
+    required: false
+    default: 'autogov-verify'
+  artifact-name:
+    description: 'Name for uploaded artifact'
+    required: false
+    default: 'autogov-verify'
+
+outputs:
+  blob-path:
+    description: 'Path to the built binary'
+    value: ${{ steps.set-output.outputs.blob-path }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: true
+        cache-dependency-path: go.sum
+    - name: Build binary
+      shell: bash
+      env:
+        REF_NAME: ${{ github.ref_name }}
+        REF_TYPE: ${{ github.ref_type }}
+        BINARY_NAME: ${{ inputs.binary-name }}
+      run: |
+        mkdir -p bin
+        VERSION="$REF_NAME"
+        if [[ "$REF_TYPE" == "branch" ]]; then
+          VERSION="${VERSION}-${GITHUB_SHA::8}"
+        fi
+        echo "VERSION=${VERSION}" >> $GITHUB_ENV
+        go build -ldflags "-X main.version=${VERSION}" -o bin/"$BINARY_NAME" .
+    - name: Test Binary
+      shell: bash
+      env:
+        BINARY_NAME: ${{ inputs.binary-name }}
+      run: |
+        ./bin/"$BINARY_NAME" --help
+    - name: Upload binary
+      uses: actions/upload-artifact@v4
+      env:
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        BINARY_NAME: ${{ inputs.binary-name }}
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: bin/${{ env.BINARY_NAME }}
+    - name: Set output path
+      shell: bash
+      id: set-output
+      env:
+        BINARY_NAME: ${{ inputs.binary-name }}
+      run: echo "blob-path=bin/$BINARY_NAME" >> $GITHUB_OUTPUT

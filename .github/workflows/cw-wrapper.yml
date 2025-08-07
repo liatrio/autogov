@@ -1,0 +1,34 @@
+name: Build Entrypoint Caller Workflow
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**']
+    paths-ignore:
+      - .github/workflows/wf-slack-alert.yaml
+      - README.md
+      - CONTRIBUTING.md
+      - catalog-info.yaml
+      - renovate.json
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  attest-blob-hp: #blob
+    if: github.event.pull_request.draft == false
+    permissions:
+      id-token: write
+      attestations: write
+      packages: read
+      contents: write
+      actions: read
+    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-build-blob.yaml@82f5947f7892f9a10ca272ac0136ac777f49e3d1 # v0.8.7
+    secrets: inherit
+    with:
+      subject-path: |
+        bin/autogov-verify
+      cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@82f5947f7892f9a10ca272ac0136ac777f49e3d1 # v0.8.7
+      ignore-dependency-vulnerabilities: true
