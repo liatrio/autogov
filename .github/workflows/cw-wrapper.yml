@@ -67,10 +67,10 @@ jobs:
       packages: read
       contents: write
       actions: read
-    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-build-blob.yaml@82f5947f7892f9a10ca272ac0136ac777f49e3d1 # v0.8.7
+    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-build-blob.yaml@a7cab0b4bbf44c6799dba7b057fc549774f1bff9 # v0.10.0
     secrets: inherit
     with:
       subject-path: |
         bin/autogov-verify
-      cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@82f5947f7892f9a10ca272ac0136ac777f49e3d1 # v0.8.7
+      cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@a7cab0b4bbf44c6799dba7b057fc549774f1bff9 # v0.10.0
       ignore-dependency-vulnerabilities: true
