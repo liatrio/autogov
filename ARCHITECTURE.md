@@ -54,11 +54,13 @@ AutoGov implements a comprehensive supply chain security framework with multiple
 
 ### Policy Engine (OPA/Rego)
 
-- **Purpose**: Flexible policy evaluation
+- **Purpose**: Flexible policy evaluation integrated with VSA generation
 - **Responsibilities**:
-  - Custom rule definition
-  - Policy composition
-  - Violation reporting
+  - Custom rule definition and evaluation
+  - Policy composition and inheritance
+  - Violation reporting and attestation
+  - **NEW**: Policy validation results included in VSA generation
+- **Integration**: Unified verification job combining attestation verification and policy evaluation
 - **Extensibility**: Custom functions via Go integration
 
 ## Security Model
@@ -264,23 +266,32 @@ func (v *VSAValidator) matchSubjectDigests(vsa *VSA, expectedDigests []string) e
 }
 ```
 
-#### Enhanced Verification Workflow
+#### Enhanced Verification Workflow with OPA/Rego Integration
 
 ```go
-func (av *AutoGovVerifier) VerifyAndGenerateVSA(imageRef string) (*VSA, error) {
+func (av *AutoGovVerifier) VerifyAndGenerateVSA(imageRef string, policyPath string) (*VSA, error) {
     // 1. Collect input attestations
     attestations, err := av.collectAttestations(imageRef)
     if err != nil {
         return nil, err
     }
     
-    // 2. Perform verification using existing logic
-    results, err := av.verifyAttestations(attestations)
+    // 2. Perform attestation verification using existing logic
+    attestationResults, err := av.verifyAttestations(attestations)
     if err != nil {
         return nil, err
     }
     
-    // 3. Generate VSA with v1.1 compliance
+    // 3. NEW: Perform OPA/Rego policy evaluation
+    policyResults, err := av.evaluateOPAPolicy(imageRef, attestations, policyPath)
+    if err != nil {
+        return nil, err
+    }
+    
+    // 4. Combine attestation and policy results
+    combinedResults := combineVerificationResults(attestationResults, policyResults)
+    
+    // 5. Generate VSA with v1.1 compliance including policy validation
     vsa := &VSA{
         Type:          "https://in-toto.io/Statement/v1",
         PredicateType: "https://slsa.dev/verification_summary/v1",
@@ -290,28 +301,103 @@ func (av *AutoGovVerifier) VerifyAndGenerateVSA(imageRef string) (*VSA, error) {
                 ID: "https://github.com/liatrio/autogov-verify",
                 Version: map[string]string{
                     "autogov-verify": av.version,
+                    "opa":            av.opaVersion,
                     "slsa-verifier":  av.slsaVerifierVersion,
                 },
             },
             TimeVerified:       &time.Now(),
             ResourceURI:        imageRef,
-            Policy:             av.policyDescriptor,
+            Policy:             av.createPolicyDescriptor(policyPath),
             InputAttestations:  av.inputAttestationDescriptors,
-            VerificationResult: determineResult(results),
-            VerifiedLevels:     av.determineVerifiedLevels(results),
+            VerificationResult: determineResult(combinedResults),
+            VerifiedLevels:     av.determineVerifiedLevels(combinedResults),
             DependencyLevels:   av.analyzeDependencies(attestations),
             SlsaVersion:        "1.1",
         },
+        Metadata: map[string]interface{}{
+            "autogov.attestation.results": attestationResults,
+            "autogov.policy.results":      policyResults,
+            "autogov.policy.path":         policyPath,
+        },
     }
     
-    // 4. Store VSA using ORAS-Go
+    // 6. Store VSA using ORAS-Go
     if err := av.storage.StoreVSA(context.Background(), vsa, imageRef); err != nil {
         return nil, err
     }
     
     return vsa, nil
 }
+
+// evaluateOPAPolicy performs OPA/Rego policy evaluation as part of verification
+func (av *AutoGovVerifier) evaluateOPAPolicy(imageRef string, attestations [][]byte, policyPath string) (map[string]bool, error) {
+    // Load and compile Rego policy
+    policy, err := av.loadRegoPolicy(policyPath)
+    if err != nil {
+        return nil, fmt.Errorf("failed to load policy: %w", err)
+    }
+    
+    // Prepare input data for policy evaluation
+    input := map[string]interface{}{
+        "image":        imageRef,
+        "attestations": attestations,
+        "metadata":     av.collectMetadata(imageRef),
+    }
+    
+    // Evaluate policy
+    results, err := policy.Eval(context.Background(), input)
+    if err != nil {
+        return nil, fmt.Errorf("policy evaluation failed: %w", err)
+    }
+    
+    // Convert results to verification format
+    return av.convertPolicyResults(results), nil
+}
+
+// createPolicyDescriptor creates a ResourceDescriptor for the policy
+func (av *AutoGovVerifier) createPolicyDescriptor(policyPath string) ResourceDescriptor {
+    policyContent, err := av.readPolicyFile(policyPath)
+    if err != nil {
+        return ResourceDescriptor{URI: policyPath}
+    }
+    
+    policyHash := av.calculateHash(policyContent)
+    return ResourceDescriptor{
+        URI: policyPath,
+        Digest: map[string]string{
+            "sha256": policyHash,
+        },
+    }
+}
+
+// combineVerificationResults merges attestation and policy verification results
+func combineVerificationResults(attestationResults, policyResults map[string]bool) map[string]bool {
+    combined := make(map[string]bool)
+    
+    // Add attestation results
+    for key, value := range attestationResults {
+        combined["attestation."+key] = value
+    }
+    
+    // Add policy results
+    for key, value := range policyResults {
+        combined["policy."+key] = value
+    }
+    
+    return combined
+}
 ```
+
+### Unified Verification Job Benefits
+
+**Replaces Separate OPA Job**: Instead of running attestation verification and policy evaluation as separate jobs (like `rw-hp-run-opa.yaml`), the unified approach provides:
+
+1. **Single Verification Point**: One job that performs both attestation and policy verification
+2. **Comprehensive VSA**: VSA includes both attestation and policy validation results
+3. **Audit Trail**: Complete verification history in a single attestation
+4. **Reduced Complexity**: Fewer CI/CD jobs to manage and coordinate
+5. **Better Performance**: Shared context and reduced overhead
+6. **Enhanced Security**: Atomic verification operation with complete results
 
 ## Performance Considerations
 

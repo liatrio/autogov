@@ -103,6 +103,69 @@ verifiers/
 5. **Interoperability** - VSAs work with other SLSA tools
 6. **Reduced Timeline** - 4-6 weeks instead of 8 weeks
 
+### OPA/Rego Integration for Unified Verification
+
+**Key Enhancement**: Integrate OPA/Rego policy evaluation directly into VSA generation, replacing separate policy validation jobs (like `rw-hp-run-opa.yaml`) with a unified verification workflow.
+
+#### Unified Verification Workflow
+
+```go
+// Enhanced verification combining attestation and policy validation
+func (av *AutoGovVerifier) VerifyAndGenerateVSA(imageRef string, policyPath string) (*VSA, error) {
+    // 1. Collect input attestations
+    attestations, err := av.collectAttestations(imageRef)
+    if err != nil {
+        return nil, err
+    }
+    
+    // 2. Perform attestation verification
+    attestationResults, err := av.verifyAttestations(attestations)
+    if err != nil {
+        return nil, err
+    }
+    
+    // 3. NEW: Perform OPA/Rego policy evaluation
+    policyResults, err := av.evaluateOPAPolicy(imageRef, attestations, policyPath)
+    if err != nil {
+        return nil, err
+    }
+    
+    // 4. Combine results and generate comprehensive VSA
+    combinedResults := combineVerificationResults(attestationResults, policyResults)
+    
+    vsa := &VSA{
+        Predicate: VSAPredicate{
+            Verifier: VSAVerifier{
+                ID: "https://github.com/liatrio/autogov-verify",
+                Version: map[string]string{
+                    "autogov-verify": av.version,
+                    "opa":            av.opaVersion,
+                },
+            },
+            Policy: av.createPolicyDescriptor(policyPath),
+            VerificationResult: determineResult(combinedResults),
+            VerifiedLevels: av.determineVerifiedLevels(combinedResults),
+        },
+        Metadata: map[string]interface{}{
+            "autogov.attestation.results": attestationResults,
+            "autogov.policy.results":      policyResults,
+            "autogov.policy.path":         policyPath,
+        },
+    }
+    
+    return vsa, nil
+}
+```
+
+#### Benefits of Unified Approach
+
+1. **Single Verification Job**: Replaces separate attestation and policy validation jobs
+2. **Comprehensive VSA**: Includes both attestation and policy validation results
+3. **Complete Audit Trail**: All verification details in one attestation
+4. **Reduced CI/CD Complexity**: Fewer jobs to manage and coordinate
+5. **Better Performance**: Shared context and reduced overhead
+6. **Enhanced Security**: Atomic verification operation with complete results
+
 ## Implementation Phases
 
 ### Phase 1: VSA v1.1 Schema Update (Week 1-2)
@@ -670,16 +733,77 @@ func TestOrasGoIntegration(t *testing.T) {
 - **Registry Dependencies**: Support multiple storage backends
 - **Backward Compatibility**: Maintain v1.0 support during transition period
 
-## Timeline Summary
+## Implementation Progress
 
-| Phase | Duration | Key Deliverables |
-|-------|----------|------------------|
-| Phase 1 | Week 1-2 | VSA v1.1 schema update, enhanced generation/validation |
-| Phase 2 | Week 3-4 | ORAS-Go and SLSA-Verifier integration |
-| Phase 3 | Week 5-6 | CLI enhancements, workflow integration |
-| Phase 4 | Week 7-8 | Advanced features, comprehensive testing |
+### ✅ COMPLETED (Phase 1 - Day 1)
 
-**Total Duration**: 8 weeks
+**VSA v1.1 Schema Update:**
+
+- ✅ Updated VSA data structures to SLSA v1.1 specification
+- ✅ Added ResourceDescriptor for policy and input attestations
+- ✅ Updated VSAVerifier to support multiple tool versions (map[string]string)
+- ✅ Added new v1.1 fields: InputAttestations, DependencyLevels, SlsaVersion
+- ✅ Made TimeVerified optional (*time.Time)
+- ✅ Simplified VerificationResult to string
+- ✅ Created VSAOptions struct for enhanced generation
+- ✅ Added GenerateVSAWithOptions function with v1.1 features
+- ✅ Added dependency level analysis function
+- ✅ Updated ValidateVSA with enhanced validation
+- ✅ Maintained backward compatibility with deprecated types
+- ✅ All tests passing
+
+### 🔄 NEXT STEPS (Phase 1 - Day 2)
+
+**Complete SLSA Level Parsing Utilities:**
+
+```go
+// Add these functions to pkg/vsa/vsa.go
+func ExtractSLSALevels(trackLevels []string) (map[string]int, error)
+func IsSLSATrackLevel(level string) bool
+func ValidateSLSALevel(level string) error
+func MatchVerifiedLevels(vsa *VSA, expectedLevels []string) error
+```
+
+**Enhanced Unit Tests:**
+
+```go
+// Add comprehensive tests for v1.1 features
+func TestGenerateVSAWithOptions(t *testing.T)
+func TestDependencyLevelAnalysis(t *testing.T)
+func TestSLSALevelParsing(t *testing.T)
+func TestResourceDescriptorValidation(t *testing.T)
+```
+
+### 📋 REMAINING PHASES
+
+| Phase | Status | Key Deliverables |
+|-------|--------|------------------|
+| Phase 1 | 🔄 80% Complete | VSA v1.1 schema update, enhanced generation/validation |
+| Phase 2 | ⏳ Pending | ORAS-Go integration, DSSE envelope verification patterns |
+| Phase 3 | ⏳ Pending | CLI enhancements, workflow integration |
+| Phase 4 | ⏳ Pending | Advanced features, comprehensive testing |
+
+**Estimated Remaining Duration**: 3-4 weeks
 **Key Milestone**: Full SLSA v1.1 VSA compliance with tool integration
+
+## Current Implementation Status
+
+**✅ Working Features:**
+
+- SLSA v1.1 compliant VSA data structures
+- Enhanced VSA generation with options
+- Dependency level analysis
+- Backward compatible validation
+- All existing tests passing
+
+**🔄 In Progress:**
+
+- SLSA level parsing utilities (imports added, functions needed)
+
+**⏳ Next Priority:**
+
+- Complete SLSA level parsing functions
+- Add comprehensive unit tests for v1.1 features
+- Begin ORAS-Go integration for VSA storage
 
 This implementation plan provides a comprehensive roadmap for upgrading AutoGov-Verify's VSA support to SLSA v1.1 while integrating with the recommended tooling ecosystem.

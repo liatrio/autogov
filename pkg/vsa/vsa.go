@@ -57,8 +57,25 @@ type VSAPolicy struct {
 	Digest string `json:"digest,omitempty"`
 }
 
-// GenerateVSA creates a VSA for successful AutoGov validation (SLSA v1.1 compliant)
-func GenerateVSA(imageRef string, policyURI string, verificationResults map[string]bool) (*VSA, error) {
+// VSAOptions provides configuration for enhanced VSA generation (SLSA v1.1)
+type VSAOptions struct {
+	InputAttestations   []ResourceDescriptor `json:"inputAttestations,omitempty"`
+	AutoGovVersion      string               `json:"autogovVersion,omitempty"`
+	PolicyDigest        map[string]string    `json:"policyDigest,omitempty"`
+	Dependencies        []Dependency         `json:"dependencies,omitempty"`
+	AdditionalVerifiers map[string]string    `json:"additionalVerifiers,omitempty"`
+}
+
+// Dependency represents a software dependency for SLSA level analysis
+type Dependency struct {
+	Name          string            `json:"name"`
+	Digest        map[string]string `json:"digest"`
+	URI           string            `json:"uri,omitempty"`
+	VerifiedLevel string            `json:"verifiedLevel,omitempty"`
+}
+
+// GenerateVSAWithOptions creates a VSA with enhanced v1.1 features
+func GenerateVSAWithOptions(imageRef string, policyURI string, verificationResults map[string]bool, opts VSAOptions) (*VSA, error) {
 	// Parse image reference to extract digest
 	digest, err := extractDigestFromImageRef(imageRef)
 	if err != nil {
@@ -77,8 +94,25 @@ func GenerateVSA(imageRef string, policyURI string, verificationResults map[stri
 	// Create timestamp pointer for v1.1 compliance
 	now := time.Now().UTC()
 
+	// Determine version to use
+	version := "v1.0.0"
+	if opts.AutoGovVersion != "" {
+		version = opts.AutoGovVersion
+	}
+
+	// Build verifier versions map
+	verifierVersions := map[string]string{
+		"autogov-verify": version,
+	}
+	for tool, ver := range opts.AdditionalVerifiers {
+		verifierVersions[tool] = ver
+	}
+
+	// Analyze dependencies for SLSA levels
+	dependencyLevels := analyzeDependencyLevels(opts.Dependencies)
+
 	vsa := &VSA{
-		Type:          "https://in-toto.io/Statement/v1", // Updated to v1
+		Type:          "https://in-toto.io/Statement/v1",
 		PredicateType: "https://slsa.dev/verification_summary/v1",
 		Subject: []VSASubject{
 			{
@@ -90,23 +124,24 @@ func GenerateVSA(imageRef string, policyURI string, verificationResults map[stri
 		},
 		Predicate: VSAPredicate{
 			Verifier: VSAVerifier{
-				ID: "https://github.com/liatrio/autogov-verify",
-				Version: map[string]string{
-					"autogov-verify": "v1.0.0", // Updated to map format
-				},
+				ID:      "https://github.com/liatrio/autogov-verify",
+				Version: verifierVersions,
 			},
-			TimeVerified: &now, // Updated to pointer
+			TimeVerified: &now,
 			ResourceURI:  imageRef,
-			Policy: ResourceDescriptor{ // Updated to ResourceDescriptor
-				URI: policyURI,
+			Policy: ResourceDescriptor{
+				URI:    policyURI,
+				Digest: opts.PolicyDigest,
 			},
-			VerificationResult: result, // Updated to string
+			InputAttestations:  opts.InputAttestations,
+			VerificationResult: result,
 			VerifiedLevels: []string{
 				"SLSA_BUILD_LEVEL_3",
 				"AUTOGOV_ATTESTATION_REQUIRED",
 				"AUTOGOV_SECURITY_CONTEXT",
 			},
-			SlsaVersion: "1.1", // NEW: SLSA version
+			DependencyLevels: dependencyLevels,
+			SlsaVersion:      "1.1",
 		},
 		Metadata: map[string]interface{}{
 			"autogov.verification.details": verificationResults,
@@ -115,6 +150,25 @@ func GenerateVSA(imageRef string, policyURI string, verificationResults map[stri
 	}
 
 	return vsa, nil
+}
+
+// GenerateVSA creates a VSA for successful AutoGov validation (SLSA v1.1 compliant)
+// This is a convenience function that calls GenerateVSAWithOptions with default options
+func GenerateVSA(imageRef string, policyURI string, verificationResults map[string]bool) (*VSA, error) {
+	return GenerateVSAWithOptions(imageRef, policyURI, verificationResults, VSAOptions{})
+}
+
+// analyzeDependencyLevels analyzes dependencies and counts them by SLSA level
+func analyzeDependencyLevels(dependencies []Dependency) map[string]int {
+	levels := make(map[string]int)
+
+	for _, dep := range dependencies {
+		if dep.VerifiedLevel != "" {
+			levels[dep.VerifiedLevel]++
+		}
+	}
+
+	return levels
 }
 
 // ValidateVSA validates an existing VSA (SLSA v1.1 compliant)

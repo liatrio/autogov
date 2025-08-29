@@ -30,6 +30,7 @@
 #### SLSA v1.1 Implementation Plan
 
 ##### Phase 1: Schema Update (Week 1-2)
+
 ```go
 // Updated VSA v1.1 compliant structure
 type VSAPredicate struct {
@@ -56,6 +57,7 @@ type ResourceDescriptor struct {
 ```
 
 ##### Phase 2: Tool Integration (Week 3-4)
+
 ```go
 // ORAS-Go integration for VSA storage
 func (s *VSAStorage) StoreVSAToRegistry(ctx context.Context, vsa *VSA, imageRef string) error {
@@ -173,6 +175,7 @@ func (v *VSAValidator) extractSLSALevels(trackLevels []string) (map[string]int, 
 ```
 
 ##### Phase 3: CLI Enhancement (Week 5-6)
+
 ```bash
 # New CLI commands for VSA operations
 autogov-verify generate-vsa --image-ref <ref> --policy <policy-uri> --output <path>
@@ -184,6 +187,7 @@ autogov-verify --artifact-digest <digest> --generate-vsa --vsa-output ./vsa.json
 ```
 
 ##### Phase 4: Advanced Features (Week 7-8)
+
 ```go
 // Multi-party VSA signing
 func (v *VSAGenerator) GenerateMultiPartyVSA(verifiers []Verifier, results []VerificationResult) (*VSA, error) {
