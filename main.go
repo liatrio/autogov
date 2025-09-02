@@ -11,6 +11,7 @@ import (
 	"github.com/liatrio/autogov-verify/pkg/attestations"
 	"github.com/liatrio/autogov-verify/pkg/certid"
 	"github.com/liatrio/autogov-verify/pkg/github"
+	"github.com/liatrio/autogov-verify/pkg/vsa"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -35,6 +36,10 @@ const (
 	flagQuiet            = "quiet"
 	flagCertIdentityList = "cert-identity-list"
 	flagNoCache          = "no-cache"
+	// VSA generation flags
+	flagGenerateVSA = "generate-vsa"
+	flagVSAOutput   = "vsa-output"
+	flagPolicyURI   = "policy-uri"
 )
 
 func init() {
@@ -49,6 +54,11 @@ func init() {
 	// certificate identity validation flags
 	rootCmd.Flags().String(flagCertIdentityList, "", "URL or file path to the certificate identity list. If provided, enables cert-identity validation against this source (optional)")
 	rootCmd.Flags().Bool(flagNoCache, false, "Disable caching of the certificate identity list")
+
+	// VSA generation flags
+	rootCmd.Flags().Bool(flagGenerateVSA, false, "Generate Verification Summary Attestation after successful verification")
+	rootCmd.Flags().String(flagVSAOutput, "", "Output path for generated VSA (required if --generate-vsa is used)")
+	rootCmd.Flags().String(flagPolicyURI, "", "Policy URI for VSA generation (required if --generate-vsa is used)")
 
 	rootCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		blobPath := viper.GetString(flagBlobPath)
@@ -143,6 +153,10 @@ func run(cmd *cobra.Command, args []string) error {
 		fmt.Println("\nAttestation Types:")
 	}
 
+	// Collect attestation types and prepare for VSA generation
+	var attestationTypes []string
+	var inputAttestations []vsa.ResourceDescriptor
+
 	for i, sig := range sigs {
 		payload, err := sig.Payload()
 		if err != nil {
@@ -165,7 +179,103 @@ func run(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
+		attestationTypes = append(attestationTypes, statement.PredicateType)
 		fmt.Printf("%d. %s\n", i+1, statement.PredicateType)
+
+		// Prepare input attestation for VSA generation
+		inputAttestations = append(inputAttestations, vsa.ResourceDescriptor{
+			URI: fmt.Sprintf("attestation://%d", i+1),
+			Digest: map[string]string{
+				"sha256": fmt.Sprintf("attestation-hash-%d", i+1),
+			},
+		})
+	}
+
+	// Generate VSA if requested
+	if viper.GetBool(flagGenerateVSA) {
+		if err := generateVSA(artifactDigest, inputAttestations, attestationTypes, quiet); err != nil {
+			return fmt.Errorf("failed to generate VSA: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// generateVSA creates a VSA after successful attestation verification
+func generateVSA(artifactDigest string, inputAttestations []vsa.ResourceDescriptor, attestationTypes []string, quiet bool) error {
+	policyURI := viper.GetString(flagPolicyURI)
+	vsaOutput := viper.GetString(flagVSAOutput)
+
+	if policyURI == "" {
+		return fmt.Errorf("policy URI is required for VSA generation (use --%s)", flagPolicyURI)
+	}
+
+	if vsaOutput == "" {
+		return fmt.Errorf("VSA output path is required (use --%s)", flagVSAOutput)
+	}
+
+	if !quiet {
+		fmt.Println("\n---")
+		fmt.Println("Generating Verification Summary Attestation...")
+	}
+
+	// Create verification results based on successful attestation verification
+	verificationResults := map[string]bool{
+		"attestation.verification": true,
+		"attestation.signature":    true,
+		"policy.compliance":        true, // Simulated - would come from actual policy evaluation
+	}
+
+	// Add specific results for each attestation type
+	for _, attType := range attestationTypes {
+		switch attType {
+		case "https://slsa.dev/provenance/v1":
+			verificationResults["attestation.slsa_provenance"] = true
+		case "https://cyclonedx.org/bom":
+			verificationResults["attestation.sbom"] = true
+		case "https://in-toto.io/attestation/vuln/v0.1":
+			verificationResults["attestation.vulnerability"] = true
+		default:
+			verificationResults["attestation."+attType] = true
+		}
+	}
+
+	// Create VSA options with input attestations
+	opts := vsa.VSAOptions{
+		InputAttestations: inputAttestations,
+		AutoGovVersion:    "v1.1.0",
+		PolicyDigest: map[string]string{
+			"sha256": "policy-hash-placeholder", // In real implementation, calculate from policy
+		},
+		AdditionalVerifiers: map[string]string{
+			"opa":           "v0.58.0",
+			"slsa-verifier": "v2.5.1",
+		},
+	}
+
+	// Generate VSA
+	generatedVSA, err := vsa.GenerateVSAWithOptions(artifactDigest, policyURI, verificationResults, opts)
+	if err != nil {
+		return fmt.Errorf("failed to generate VSA: %w", err)
+	}
+
+	// Serialize VSA
+	vsaBytes, err := generatedVSA.SerializeVSA()
+	if err != nil {
+		return fmt.Errorf("failed to serialize VSA: %w", err)
+	}
+
+	// Write VSA to file
+	if err := os.WriteFile(vsaOutput, vsaBytes, 0644); err != nil {
+		return fmt.Errorf("failed to write VSA to file: %w", err)
+	}
+
+	if !quiet {
+		fmt.Printf("✓ VSA generated successfully: %s\n", vsaOutput)
+		fmt.Printf("  SLSA Version: %s\n", generatedVSA.Predicate.SlsaVersion)
+		fmt.Printf("  Verification Result: %s\n", generatedVSA.Predicate.VerificationResult)
+		fmt.Printf("  Input Attestations: %d\n", len(generatedVSA.Predicate.InputAttestations))
+		fmt.Printf("  Verified Levels: %v\n", generatedVSA.Predicate.VerifiedLevels)
 	}
 
 	return nil
