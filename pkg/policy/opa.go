@@ -1,12 +1,20 @@
 package policy
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/open-policy-agent/opa/rego"
 	"github.com/open-policy-agent/opa/sdk"
 	"github.com/sigstore/cosign/v2/pkg/oci"
 )
@@ -15,6 +23,7 @@ import (
 type OPAEvaluator struct {
 	opa        *sdk.OPA
 	policyPath string
+	prepared   *rego.PreparedEvalQuery
 }
 
 // PolicyResult represents the result of OPA policy evaluation
@@ -31,40 +40,183 @@ type PolicyViolation struct {
 	Message string `json:"message"`
 }
 
-// NewOPAEvaluator creates a new OPA evaluator with policy bundle
+// NewOPAEvaluator creates a new OPA evaluator instance
 func NewOPAEvaluator(ctx context.Context, policyBundlePath string) (*OPAEvaluator, error) {
-	// For now, create a simple OPA instance and load policies manually
-	// This approach allows us to load policies from the local directory structure
-	opa, err := sdk.New(ctx, sdk.Options{
-		ID: "autogov-verify-opa",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create OPA instance: %w", err)
+	// Download and extract bundle if it's a URL
+	var bundlePath string
+	if strings.HasPrefix(policyBundlePath, "http") {
+		var err error
+		bundlePath, err = downloadBundle(ctx, policyBundlePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to download bundle: %w", err)
+		}
+		// Don't defer cleanup here - we need the files for OPA
+	} else {
+		bundlePath = policyBundlePath
 	}
 
-	// Load policies from the local policy directory
-	if err := loadPoliciesFromDirectory(ctx, opa, policyBundlePath); err != nil {
-		opa.Stop(ctx)
+	// Create OPA instance using Rego API to load policies directly
+	policies, err := loadPoliciesFromPath(bundlePath)
+	if err != nil {
 		return nil, fmt.Errorf("failed to load policies: %w", err)
 	}
 
+	// Build Rego modules for OPA
+	var modules []func(*rego.Rego)
+	for path, content := range policies {
+		modules = append(modules, rego.Module(path, content))
+	}
+
+	// Create Rego instance with all policies and queries
+	r := rego.New(
+		append(modules, 
+			rego.Query("data.governance.allow"),
+			rego.Query("data.governance.violations"),
+		)...,
+	)
+	
+	// Prepare the query for compilation
+	prepared, err := r.PrepareForEval(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare Rego for evaluation: %w", err)
+	}
+
+	fmt.Printf("OPA evaluator created with %d policies loaded\n", len(policies))
+	
 	return &OPAEvaluator{
-		opa:        opa,
+		opa:        nil, // We'll use the prepared Rego instance instead
 		policyPath: policyBundlePath,
+		prepared:   &prepared,
 	}, nil
 }
 
-// loadPoliciesFromDirectory loads Rego policies from a directory structure
-func loadPoliciesFromDirectory(ctx context.Context, opa *sdk.OPA, policyPath string) error {
-	// TODO: Implement policy loading from directory
-	// For now, we'll use a simplified approach that works with the basic OPA instance
-	// In a complete implementation, this would:
-	// 1. Walk the policy directory structure
-	// 2. Read .rego files
-	// 3. Load them into the OPA instance
-	// 4. Validate policy compilation
-	return nil
+// downloadBundle downloads a bundle from URL and extracts it to a temp directory
+func downloadBundle(ctx context.Context, url string) (string, error) {
+	// Use default bundle URL if none provided
+	if url == "" {
+		url = "https://github.com/liatrio/liatrio-rego-policy-library/releases/download/v0.7.1/bundle.tar.gz"
+	}
+
+	// Create HTTP request with authentication if GitHub token is available
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Add GitHub token if available (check multiple env vars)
+	var token string
+	for _, key := range []string{"GH_TOKEN", "GITHUB_TOKEN", "GITHUB_AUTH_TOKEN"} {
+		if token = os.Getenv(key); token != "" {
+			break
+		}
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "token "+token)
+	}
+
+	// Download bundle
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to download bundle: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download bundle: HTTP %d", resp.StatusCode)
+	}
+
+	// Create temp directory
+	tempDir, err := os.MkdirTemp("", "opa-bundle-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
+	}
+
+	// Extract tar.gz
+	gzr, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return "", fmt.Errorf("failed to create gzip reader: %w", err)
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			os.RemoveAll(tempDir)
+			return "", fmt.Errorf("failed to read tar: %w", err)
+		}
+
+		path := filepath.Join(tempDir, header.Name)
+		
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(path, 0755); err != nil {
+				os.RemoveAll(tempDir)
+				return "", fmt.Errorf("failed to create directory: %w", err)
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				os.RemoveAll(tempDir)
+				return "", fmt.Errorf("failed to create parent directory: %w", err)
+			}
+			
+			file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, os.FileMode(header.Mode))
+			if err != nil {
+				os.RemoveAll(tempDir)
+				return "", fmt.Errorf("failed to create file: %w", err)
+			}
+			
+			if _, err := io.Copy(file, tr); err != nil {
+				file.Close()
+				os.RemoveAll(tempDir)
+				return "", fmt.Errorf("failed to write file: %w", err)
+			}
+			file.Close()
+		}
+	}
+
+	return tempDir, nil
 }
+
+// loadPoliciesFromPath loads all .rego files from a directory
+func loadPoliciesFromPath(path string) (map[string]string, error) {
+	policies := make(map[string]string)
+	
+	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		
+		if !info.IsDir() && strings.HasSuffix(filePath, ".rego") {
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return fmt.Errorf("failed to read policy file %s: %w", filePath, err)
+			}
+			
+			// Use relative path as policy ID
+			relPath, err := filepath.Rel(path, filePath)
+			if err != nil {
+				relPath = filepath.Base(filePath)
+			}
+			
+			policies[relPath] = string(content)
+		}
+		
+		return nil
+	})
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk policy directory: %w", err)
+	}
+	
+	return policies, nil
+}
+
 
 // Stop shuts down the OPA evaluator
 func (e *OPAEvaluator) Stop(ctx context.Context) {
@@ -75,51 +227,70 @@ func (e *OPAEvaluator) Stop(ctx context.Context) {
 
 // EvaluatePolicy evaluates OPA policy against attestations
 func (e *OPAEvaluator) EvaluatePolicy(ctx context.Context, signatures []oci.Signature) (*PolicyResult, error) {
-	// Convert signatures to the format expected by OPA policies
+	// Convert OCI signatures to Sigstore bundle format for OPA evaluation
 	bundleData, err := e.createSigstoreBundle(signatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sigstore bundle: %w", err)
 	}
 
-	// Evaluate governance.allow rule
-	allowResult, err := e.opa.Decision(ctx, sdk.DecisionOptions{
-		Path:  "data.governance.allow",
-		Input: bundleData,
-	})
+	// Use prepared Rego query to evaluate governance.allow
+	rs, err := e.prepared.Eval(ctx, rego.EvalInput(bundleData))
 	if err != nil {
-		return nil, fmt.Errorf("failed to evaluate governance.allow: %w", err)
+		return nil, fmt.Errorf("failed to evaluate policy: %w", err)
 	}
 
-	// Determine result status
-	result := "FAILED"
-	if allow, ok := allowResult.Result.(bool); ok && allow {
-		result = "PASSED"
+	result := &PolicyResult{
+		Result:    "FAILED",
+		Details:   make(map[string]interface{}),
+		Timestamp: time.Now(),
 	}
 
-	// If failed, get violations
-	var violations []PolicyViolation
-	if result == "FAILED" {
-		violationsResult, err := e.opa.Decision(ctx, sdk.DecisionOptions{
-			Path:  "data.governance.violations",
-			Input: bundleData,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate governance.violations: %w", err)
+	// Parse results to find governance.allow and governance.violations
+	var allow bool
+	var violations []interface{}
+
+	for _, r := range rs {
+		for _, expr := range r.Expressions {
+			if path, ok := expr.Value.(map[string]interface{}); ok {
+				if governance, ok := path["governance"].(map[string]interface{}); ok {
+					if allowVal, exists := governance["allow"]; exists {
+						if allowBool, ok := allowVal.(bool); ok {
+							allow = allowBool
+						}
+					}
+					if violationsVal, exists := governance["violations"]; exists {
+						if violationsArray, ok := violationsVal.([]interface{}); ok {
+							violations = violationsArray
+						}
+					}
+				}
+			}
 		}
-
-		violations = e.parseViolations(violationsResult.Result)
 	}
 
-	return &PolicyResult{
-		Result:     result,
-		Violations: violations,
-		Details: map[string]interface{}{
-			"policy_path":        e.policyPath,
-			"evaluation_time":    time.Now().UTC(),
-			"input_attestations": len(signatures),
-		},
-		Timestamp: time.Now().UTC(),
-	}, nil
+	if allow {
+		result.Result = "PASSED"
+	}
+
+	// Parse violations if policy failed
+	if !allow && len(violations) > 0 {
+		for _, v := range violations {
+			if violationMap, ok := v.(map[string]interface{}); ok {
+				violation := PolicyViolation{
+					Policy:  fmt.Sprintf("%v", violationMap["policy"]),
+					Message: fmt.Sprintf("%v", violationMap["message"]),
+				}
+				result.Violations = append(result.Violations, violation)
+			}
+		}
+	}
+
+	// Add evaluation details
+	result.Details["allow"] = allow
+	result.Details["input_bundle"] = bundleData
+	result.Details["raw_results"] = rs
+
+	return result, nil
 }
 
 // createSigstoreBundle converts OCI signatures to the Sigstore bundle format expected by OPA policies

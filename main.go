@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/liatrio/autogov-verify/pkg/attestations"
 	"github.com/liatrio/autogov-verify/pkg/certid"
@@ -38,6 +39,8 @@ const (
 	flagQuiet            = "quiet"
 	flagCertIdentityList = "cert-identity-list"
 	flagNoCache          = "no-cache"
+	// OPA policy flags
+	flagPolicyBundlePath = "policy-bundle-path"
 	// VSA generation flags
 	flagGenerateVSA = "generate-vsa"
 	flagVSAOutput   = "vsa-output"
@@ -56,6 +59,9 @@ func init() {
 	// certificate identity validation flags
 	rootCmd.Flags().String(flagCertIdentityList, "", "URL or file path to the certificate identity list. If provided, enables cert-identity validation against this source (optional)")
 	rootCmd.Flags().Bool(flagNoCache, false, "Disable caching of the certificate identity list")
+
+	// OPA policy flags
+	rootCmd.Flags().String(flagPolicyBundlePath, "", "Path to OPA policy bundle directory or .tar.gz file for policy evaluation")
 
 	// VSA generation flags
 	rootCmd.Flags().Bool(flagGenerateVSA, false, "Generate Verification Summary Attestation after successful verification")
@@ -89,6 +95,7 @@ func init() {
 		flagSourceRef:        "SOURCE_REF",
 		flagCertIdentityList: "CERT_IDENTITY_LIST",
 		flagNoCache:          "NO_CACHE",
+		flagPolicyBundlePath: "POLICY_BUNDLE_PATH",
 	}
 
 	for key, env := range envBinds {
@@ -249,6 +256,9 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 	// For now, use local policy path - in production this would download from the policy URI
 	localPolicyPath := "/Users/ianhundere/Projects/autogov/liatrio-rego-policy-library"
 
+	// Declare policyResult outside conditional blocks for proper scoping
+	var policyResult *policy.PolicyResult
+
 	// Create OPA evaluator
 	evaluator, err := policy.NewOPAEvaluator(ctx, localPolicyPath)
 	if err != nil {
@@ -259,7 +269,7 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 		defer evaluator.Stop(ctx)
 
 		// Evaluate policy against attestations
-		policyResult, err := evaluator.EvaluatePolicy(ctx, sigs)
+		policyResult, err = evaluator.EvaluatePolicy(ctx, sigs)
 		if err != nil {
 			log.Printf("Warning: failed to evaluate OPA policy: %v", err)
 			// Fall back to simulated policy compliance
@@ -298,22 +308,38 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 		return fmt.Errorf("failed to generate VSA: %w", err)
 	}
 
-	// Enhance VSA metadata with policy evaluation details if policy evaluation was performed
-	if evaluator != nil {
+	// Enhanced VSA metadata with comprehensive policy evaluation details (if policy evaluation was performed)
+	if policyResult != nil {
 		if generatedVSA.Metadata == nil {
 			generatedVSA.Metadata = make(map[string]interface{})
 		}
 
-		// Add policy evaluation metadata
-		if policyResult != nil {
-			generatedVSA.Metadata["autogov.policy.evaluation"] = map[string]interface{}{
-				"result":           policyResult.Result,
-				"violations":       policyResult.Violations,
-				"evaluation_time":  policyResult.Timestamp,
-				"policy_bundle":    localPolicyPath,
-				"opa_version":      "v1.8.0",
-				"governance_rules": []string{"governance.allow", "governance.violations"},
+		// Add detailed policy evaluation metadata
+		generatedVSA.Metadata["autogov.policy.evaluation"] = map[string]interface{}{
+			"result":           policyResult.Result,
+			"violations":       policyResult.Violations,
+			"evaluation_time":  policyResult.Timestamp,
+			"policy_bundle":    localPolicyPath,
+			"opa_version":      "v1.8.0",
+			"governance_rules": []string{"governance.allow", "governance.violations"},
+			"details":          policyResult.Details,
+		}
+
+		// Add violation summary for quick reference
+		if len(policyResult.Violations) > 0 {
+			violationSummary := make(map[string][]string)
+			for _, violation := range policyResult.Violations {
+				violationSummary[violation.Policy] = append(violationSummary[violation.Policy], violation.Message)
 			}
+			generatedVSA.Metadata["autogov.policy.violation_summary"] = violationSummary
+		}
+
+		// Add policy compliance metrics
+		generatedVSA.Metadata["autogov.policy.metrics"] = map[string]interface{}{
+			"total_violations":    len(policyResult.Violations),
+			"compliance_status":   policyResult.Result,
+			"input_attestations":  len(sigs),
+			"evaluation_duration": time.Since(policyResult.Timestamp).Milliseconds(),
 		}
 	}
 
