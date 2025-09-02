@@ -444,31 +444,33 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		return nil, fmt.Errorf("failed to create signature: %w", err)
 	}
 
+	if !opts.Quiet {
+		fmt.Printf("Verifying attestation %d (%s)...\n", index+1, statement.PredicateType)
+	}
+
 	// verify source repository ref if expected ref is set
 	if opts.SourceRef != "" {
 		// check if build provenance attestation
 		if statement.PredicateType != "https://slsa.dev/provenance/v1" {
-			// skip non-provenance attestations
-			return sig, nil
-		}
+			// skip source ref verification for non-provenance attestations, but continue with signature verification
+			if !opts.Quiet {
+				fmt.Printf("✓ Attestation %d verified successfully (non-provenance, skipping source ref check)\n", index+1)
+			}
+		} else {
+			sourceRef := statement.Predicate.BuildDefinition.ExternalParameters.Workflow.Ref
+			if sourceRef == "" {
+				return nil, fmt.Errorf("no source repository ref found in verification result")
+			}
 
-		sourceRef := statement.Predicate.BuildDefinition.ExternalParameters.Workflow.Ref
-		if sourceRef == "" {
-			return nil, fmt.Errorf("no source repository ref found in verification result")
-		}
+			// verify source repository ref matches expected ref
+			if sourceRef != opts.SourceRef {
+				return nil, fmt.Errorf("source repository ref %s does not match SourceRef %s", sourceRef, opts.SourceRef)
+			}
 
-		// verify source repository ref matches expected ref
-		if sourceRef != opts.SourceRef {
-			return nil, fmt.Errorf("source repository ref %s does not match SourceRef %s", sourceRef, opts.SourceRef)
+			if !opts.Quiet {
+				fmt.Printf("✓ Source repository ref verified: %s\n", sourceRef)
+			}
 		}
-
-		if !opts.Quiet {
-			fmt.Printf("✓ Source repository ref verified: %s\n", sourceRef)
-		}
-	}
-
-	if !opts.Quiet {
-		fmt.Printf("Verifying attestation %d (%s)...\n", index+1, statement.PredicateType)
 	}
 
 	// load trusted root

@@ -45,19 +45,6 @@ type VSAVerifier struct {
 	Version map[string]string `json:"version,omitempty"` // Updated to map for multiple tool versions
 }
 
-// VSAVerificationResult is deprecated in favor of string field
-// Keeping for backward compatibility during transition
-type VSAVerificationResult struct {
-	Result string `json:"result"` // "PASSED", "FAILED", "WARNING"
-}
-
-// VSAPolicy is deprecated in favor of ResourceDescriptor
-// Keeping for backward compatibility during transition
-type VSAPolicy struct {
-	URI    string `json:"uri,omitempty"`
-	Digest string `json:"digest,omitempty"`
-}
-
 // VSAOptions provides configuration for enhanced VSA generation (SLSA v1.1)
 type VSAOptions struct {
 	InputAttestations   []ResourceDescriptor `json:"inputAttestations,omitempty"`

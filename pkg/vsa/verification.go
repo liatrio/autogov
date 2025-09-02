@@ -1,7 +1,6 @@
 package vsa
 
 import (
-	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -10,10 +9,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/secure-systems-lab/go-securesystemslib/dsse"
-	sigstoreSignature "github.com/sigstore/sigstore/pkg/signature"
-	sigstoreDSSE "github.com/sigstore/sigstore/pkg/signature/dsse"
 )
 
 // VSAVerificationOptions contains options for VSA verification
@@ -29,83 +24,6 @@ type VSAValidationOptions struct {
 	ExpectedVerifierID     string
 	ExpectedResourceURI    string
 	ExpectedVerifiedLevels []string
-}
-
-// VerifyVSA verifies a VSA following SLSA v1.1 verification steps
-// Adopts patterns from slsa-verifier/verifiers/internal/vsa/verifier.go
-func VerifyVSA(ctx context.Context, attestation []byte, validationOpts VSAValidationOptions, verificationOpts VSAVerificationOptions) ([]byte, error) {
-	// 1. Parse DSSE envelope
-	envelope, err := envelopeFromBytes(attestation)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse DSSE envelope: %w", err)
-	}
-
-	// 2. Verify envelope signature and extract VSA
-	vsa, err := extractSignedVSA(ctx, envelope, verificationOpts)
-	if err != nil {
-		return nil, err
-	}
-
-	// 3. Match expected values (following SLSA v1.1 verification steps)
-	if err := matchExpectedValues(vsa, validationOpts); err != nil {
-		return nil, err
-	}
-
-	// 4. Return decoded payload
-	vsaBytes, err := envelope.DecodeB64Payload()
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode DSSE payload: %w", err)
-	}
-
-	return vsaBytes, nil
-}
-
-// extractSignedVSA verifies the envelope signature and extracts the VSA
-// Adapted from slsa-verifier/verifiers/internal/vsa/verifier.go
-func extractSignedVSA(ctx context.Context, envelope *dsse.Envelope, verificationOpts VSAVerificationOptions) (*VSA, error) {
-	// Verify envelope signature
-	if err := verifyEnvelopeSignature(ctx, envelope, verificationOpts); err != nil {
-		return nil, err
-	}
-
-	// Extract statement from envelope
-	statement, err := statementFromEnvelope(envelope)
-	if err != nil {
-		return nil, err
-	}
-
-	// Parse VSA from statement
-	vsa, err := vsaFromStatement(statement)
-	if err != nil {
-		return nil, err
-	}
-
-	return vsa, nil
-}
-
-// verifyEnvelopeSignature verifies the signature of the DSSE envelope
-// Adapted from slsa-verifier/verifiers/internal/vsa/verifier.go
-func verifyEnvelopeSignature(ctx context.Context, envelope *dsse.Envelope, verificationOpts VSAVerificationOptions) error {
-	signatureVerifier, err := sigstoreSignature.LoadVerifier(verificationOpts.PublicKey, verificationOpts.PublicKeyHashAlgo)
-	if err != nil {
-		return fmt.Errorf("loading sigstore DSSE envelope verifier: %w", err)
-	}
-
-	envelopeVerifier, err := dsse.NewEnvelopeVerifier(&sigstoreDSSE.VerifierAdapter{
-		SignatureVerifier: signatureVerifier,
-		Pub:               verificationOpts.PublicKey,
-		PubKeyID:          *verificationOpts.PublicKeyID,
-	})
-	if err != nil {
-		return fmt.Errorf("creating sigstore DSSE envelope verifier: %w", err)
-	}
-
-	_, err = envelopeVerifier.Verify(ctx, envelope)
-	if err != nil {
-		return fmt.Errorf("verifying envelope: %w", err)
-	}
-
-	return nil
 }
 
 // matchExpectedValues checks if the expected values are present in the VSA
@@ -311,28 +229,6 @@ func determineSignatureHashAlgo(pubKey crypto.PublicKey) crypto.Hash {
 	default:
 		return crypto.SHA256
 	}
-}
-
-// Helper functions for DSSE envelope handling
-// These would need to be implemented based on the specific DSSE library used
-
-// envelopeFromBytes parses a DSSE envelope from bytes
-func envelopeFromBytes(data []byte) (*dsse.Envelope, error) {
-	// This is a placeholder - actual implementation would depend on the DSSE library
-	// For now, return an error indicating this needs to be implemented
-	return nil, fmt.Errorf("DSSE envelope parsing not yet implemented - needs integration with secure-systems-lab/go-securesystemslib")
-}
-
-// statementFromEnvelope extracts an in-toto statement from a DSSE envelope
-func statementFromEnvelope(envelope *dsse.Envelope) (map[string]interface{}, error) {
-	// This is a placeholder - actual implementation would depend on the DSSE library
-	return nil, fmt.Errorf("statement extraction not yet implemented - needs integration with in-toto libraries")
-}
-
-// vsaFromStatement creates a VSA from an in-toto statement
-func vsaFromStatement(statement map[string]interface{}) (*VSA, error) {
-	// This is a placeholder - actual implementation would parse the statement
-	return nil, fmt.Errorf("VSA parsing from statement not yet implemented")
 }
 
 // max returns the maximum of two integers

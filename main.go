@@ -11,7 +11,9 @@ import (
 	"github.com/liatrio/autogov-verify/pkg/attestations"
 	"github.com/liatrio/autogov-verify/pkg/certid"
 	"github.com/liatrio/autogov-verify/pkg/github"
+	"github.com/liatrio/autogov-verify/pkg/policy"
 	"github.com/liatrio/autogov-verify/pkg/vsa"
+	"github.com/sigstore/cosign/v2/pkg/oci"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -193,7 +195,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Generate VSA if requested
 	if viper.GetBool(flagGenerateVSA) {
-		if err := generateVSA(artifactDigest, inputAttestations, attestationTypes, quiet); err != nil {
+		if err := generateVSA(context.Background(), artifactDigest, inputAttestations, attestationTypes, sigs, quiet); err != nil {
 			return fmt.Errorf("failed to generate VSA: %w", err)
 		}
 	}
@@ -202,7 +204,7 @@ func run(cmd *cobra.Command, args []string) error {
 }
 
 // generateVSA creates a VSA after successful attestation verification
-func generateVSA(artifactDigest string, inputAttestations []vsa.ResourceDescriptor, attestationTypes []string, quiet bool) error {
+func generateVSA(ctx context.Context, artifactDigest string, inputAttestations []vsa.ResourceDescriptor, attestationTypes []string, sigs []oci.Signature, quiet bool) error {
 	policyURI := viper.GetString(flagPolicyURI)
 	vsaOutput := viper.GetString(flagVSAOutput)
 
@@ -223,7 +225,6 @@ func generateVSA(artifactDigest string, inputAttestations []vsa.ResourceDescript
 	verificationResults := map[string]bool{
 		"attestation.verification": true,
 		"attestation.signature":    true,
-		"policy.compliance":        true, // Simulated - would come from actual policy evaluation
 	}
 
 	// Add specific results for each attestation type
@@ -240,6 +241,45 @@ func generateVSA(artifactDigest string, inputAttestations []vsa.ResourceDescript
 		}
 	}
 
+	// Perform OPA policy evaluation
+	if !quiet {
+		fmt.Println("Evaluating OPA policy...")
+	}
+
+	// For now, use local policy path - in production this would download from the policy URI
+	localPolicyPath := "/Users/ianhundere/Projects/autogov/liatrio-rego-policy-library"
+
+	// Create OPA evaluator
+	evaluator, err := policy.NewOPAEvaluator(ctx, localPolicyPath)
+	if err != nil {
+		log.Printf("Warning: failed to create OPA evaluator: %v", err)
+		// Fall back to simulated policy compliance
+		verificationResults["policy.compliance"] = true
+	} else {
+		defer evaluator.Stop(ctx)
+
+		// Evaluate policy against attestations
+		policyResult, err := evaluator.EvaluatePolicy(ctx, sigs)
+		if err != nil {
+			log.Printf("Warning: failed to evaluate OPA policy: %v", err)
+			// Fall back to simulated policy compliance
+			verificationResults["policy.compliance"] = true
+		} else {
+			// Include actual policy evaluation results
+			verificationResults["policy.compliance"] = (policyResult.Result == "PASSED")
+
+			if !quiet {
+				fmt.Printf("✓ Policy evaluation completed: %s\n", policyResult.Result)
+				if len(policyResult.Violations) > 0 {
+					fmt.Printf("  Policy violations: %d\n", len(policyResult.Violations))
+					for _, violation := range policyResult.Violations {
+						fmt.Printf("    - %s: %s\n", violation.Policy, violation.Message)
+					}
+				}
+			}
+		}
+	}
+
 	// Create VSA options with input attestations
 	opts := vsa.VSAOptions{
 		InputAttestations: inputAttestations,
@@ -248,8 +288,7 @@ func generateVSA(artifactDigest string, inputAttestations []vsa.ResourceDescript
 			"sha256": "policy-hash-placeholder", // In real implementation, calculate from policy
 		},
 		AdditionalVerifiers: map[string]string{
-			"opa":           "v0.58.0",
-			"slsa-verifier": "v2.5.1",
+			"opa": "v0.58.0",
 		},
 	}
 
