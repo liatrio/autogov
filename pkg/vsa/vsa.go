@@ -3,6 +3,7 @@ package vsa
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -210,12 +211,18 @@ func ValidateVSA(vsaBytes []byte) (*VSA, error) {
 
 // extractDigestFromImageRef extracts SHA256 digest from image reference
 func extractDigestFromImageRef(imageRef string) (string, error) {
-	// This is a simplified implementation
-	// In practice, you'd use proper OCI image parsing
-	if len(imageRef) > 7 && imageRef[len(imageRef)-71:len(imageRef)-64] == "@sha256:" {
-		return imageRef[len(imageRef)-64:], nil
+	// Look for @sha256: pattern in the image reference
+	parts := strings.Split(imageRef, "@sha256:")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("no SHA256 digest found in image reference")
 	}
-	return "", fmt.Errorf("no SHA256 digest found in image reference")
+
+	digest := parts[1]
+	if len(digest) != 64 {
+		return "", fmt.Errorf("invalid SHA256 digest length: expected 64 characters, got %d", len(digest))
+	}
+
+	return digest, nil
 }
 
 // SerializeVSA converts VSA to JSON bytes
