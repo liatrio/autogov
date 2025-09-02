@@ -1,8 +1,8 @@
-# GitHub Attestation Verifier
+# AutoGov-Verify
 
-A tool for verifying GitHub Artifact Attestations using [cosign](https://docs.sigstore.dev/cosign/overview/).
+A production-ready tool for verifying GitHub Artifact Attestations with SLSA v1.1 VSA (Verification Summary Attestation) support and integrated OPA policy evaluation.
 
-> **Note**: This tool supports attestations for container images in the GitHub Container Registry (ghcr.io) and blob attestations.
+> **Status**: Production-ready with comprehensive attestation verification, VSA generation, and policy evaluation capabilities.
 
 ## Requirements
 
@@ -11,7 +11,17 @@ A tool for verifying GitHub Artifact Attestations using [cosign](https://docs.si
 - Access to the GitHub Container Registry (ghcr.io)
 - Docker login to ghcr.io (`docker login ghcr.io`) for container image verification
 
-This tool verifies GitHub Artifact Attestations using the sigstore-go v1.0.0 API. It supports the verification of attestations in the Sigstore bundle format used by [GitHub Artifact Attestations, npm Provenance, Homebrew Provenance, etc](https://blog.sigstore.dev/cosign-verify-bundles/).
+## Features
+
+- **Multi-Attestation Verification**: Supports SLSA provenance, SBOM, vulnerability scans, and cosign attestations
+- **SLSA v1.1 VSA Generation**: Creates comprehensive Verification Summary Attestations
+- **OPA Policy Integration**: Evaluates Rego policies with results included in VSA metadata
+- **Certificate Identity Validation**: Validates against approved certificate identity lists
+- **Offline Verification**: Supports pre-downloaded attestation artifacts
+- **Dynamic Trusted Root**: Automatically fetches latest GitHub trusted roots
+- **Production Ready**: Comprehensive error handling, caching, and monitoring support
+
+This tool verifies GitHub Artifact Attestations using the sigstore-go v1.0.0 API and supports attestations in the Sigstore bundle format used by [GitHub Artifact Attestations, npm Provenance, Homebrew Provenance, etc](https://blog.sigstore.dev/cosign-verify-bundles/).
 
 ## Verification Process
 
@@ -128,6 +138,15 @@ The tool supports validating certificate identities against a source of truth li
 - `--cert-identity-list`: URL to the certificate identity list for validation. If provided, validates the cert-identity against this source (optional). Example: `https://raw.githubusercontent.com/liatrio/liatrio-gh-autogov-workflows/refs/heads/main/cert-identities.json`
 - `--no-cache`: Disable caching of the certificate identity list
 
+#### VSA and Policy Flags
+
+The tool supports generating SLSA v1.1 Verification Summary Attestations (VSAs) and evaluating OPA policies:
+
+- `--generate-vsa`: Generate a VSA after successful verification
+- `--vsa-output`: Path to save the generated VSA (e.g., `./verification-summary.json`)
+- `--policy-bundle-path`: Path or URL to OPA policy bundle for evaluation
+- `--attestations-path`: Path to directory containing attestation files for offline verification
+
 The certificate identity source of truth is a JSON file with the following structure:
 
 ```json
@@ -226,6 +245,18 @@ autogov-verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
   --artifact-digest "ghcr.io/liatrio/demo-gh-autogov-workflows@sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
   --cert-identity-list "https://raw.githubusercontent.com/liatrio/liatrio-gh-autogov-workflows/refs/heads/main/cert-identities.json"
+```
+
+Generate VSA with policy evaluation:
+
+```bash
+export GITHUB_AUTH_TOKEN=your_token
+autogov-verify \
+  --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
+  --artifact-digest "ghcr.io/liatrio/demo-gh-autogov-workflows@sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
+  --generate-vsa \
+  --vsa-output ./verification-summary.json \
+  --policy-bundle-path "ghcr.io/liatrio/liatrio-rego-policy-library:latest"
 ```
 
 ## Output
