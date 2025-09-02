@@ -288,7 +288,7 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 			"sha256": "policy-hash-placeholder", // In real implementation, calculate from policy
 		},
 		AdditionalVerifiers: map[string]string{
-			"opa": "v0.58.0",
+			"opa": "v1.8.0",
 		},
 	}
 
@@ -296,6 +296,25 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 	generatedVSA, err := vsa.GenerateVSAWithOptions(artifactDigest, policyURI, verificationResults, opts)
 	if err != nil {
 		return fmt.Errorf("failed to generate VSA: %w", err)
+	}
+
+	// Enhance VSA metadata with policy evaluation details if policy evaluation was performed
+	if evaluator != nil {
+		if generatedVSA.Metadata == nil {
+			generatedVSA.Metadata = make(map[string]interface{})
+		}
+
+		// Add policy evaluation metadata
+		if policyResult != nil {
+			generatedVSA.Metadata["autogov.policy.evaluation"] = map[string]interface{}{
+				"result":           policyResult.Result,
+				"violations":       policyResult.Violations,
+				"evaluation_time":  policyResult.Timestamp,
+				"policy_bundle":    localPolicyPath,
+				"opa_version":      "v1.8.0",
+				"governance_rules": []string{"governance.allow", "governance.violations"},
+			}
+		}
 	}
 
 	// Serialize VSA
@@ -315,6 +334,9 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 		fmt.Printf("  Verification Result: %s\n", generatedVSA.Predicate.VerificationResult)
 		fmt.Printf("  Input Attestations: %d\n", len(generatedVSA.Predicate.InputAttestations))
 		fmt.Printf("  Verified Levels: %v\n", generatedVSA.Predicate.VerifiedLevels)
+		if policyResult != nil {
+			fmt.Printf("  Policy Evaluation: %s\n", policyResult.Result)
+		}
 	}
 
 	return nil
