@@ -4,8 +4,6 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -328,39 +326,13 @@ func (e *OPAEvaluator) createSigstoreBundle(signatures []oci.Signature) (interfa
 			return nil, fmt.Errorf("failed to get signature payload: %w", err)
 		}
 
-		// Decode base64 payload to get the attestation
-		decodedPayload, err := base64.StdEncoding.DecodeString(string(payload))
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode payload: %w", err)
-		}
-
-		// Parse the attestation statement
-		var statement map[string]interface{}
-		if err := json.Unmarshal(decodedPayload, &statement); err != nil {
-			return nil, fmt.Errorf("failed to parse statement: %w", err)
-		}
-
 		// Create bundle entry in the format expected by OPA policies
+		// The policy expects a dsseEnvelope.payload field with base64-encoded data
 		bundle := map[string]interface{}{
-			"mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
-			"content": map[string]interface{}{
-				"messageSignature": map[string]interface{}{
-					"messageSignature": map[string]interface{}{
-						"signature": "", // Would need actual signature data
-					},
-				},
-				"dsseEnvelope": map[string]interface{}{
-					"payload":     string(payload),
-					"payloadType": "application/vnd.in-toto+json",
-					"signatures": []map[string]interface{}{
-						{
-							"sig": "", // Would need actual signature
-						},
-					},
-				},
+			"dsseEnvelope": map[string]interface{}{
+				"payload":     string(payload), // Keep as base64-encoded string
+				"payloadType": "application/vnd.in-toto+json",
 			},
-			// Include the decoded statement for easier policy access
-			"statement": statement,
 		}
 
 		bundles = append(bundles, bundle)

@@ -386,7 +386,7 @@ func TestVSAValidationErrors(t *testing.T) {
 			vsaModifier: func(vsa *VSA) {
 				vsa.Type = "invalid-type"
 			},
-			expectError: "invalid VSA type",
+			expectError: "invalid statement type",
 		},
 	}
 
