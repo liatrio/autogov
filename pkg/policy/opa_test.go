@@ -49,7 +49,11 @@ func createTestPolicyDir(t *testing.T) string {
 func TestNewOPAEvaluator_LocalDirectory(t *testing.T) {
 	ctx := context.Background()
 	tempDir := createTestPolicyDir(t)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to clean up temp dir: %v", err)
+		}
+	}()
 
 	evaluator, err := NewOPAEvaluator(ctx, tempDir)
 	if err != nil {
@@ -71,7 +75,7 @@ func TestNewOPAEvaluator_LocalDirectory(t *testing.T) {
 
 func TestNewOPAEvaluator_InvalidDirectory(t *testing.T) {
 	ctx := context.Background()
-	
+
 	_, err := NewOPAEvaluator(ctx, "/nonexistent/directory")
 	if err == nil {
 		t.Fatal("Expected error for nonexistent directory")
@@ -84,7 +88,11 @@ func TestNewOPAEvaluator_EmptyDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to clean up temp dir: %v", err)
+		}
+	}()
 
 	evaluator, err := NewOPAEvaluator(ctx, tempDir)
 	if err != nil {
@@ -99,7 +107,11 @@ func TestNewOPAEvaluator_EmptyDirectory(t *testing.T) {
 
 func TestLoadPoliciesFromPath_Success(t *testing.T) {
 	tempDir := createTestPolicyDir(t)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to clean up temp dir: %v", err)
+		}
+	}()
 
 	policies, err := loadPoliciesFromPath(tempDir)
 	if err != nil {
@@ -127,7 +139,11 @@ func TestLoadPoliciesFromPath_NoRegoFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to clean up temp dir: %v", err)
+		}
+	}()
 
 	// Create a non-rego file
 	txtFile := filepath.Join(tempDir, "test.txt")
@@ -145,11 +161,14 @@ func TestLoadPoliciesFromPath_NoRegoFiles(t *testing.T) {
 	}
 }
 
-
 func TestGetPolicyDetails(t *testing.T) {
 	ctx := context.Background()
 	tempDir := createTestPolicyDir(t)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to clean up temp dir: %v", err)
+		}
+	}()
 
 	evaluator, err := NewOPAEvaluator(ctx, tempDir)
 	if err != nil {
@@ -173,7 +192,11 @@ func TestGetPolicyDetails(t *testing.T) {
 func TestStop(t *testing.T) {
 	ctx := context.Background()
 	tempDir := createTestPolicyDir(t)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to clean up temp dir: %v", err)
+		}
+	}()
 
 	evaluator, err := NewOPAEvaluator(ctx, tempDir)
 	if err != nil {
@@ -254,16 +277,24 @@ func TestDownloadBundle_WithToken(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("test content"))
+		if _, err := w.Write([]byte("test content")); err != nil {
+			t.Errorf("Failed to write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
 	// Set test token
-	os.Setenv("GH_TOKEN", "test-token")
-	defer os.Unsetenv("GH_TOKEN")
+	if err := os.Setenv("GH_TOKEN", "test-token"); err != nil {
+		t.Fatalf("Failed to set env var: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("GH_TOKEN"); err != nil {
+			t.Logf("Warning: failed to unset env var: %v", err)
+		}
+	}()
 
 	ctx := context.Background()
-	
+
 	// This will fail because we're not serving a valid tar.gz, but it tests the auth logic
 	_, err := downloadBundle(ctx, server.URL)
 	if err == nil {
@@ -294,11 +325,13 @@ func TestDownloadBundle_WithoutToken(t *testing.T) {
 
 	// Ensure no tokens are set
 	for _, key := range []string{"GH_TOKEN", "GITHUB_TOKEN", "GITHUB_AUTH_TOKEN"} {
-		os.Unsetenv(key)
+		if err := os.Unsetenv(key); err != nil {
+			t.Logf("Warning: failed to unset env var %s: %v", key, err)
+		}
 	}
 
 	ctx := context.Background()
-	
+
 	_, err := downloadBundle(ctx, server.URL)
 	if err == nil {
 		t.Fatal("Expected error for unauthorized request")

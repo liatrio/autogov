@@ -18,6 +18,10 @@ import (
 	"github.com/sigstore/cosign/v2/pkg/oci"
 )
 
+const (
+	tempDirCleanupWarning = "Warning: failed to clean up temp directory: %v\n"
+)
+
 // OPAEvaluator handles OPA policy evaluation using the Rego API
 type OPAEvaluator struct {
 	policyPath string
@@ -137,7 +141,7 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 	gzr, err := gzip.NewReader(resp.Body)
 	if err != nil {
 		if err := os.RemoveAll(tempDir); err != nil {
-			fmt.Printf("Warning: failed to clean up temp directory: %v\n", err)
+			fmt.Printf(tempDirCleanupWarning, err)
 		}
 		return "", fmt.Errorf("failed to create gzip reader: %w", err)
 	}
@@ -155,7 +159,7 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 		}
 		if err != nil {
 			if err := os.RemoveAll(tempDir); err != nil {
-				fmt.Printf("Warning: failed to clean up temp directory: %v\n", err)
+				fmt.Printf(tempDirCleanupWarning, err)
 			}
 			return "", fmt.Errorf("failed to read tar: %w", err)
 		}
@@ -166,14 +170,14 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 		case tar.TypeDir:
 			if err := os.MkdirAll(path, 0755); err != nil {
 				if err := os.RemoveAll(tempDir); err != nil {
-					fmt.Printf("Warning: failed to clean up temp directory: %v\n", err)
+					fmt.Printf(tempDirCleanupWarning, err)
 				}
 				return "", fmt.Errorf("failed to create directory: %w", err)
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 				if err := os.RemoveAll(tempDir); err != nil {
-					fmt.Printf("Warning: failed to clean up temp directory: %v\n", err)
+					fmt.Printf(tempDirCleanupWarning, err)
 				}
 				return "", fmt.Errorf("failed to create parent directory: %w", err)
 			}
@@ -181,7 +185,7 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 			file, err := os.Create(filepath.Join(tempDir, header.Name))
 			if err != nil {
 				if err := os.RemoveAll(tempDir); err != nil {
-					fmt.Printf("Warning: failed to clean up temp directory: %v\n", err)
+					fmt.Printf(tempDirCleanupWarning, err)
 				}
 				return "", fmt.Errorf("failed to create file: %w", err)
 			}

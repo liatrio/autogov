@@ -278,6 +278,182 @@ spec:
 - **Developer Productivity**: <10% increase in deployment time
 - **Compliance**: 100% policy adherence in production
 
+## VSA Implementation Analysis
+
+### Comparison with SLSA Verifier
+
+Based on analysis of the [slsa-verifier](https://github.com/slsa-framework/slsa-verifier) VSA implementation, several key insights emerge:
+
+#### **Architectural Patterns**
+
+**SLSA Verifier Approach:**
+
+- **Verification-focused**: Primary purpose is VSA consumption and validation
+- **Strict validation**: Comprehensive field validation with detailed error messages
+- **DSSE envelope handling**: Direct DSSE envelope signature verification
+- **Modular verification**: Separate functions for each validation aspect (digest matching, verifier ID, etc.)
+
+**AutoGov-Verify Approach:**
+
+- **Generation-focused**: Primary purpose is VSA creation with verification as input
+- **Flexible generation**: VSA creation with configurable options and metadata
+- **Enhanced metadata**: Rich metadata including policy evaluation results
+- **Integrated workflow**: Combined attestation verification + policy evaluation + VSA generation
+
+#### **Key Technical Differences**
+
+| Aspect | SLSA Verifier | AutoGov-Verify | Recommendation |
+|--------|---------------|----------------|----------------|
+| **VSA Structure** | Uses `intoto-golang` types | Custom structs with SLSA v1.1 fields | ✅ Keep custom - more flexible |
+| **Validation Logic** | Comprehensive field validation | Basic validation in `ValidateVSA()` | 🔄 **Enhance validation** |
+| **Error Handling** | Detailed, specific error types | Generic error messages | 🔄 **Improve error specificity** |
+| **SLSA Level Parsing** | Robust parsing with track extraction | Basic string matching | 🔄 **Adopt robust parsing** |
+| **Digest Validation** | Multi-format digest support | SHA256-focused | 🔄 **Add multi-format support** |
+
+#### **Potential Improvements**
+
+**1. Enhanced Validation Logic**
+
+```go
+// Adopt SLSA verifier's comprehensive validation approach
+func (v *VSA) ValidateComprehensive() error {
+    // Validate subject digests with multi-format support
+    if err := v.validateSubjectDigests(); err != nil {
+        return fmt.Errorf("subject validation failed: %w", err)
+    }
+    
+    // Validate verifier ID format and requirements
+    if err := v.validateVerifierID(); err != nil {
+        return fmt.Errorf("verifier validation failed: %w", err)
+    }
+    
+    // Validate SLSA levels with track parsing
+    if err := v.validateSLSALevels(); err != nil {
+        return fmt.Errorf("SLSA level validation failed: %w", err)
+    }
+    
+    return nil
+}
+```
+
+**2. Robust SLSA Level Handling**
+
+```go
+// Adopt SLSA verifier's track-based level parsing
+func (v *VSA) ExtractSLSATrackLevels() (map[string]int, error) {
+    trackLevels := make(map[string]int)
+    
+    for _, level := range v.Predicate.VerifiedLevels {
+        if !strings.HasPrefix(level, "SLSA_") {
+            continue
+        }
+        
+        // Parse SLSA_<TRACK>_LEVEL_<N> format
+        parts := strings.SplitN(level, "_", 4)
+        if len(parts) != 4 || parts[2] != "LEVEL" {
+            return nil, fmt.Errorf("invalid SLSA level format: %s", level)
+        }
+        
+        track := parts[1]
+        levelNum, err := strconv.Atoi(parts[3])
+        if err != nil {
+            return nil, fmt.Errorf("invalid SLSA level number: %s", level)
+        }
+        
+        // Keep highest level per track
+        if current, exists := trackLevels[track]; exists {
+            trackLevels[track] = max(current, levelNum)
+        } else {
+            trackLevels[track] = levelNum
+        }
+    }
+    
+    return trackLevels, nil
+}
+```
+
+**3. Multi-Format Digest Support**
+
+```go
+// Support multiple digest formats like SLSA verifier
+type DigestSet map[string]string // algorithm -> digest
+
+func (v *VSA) ValidateDigests(expectedDigests []string) error {
+    vsaDigests := make(map[string]map[string]bool)
+    
+    // Collect all VSA subject digests by algorithm
+    for _, subject := range v.Subject {
+        for alg, digest := range subject.Digest {
+            if _, ok := vsaDigests[alg]; !ok {
+                vsaDigests[alg] = make(map[string]bool)
+            }
+            vsaDigests[alg][digest] = true
+        }
+    }
+    
+    // Validate each expected digest
+    for _, expected := range expectedDigests {
+        parts := strings.SplitN(expected, ":", 2)
+        if len(parts) != 2 {
+            return fmt.Errorf("invalid digest format: %s", expected)
+        }
+        
+        alg, digest := parts[0], parts[1]
+        if !vsaDigests[alg][digest] {
+            return fmt.Errorf("digest not found: %s", expected)
+        }
+    }
+    
+    return nil
+}
+```
+
+**4. Structured Error Types**
+
+```go
+// Adopt SLSA verifier's error categorization
+type VSAError struct {
+    Type    string
+    Field   string
+    Message string
+    Cause   error
+}
+
+func (e *VSAError) Error() string {
+    return fmt.Sprintf("VSA %s error in %s: %s", e.Type, e.Field, e.Message)
+}
+
+var (
+    ErrInvalidDigest     = &VSAError{Type: "validation", Field: "digest"}
+    ErrMismatchVerifier  = &VSAError{Type: "validation", Field: "verifier"}
+    ErrInvalidSLSALevel  = &VSAError{Type: "validation", Field: "verifiedLevels"}
+)
+```
+
+#### **Implementation Priority**
+
+**High Priority (Next Sprint):**
+
+1. **Enhanced validation logic** - Adopt comprehensive field validation
+2. **Robust SLSA level parsing** - Support track-based level extraction
+3. **Structured error types** - Improve error specificity and debugging
+
+**Medium Priority (Future Sprint):**
+
+1. **Multi-format digest support** - Beyond SHA256 to support various algorithms
+2. **VSA consumption features** - Add verification capabilities for existing VSAs
+3. **DSSE envelope handling** - Direct envelope signature verification
+
+**Low Priority (Future Enhancement):**
+
+1. **Policy-based VSA validation** - Validate VSAs against OPA policies
+2. **VSA composition** - Combine multiple VSAs into summary attestations
+3. **Threshold verification** - Multi-party VSA validation
+
+### Benefits of Hybrid Approach
+
+AutoGov-Verify's generation-focused approach with SLSA verifier's validation rigor would create a comprehensive VSA solution supporting both creation and consumption workflows.
+
 ## Conclusion
 
 AutoGov-Verify provides a comprehensive, production-ready supply chain security solution with:
@@ -287,4 +463,4 @@ AutoGov-Verify provides a comprehensive, production-ready supply chain security 
 - **Modern sigstore-go integration** for robust attestation verification
 - **Enterprise-ready features** including caching, monitoring, and scale
 
-The tool is ready for production use and positioned for continued enhancement through the outlined roadmap phases.
+The tool is ready for production use and positioned for continued enhancement through the outlined roadmap phases, with specific improvements identified from SLSA verifier analysis.
