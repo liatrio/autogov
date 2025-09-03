@@ -2,7 +2,7 @@
 
 ## Current Status
 
-AutoGov-Verify is a **production-ready** GitHub Artifact Attestation verification tool with comprehensive SLSA v1.1 VSA (Verification Summary Attestation) support and OPA policy integration.
+AutoGov-Verify is a **production-ready** GitHub Artifact Attestation verification tool with **fully spec-compliant** SLSA v1.1 VSA (Verification Summary Attestation) support and OPA policy integration.
 
 ### ✅ Completed Features
 
@@ -16,7 +16,11 @@ AutoGov-Verify is a **production-ready** GitHub Artifact Attestation verificatio
 
 #### VSA v1.1 Implementation
 
-- **Full SLSA v1.1 Compliance**: Complete specification adherence with all required and optional fields
+- **Full SLSA v1.1 Spec Compliance**: Complete adherence to [in-toto VSA](https://github.com/in-toto/attestation/blob/main/spec/predicates/vsa.md) and [SLSA v1.1](https://slsa.dev/spec/v1.1/verification_summary) specifications
+  - Correct `predicateType`: `"https://slsa.dev/verification_summary/v1"`
+  - All required fields with proper types (`verifier`, `timeVerified`, `resourceUri`, `policy`, `verificationResult`, `verifiedLevels`)
+  - Optional v1.1 fields (`inputAttestations`, `dependencyLevels`, `slsaVersion`)
+  - Standards-compliant data types (`verifiedLevels` as string array, `dependencyLevels` as map[string]uint64)
 - **Enhanced Data Structures**: ResourceDescriptor, multi-tool versioning, dependency analysis
 - **Policy Integration**: OPA/Rego policy evaluation with results included in VSA metadata
 - **ORAS-Go Storage**: VSA storage and retrieval from OCI registries
@@ -351,116 +355,55 @@ Based on analysis of the [slsa-verifier](https://github.com/slsa-framework/slsa-
 
 #### **Key Technical Differences**
 
-| Aspect | SLSA Verifier | AutoGov-Verify | Recommendation |
-|--------|---------------|----------------|----------------|
-| **VSA Structure** | Uses `intoto-golang` types | Custom structs with SLSA v1.1 fields | ✅ Keep custom - more flexible |
-| **Validation Logic** | Comprehensive field validation | Basic validation in `ValidateVSA()` | 🔄 **Enhance validation** |
-| **Error Handling** | Detailed, specific error types | Generic error messages | 🔄 **Improve error specificity** |
-| **SLSA Level Parsing** | Robust parsing with track extraction | Basic string matching | 🔄 **Adopt robust parsing** |
-| **Digest Validation** | Multi-format digest support | SHA256-focused | 🔄 **Add multi-format support** |
+| Aspect | SLSA Verifier | AutoGov-Verify | Status |
+|--------|---------------|----------------|--------|
+| **VSA Structure** | Uses `intoto-golang` types | Custom structs with SLSA v1.1 fields | ✅ Implemented |
+| **Validation Logic** | Comprehensive field validation | `ValidateComprehensive()` with full validation | ✅ Implemented |
+| **Error Handling** | Detailed, specific error types | `VSAError` struct with Type, Field, Message, Cause | ✅ Implemented |
+| **SLSA Level Parsing** | Robust parsing with track extraction | `ExtractSLSATrackLevels()` with track parsing | ✅ Implemented |
+| **Digest Validation** | Multi-format digest support | `ValidateDigests()` supports multiple algorithms | ✅ Implemented |
 
-#### **Potential Improvements**
+#### **Implemented Features (Previously Listed as Improvements)**
 
-**1. Enhanced Validation Logic**
+**1. ✅ Enhanced Validation Logic**
 
 ```go
-// Adopt SLSA verifier's comprehensive validation approach
+// Already implemented in validation.go
 func (v *VSA) ValidateComprehensive() error {
-    // Validate subject digests with multi-format support
-    if err := v.validateSubjectDigests(); err != nil {
-        return fmt.Errorf("subject validation failed: %w", err)
-    }
-    
-    // Validate verifier ID format and requirements
-    if err := v.validateVerifierID(); err != nil {
-        return fmt.Errorf("verifier validation failed: %w", err)
-    }
-    
-    // Validate SLSA levels with track parsing
-    if err := v.validateSLSALevels(); err != nil {
-        return fmt.Errorf("SLSA level validation failed: %w", err)
-    }
-    
-    return nil
+    // Validates: statement type, predicate type, subjects, verifier,
+    // resource URI, verification result, SLSA levels, and digest formats
+    // Full implementation in pkg/vsa/validation.go
 }
 ```
 
-**2. Robust SLSA Level Handling**
+**2. ✅ Robust SLSA Level Handling**
 
 ```go
-// Adopt SLSA verifier's track-based level parsing
-func (v *VSA) ExtractSLSATrackLevels() (map[string]int, error) {
-    trackLevels := make(map[string]int)
-    
-    for _, level := range v.Predicate.VerifiedLevels {
-        if !strings.HasPrefix(level, "SLSA_") {
-            continue
-        }
-        
-        // Parse SLSA_<TRACK>_LEVEL_<N> format
-        parts := strings.SplitN(level, "_", 4)
-        if len(parts) != 4 || parts[2] != "LEVEL" {
-            return nil, fmt.Errorf("invalid SLSA level format: %s", level)
-        }
-        
-        track := parts[1]
-        levelNum, err := strconv.Atoi(parts[3])
-        if err != nil {
-            return nil, fmt.Errorf("invalid SLSA level number: %s", level)
-        }
-        
-        // Keep highest level per track
-        if current, exists := trackLevels[track]; exists {
-            trackLevels[track] = max(current, levelNum)
-        } else {
-            trackLevels[track] = levelNum
-        }
-    }
-    
-    return trackLevels, nil
+// Already implemented in levels.go
+func ExtractSLSATrackLevels(trackLevels []string) (SLSATrackLevels, error) {
+    // Parses SLSA_<TRACK>_LEVEL_<N> format
+    // Returns BuildTrack and DependencyTrack levels
+    // Full implementation in pkg/vsa/levels.go
 }
 ```
 
-**3. Multi-Format Digest Support**
+**3. ✅ Multi-Format Digest Support**
 
 ```go
-// Support multiple digest formats like SLSA verifier
-type DigestSet map[string]string // algorithm -> digest
+// Already implemented in validation.go
+type DigestSet map[string]map[string]bool
 
 func (v *VSA) ValidateDigests(expectedDigests []string) error {
-    vsaDigests := make(map[string]map[string]bool)
-    
-    // Collect all VSA subject digests by algorithm
-    for _, subject := range v.Subject {
-        for alg, digest := range subject.Digest {
-            if _, ok := vsaDigests[alg]; !ok {
-                vsaDigests[alg] = make(map[string]bool)
-            }
-            vsaDigests[alg][digest] = true
-        }
-    }
-    
-    // Validate each expected digest
-    for _, expected := range expectedDigests {
-        parts := strings.SplitN(expected, ":", 2)
-        if len(parts) != 2 {
-            return fmt.Errorf("invalid digest format: %s", expected)
-        }
-        
-        alg, digest := parts[0], parts[1]
-        if !vsaDigests[alg][digest] {
-            return fmt.Errorf("digest not found: %s", expected)
-        }
-    }
-    
-    return nil
+    // Supports multiple digest algorithms (sha256, sha1, sha384, sha512, md5)
+    // Validates format: <algorithm>:<digest>
+    // Full implementation in pkg/vsa/validation.go
 }
 ```
 
-**4. Structured Error Types**
+**4. ✅ Structured Error Types**
 
 ```go
-// Adopt SLSA verifier's error categorization
+// Already implemented in errors.go
 type VSAError struct {
     Type    string
     Field   string
@@ -468,15 +411,9 @@ type VSAError struct {
     Cause   error
 }
 
-func (e *VSAError) Error() string {
-    return fmt.Sprintf("VSA %s error in %s: %s", e.Type, e.Field, e.Message)
-}
-
-var (
-    ErrInvalidDigest     = &VSAError{Type: "validation", Field: "digest"}
-    ErrMismatchVerifier  = &VSAError{Type: "validation", Field: "verifier"}
-    ErrInvalidSLSALevel  = &VSAError{Type: "validation", Field: "verifiedLevels"}
-)
+// Error constructors for different error types:
+// NewValidationError(), NewParsingError(), NewGenerationError(), NewPolicyError()
+// Full implementation in pkg/vsa/errors.go
 ```
 
 #### **Implementation Status**

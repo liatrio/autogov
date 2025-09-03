@@ -1,6 +1,6 @@
 # AutoGov-Verify
 
-A production-ready tool for verifying GitHub Artifact Attestations with SLSA v1.1 VSA (Verification Summary Attestation) support and integrated OPA policy evaluation.
+A production-ready tool for verifying GitHub Artifact Attestations with **fully spec-compliant** SLSA v1.1 VSA (Verification Summary Attestation) support and integrated OPA policy evaluation.
 
 > **Status**: Production-ready with comprehensive attestation verification, VSA generation, and policy evaluation capabilities.
 

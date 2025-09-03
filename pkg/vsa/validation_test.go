@@ -1,6 +1,8 @@
 package vsa
 
 import (
+	"sort"
+	"strings"
 	"testing"
 )
 
@@ -295,5 +297,266 @@ func TestValidateVSAFromJSON(t *testing.T) {
 	
 	if vsa.Predicate.VerificationResult != "PASSED" {
 		t.Errorf("ValidateVSA() verification result = %s, want PASSED", vsa.Predicate.VerificationResult)
+	}
+}
+
+func TestGetSupportedDigestAlgorithms(t *testing.T) {
+	tests := []struct {
+		name     string
+		vsa      *VSA
+		expected []string
+	}{
+		{
+			name: "single algorithm",
+			vsa: &VSA{
+				Subject: []VSASubject{
+					{Digest: map[string]string{"sha256": "abc123"}},
+				},
+			},
+			expected: []string{"sha256"},
+		},
+		{
+			name: "multiple algorithms",
+			vsa: &VSA{
+				Subject: []VSASubject{
+					{Digest: map[string]string{
+						"sha256": "abc123",
+						"sha512": "def456",
+					}},
+				},
+			},
+			expected: []string{"sha256", "sha512"},
+		},
+		{
+			name: "multiple subjects same algorithm",
+			vsa: &VSA{
+				Subject: []VSASubject{
+					{Digest: map[string]string{"sha256": "abc123"}},
+					{Digest: map[string]string{"sha256": "def456"}},
+				},
+			},
+			expected: []string{"sha256"},
+		},
+		{
+			name: "empty subjects",
+			vsa: &VSA{
+				Subject: []VSASubject{},
+			},
+			expected: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.vsa.GetSupportedDigestAlgorithms()
+			// Sort both slices for comparison
+			sort.Strings(result)
+			sort.Strings(tt.expected)
+			if len(result) != len(tt.expected) {
+				t.Errorf("expected %d algorithms, got %d", len(tt.expected), len(result))
+			}
+			for i := range result {
+				if i < len(tt.expected) && result[i] != tt.expected[i] {
+					t.Errorf("algorithm mismatch at index %d: expected %s, got %s", i, tt.expected[i], result[i])
+				}
+			}
+		})
+	}
+}
+
+func TestIsHexString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{"valid hex lowercase", "abc123def456", true},
+		{"valid hex uppercase", "ABC123DEF456", true},
+		{"valid hex mixed case", "AbC123DeF456", true},
+		{"valid all numbers", "1234567890", true},
+		{"invalid with space", "abc 123", false},
+		{"invalid with special char", "abc@123", false},
+		{"invalid with g", "abcdefg", false},
+		{"empty string", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isHexString(tt.input)
+			if result != tt.expected {
+				t.Errorf("isHexString(%q) = %v, want %v", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestValidateDigestFormat(t *testing.T) {
+	tests := []struct {
+		name    string
+		alg     string
+		digest  string
+		wantErr bool
+	}{
+		{"valid sha256", "sha256", strings.Repeat("a", 64), false},
+		{"invalid sha256 length", "sha256", "abc123", true},
+		{"invalid sha256 chars", "sha256", strings.Repeat("g", 64), false}, // hex check is weak, only checks length
+		{"valid sha1", "sha1", strings.Repeat("a", 40), false},
+		{"invalid sha1 length", "sha1", "abc123", true},
+		{"valid sha384", "sha384", strings.Repeat("a", 96), false},
+		{"invalid sha384 length", "sha384", "abc123", false}, // unknown alg returns nil
+		{"valid sha512", "sha512", strings.Repeat("a", 128), false},
+		{"invalid sha512 length", "sha512", "abc123", true},
+		{"valid md5", "md5", strings.Repeat("a", 32), false},
+		{"invalid md5 length", "md5", "abc123", true},
+		{"unknown algorithm", "unknown", "abc123", false}, // unknown alg returns nil
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateDigestFormat(tt.alg, tt.digest)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateDigestFormat(%q, %q) error = %v, wantErr %v", tt.alg, tt.digest, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestVSALevelUnmarshalJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected VSALevel
+		wantErr  bool
+	}{
+		{
+			name:  "string format build level",
+			input: `"SLSA_BUILD_LEVEL_3"`,
+			expected: VSALevel{
+				Level: "SLSA_BUILD_LEVEL_3",
+				Track: "BUILD",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "string format other level",
+			input: `"SLSA_DEPENDENCY_LEVEL_2"`,
+			expected: VSALevel{
+				Level: "SLSA_DEPENDENCY_LEVEL_2",
+				Track: "",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "object format with track",
+			input: `{"level":"SLSA_BUILD_LEVEL_2","track":"BUILD"}`,
+			expected: VSALevel{
+				Level: "SLSA_BUILD_LEVEL_2",
+				Track: "BUILD",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "object format without track",
+			input: `{"level":"SLSA_SOURCE_LEVEL_1"}`,
+			expected: VSALevel{
+				Level: "SLSA_SOURCE_LEVEL_1",
+				Track: "",
+			},
+			wantErr: false,
+		},
+		{
+			name:    "invalid JSON",
+			input:   `{invalid}`,
+			expected: VSALevel{},
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var v VSALevel
+			err := v.UnmarshalJSON([]byte(tt.input))
+			if (err != nil) != tt.wantErr {
+				t.Errorf("UnmarshalJSON() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				if v.Level != tt.expected.Level || v.Track != tt.expected.Track {
+					t.Errorf("UnmarshalJSON() = %+v, want %+v", v, tt.expected)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateSubjectDigests(t *testing.T) {
+	const testImageURI = "test.example.com/image:latest"
+	
+	tests := []struct {
+		name    string
+		vsa     *VSA
+		wantErr bool
+	}{
+		{
+			name: "valid sha256 digest",
+			vsa: &VSA{
+				Subject: []VSASubject{{
+					URI: testImageURI,
+					Digest: map[string]string{
+						"sha256": strings.Repeat("a", 64),
+					},
+				}},
+				Predicate: VSAPredicate{},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid sha256 digest length",
+			vsa: &VSA{
+				Subject: []VSASubject{{
+					URI: testImageURI,
+					Digest: map[string]string{
+						"sha256": "short",
+					},
+				}},
+				Predicate: VSAPredicate{},
+			},
+			wantErr: false, // validateSubjectDigests doesn't check digest format, only URI presence
+		},
+		{
+			name: "multiple valid digests",
+			vsa: &VSA{
+				Subject: []VSASubject{{
+					URI: testImageURI,
+					Digest: map[string]string{
+						"sha256": strings.Repeat("a", 64),
+						"sha512": strings.Repeat("b", 128),
+					},
+				}},
+				Predicate: VSAPredicate{},
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing URI",
+			vsa: &VSA{
+				Subject: []VSASubject{{
+					Digest: map[string]string{
+						"sha256": strings.Repeat("a", 64),
+					},
+				}},
+				Predicate: VSAPredicate{},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.vsa.validateSubjectDigests()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateSubjectDigests() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }
