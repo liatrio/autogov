@@ -14,14 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-policy-agent/opa/rego"
-	"github.com/open-policy-agent/opa/sdk"
+	"github.com/open-policy-agent/opa/v1/rego"
 	"github.com/sigstore/cosign/v2/pkg/oci"
 )
 
-// OPAEvaluator handles OPA policy evaluation using the OPA Go SDK
+// OPAEvaluator handles OPA policy evaluation using the Rego API
 type OPAEvaluator struct {
-	opa        *sdk.OPA
 	policyPath string
 	prepared   *rego.PreparedEvalQuery
 }
@@ -69,12 +67,12 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string) (*OPAEvaluato
 
 	// Create Rego instance with all policies and queries
 	r := rego.New(
-		append(modules, 
+		append(modules,
 			rego.Query("data.governance.allow"),
 			rego.Query("data.governance.violations"),
 		)...,
 	)
-	
+
 	// Prepare the query for compilation
 	prepared, err := r.PrepareForEval(ctx)
 	if err != nil {
@@ -82,9 +80,8 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string) (*OPAEvaluato
 	}
 
 	fmt.Printf("OPA evaluator created with %d policies loaded\n", len(policies))
-	
+
 	return &OPAEvaluator{
-		opa:        nil, // We'll use the prepared Rego instance instead
 		policyPath: policyBundlePath,
 		prepared:   &prepared,
 	}, nil
@@ -120,7 +117,11 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to download bundle: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Printf("Warning: failed to close response body: %v\n", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("failed to download bundle: HTTP %d", resp.StatusCode)
@@ -135,10 +136,16 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 	// Extract tar.gz
 	gzr, err := gzip.NewReader(resp.Body)
 	if err != nil {
-		os.RemoveAll(tempDir)
+		if err := os.RemoveAll(tempDir); err != nil {
+			fmt.Printf("Warning: failed to clean up temp directory: %v\n", err)
+		}
 		return "", fmt.Errorf("failed to create gzip reader: %w", err)
 	}
-	defer gzr.Close()
+	defer func() {
+		if err := gzr.Close(); err != nil {
+			fmt.Printf("Warning: failed to close gzip reader: %v\n", err)
+		}
+	}()
 
 	tr := tar.NewReader(gzr)
 	for {
@@ -147,36 +154,47 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 			break
 		}
 		if err != nil {
-			os.RemoveAll(tempDir)
+			if err := os.RemoveAll(tempDir); err != nil {
+				fmt.Printf("Warning: failed to clean up temp directory: %v\n", err)
+			}
 			return "", fmt.Errorf("failed to read tar: %w", err)
 		}
 
 		path := filepath.Join(tempDir, header.Name)
-		
+
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(path, 0755); err != nil {
-				os.RemoveAll(tempDir)
+				if err := os.RemoveAll(tempDir); err != nil {
+					fmt.Printf("Warning: failed to clean up temp directory: %v\n", err)
+				}
 				return "", fmt.Errorf("failed to create directory: %w", err)
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-				os.RemoveAll(tempDir)
+				if err := os.RemoveAll(tempDir); err != nil {
+					fmt.Printf("Warning: failed to clean up temp directory: %v\n", err)
+				}
 				return "", fmt.Errorf("failed to create parent directory: %w", err)
 			}
-			
-			file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, os.FileMode(header.Mode))
+
+			file, err := os.Create(filepath.Join(tempDir, header.Name))
 			if err != nil {
-				os.RemoveAll(tempDir)
+				if err := os.RemoveAll(tempDir); err != nil {
+					fmt.Printf("Warning: failed to clean up temp directory: %v\n", err)
+				}
 				return "", fmt.Errorf("failed to create file: %w", err)
 			}
-			
+
 			if _, err := io.Copy(file, tr); err != nil {
-				file.Close()
-				os.RemoveAll(tempDir)
+				if err := file.Close(); err != nil {
+					fmt.Printf("Warning: failed to close file: %v\n", err)
+				}
 				return "", fmt.Errorf("failed to write file: %w", err)
 			}
-			file.Close()
+			if err := file.Close(); err != nil {
+				fmt.Printf("Warning: failed to close file: %v\n", err)
+			}
 		}
 	}
 
@@ -186,43 +204,40 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 // loadPoliciesFromPath loads all .rego files from a directory
 func loadPoliciesFromPath(path string) (map[string]string, error) {
 	policies := make(map[string]string)
-	
+
 	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		
+
 		if !info.IsDir() && strings.HasSuffix(filePath, ".rego") {
 			content, err := os.ReadFile(filePath)
 			if err != nil {
 				return fmt.Errorf("failed to read policy file %s: %w", filePath, err)
 			}
-			
+
 			// Use relative path as policy ID
 			relPath, err := filepath.Rel(path, filePath)
 			if err != nil {
 				relPath = filepath.Base(filePath)
 			}
-			
+
 			policies[relPath] = string(content)
 		}
-		
+
 		return nil
 	})
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to walk policy directory: %w", err)
 	}
-	
+
 	return policies, nil
 }
 
-
-// Stop shuts down the OPA evaluator
+// Stop shuts down the OPA evaluator (no-op for Rego API)
 func (e *OPAEvaluator) Stop(ctx context.Context) {
-	if e.opa != nil {
-		e.opa.Stop(ctx)
-	}
+	// No cleanup needed for Rego API
 }
 
 // EvaluatePolicy evaluates OPA policy against attestations
@@ -261,6 +276,11 @@ func (e *OPAEvaluator) EvaluatePolicy(ctx context.Context, signatures []oci.Sign
 					if violationsVal, exists := governance["violations"]; exists {
 						if violationsArray, ok := violationsVal.([]interface{}); ok {
 							violations = violationsArray
+						}
+					}
+					if detailsVal, exists := governance["details"]; exists {
+						if detailsMap, ok := detailsVal.(map[string]interface{}); ok {
+							result.Details["details"] = detailsMap
 						}
 					}
 				}
@@ -345,56 +365,6 @@ func (e *OPAEvaluator) createSigstoreBundle(signatures []oci.Signature) (interfa
 	return bundles, nil
 }
 
-// parseViolations converts OPA violations result to structured violations
-func (e *OPAEvaluator) parseViolations(result interface{}) []PolicyViolation {
-	var violations []PolicyViolation
-
-	// Handle different violation result formats
-	switch v := result.(type) {
-	case []interface{}:
-		for _, violation := range v {
-			if violationMap, ok := violation.(map[string]interface{}); ok {
-				policy := ""
-				message := ""
-
-				if p, exists := violationMap["policy"]; exists {
-					if pStr, ok := p.(string); ok {
-						policy = pStr
-					}
-				}
-
-				if m, exists := violationMap["message"]; exists {
-					if mStr, ok := m.(string); ok {
-						message = mStr
-					}
-				}
-
-				if policy != "" || message != "" {
-					violations = append(violations, PolicyViolation{
-						Policy:  policy,
-						Message: message,
-					})
-				}
-			}
-		}
-	case map[string]interface{}:
-		// Handle single violation or violation map
-		for policy, messages := range v {
-			if msgList, ok := messages.([]interface{}); ok {
-				for _, msg := range msgList {
-					if msgStr, ok := msg.(string); ok {
-						violations = append(violations, PolicyViolation{
-							Policy:  policy,
-							Message: msgStr,
-						})
-					}
-				}
-			}
-		}
-	}
-
-	return violations
-}
 
 // GetPolicyDetails returns details about the loaded policy
 func (e *OPAEvaluator) GetPolicyDetails() map[string]interface{} {

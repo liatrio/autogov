@@ -137,7 +137,11 @@ func (s *VSAStorage) RetrieveVSA(ctx context.Context, tag string) (*vsa.VSA, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch manifest: %w", err)
 	}
-	defer manifestReader.Close()
+	defer func() {
+		if err := manifestReader.Close(); err != nil {
+			fmt.Printf("Warning: failed to close manifest reader: %v\n", err)
+		}
+	}()
 
 	manifestBytes, err := io.ReadAll(manifestReader)
 	if err != nil {
@@ -162,7 +166,11 @@ func (s *VSAStorage) RetrieveVSA(ctx context.Context, tag string) (*vsa.VSA, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch VSA content: %w", err)
 	}
-	defer vsaReader.Close()
+	defer func() {
+		if err := vsaReader.Close(); err != nil {
+			fmt.Printf("Warning: failed to close VSA reader: %v\n", err)
+		}
+	}()
 
 	vsaBytes, err := io.ReadAll(vsaReader)
 	if err != nil {
@@ -224,7 +232,11 @@ func (p *PolicyStorage) RetrievePolicy(ctx context.Context, policyTag string) ([
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch manifest: %w", err)
 	}
-	defer manifestReader.Close()
+	defer func() {
+		if err := manifestReader.Close(); err != nil {
+			fmt.Printf("Warning: failed to close manifest reader: %v\n", err)
+		}
+	}()
 
 	manifestBytes, err := io.ReadAll(manifestReader)
 	if err != nil {
@@ -249,7 +261,11 @@ func (p *PolicyStorage) RetrievePolicy(ctx context.Context, policyTag string) ([
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch policy content: %w", err)
 	}
-	defer policyReader.Close()
+	defer func() {
+		if err := policyReader.Close(); err != nil {
+			fmt.Printf("Warning: failed to close policy reader: %v\n", err)
+		}
+	}()
 
 	policyBytes, err := io.ReadAll(policyReader)
 	if err != nil {
