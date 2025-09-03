@@ -33,7 +33,7 @@ AutoGov-Verify is a **production-ready** GitHub Artifact Attestation verificatio
 
 - **Offline Verification**: Support for pre-downloaded attestation artifacts
 - **Certificate Management**: Automated certificate identity updates via GitHub Actions
-- **Comprehensive Testing**: 100% test coverage with real attestation integration
+- **Comprehensive Testing**: 75%+ test coverage with real attestation integration
 - **Error Handling**: Robust error handling with detailed diagnostics
 
 ## Architecture
@@ -441,26 +441,71 @@ var (
 5. **Bundle parsing fix** - Corrected OPA policy input format for proper attestation parsing
 
 **🎯 Verified with Real Attestations:**
+
 - Successfully tested with GitHub Container Registry attestation artifact
 - All 4 attestation types correctly parsed: vulnerability, SBOM, provenance, cosign
 - VSA generation with comprehensive validation confirmed working
 - Policy evaluation correctly identifies security compliance issues
 
 **📁 Files Modified:**
-- `pkg/vsa/errors.go` - Structured error types
-- `pkg/vsa/slsa_levels.go` - SLSA level parsing and validation
-- `pkg/vsa/digest_validation.go` - Multi-format digest support
-- `pkg/vsa/vsa.go` - Enhanced validation logic
-- `pkg/vsa/validation_test.go` - Comprehensive test coverage
-- `pkg/policy/opa.go` - Fixed bundle parsing for OPA policies
+
+- `pkg/vsa/errors.go` - Structured error types with custom constructors
+- `pkg/vsa/levels.go` - SLSA level parsing and validation (simplified, dependency logic removed)
+- `pkg/vsa/validation.go` - Consolidated all validation logic from multiple files
+- `pkg/vsa/vsa.go` - Core VSA types and generation functions
+- `pkg/vsa/vsa_test.go` - Comprehensive test coverage for core functionality
+- `pkg/vsa/validation_test.go` - Validation-specific test suite
+- `pkg/vsa/integration_test.go` - Real attestation file integration tests
+- `pkg/storage/vsa_storage.go` - OCI-compliant VSA storage with ORAS-Go
+- `pkg/policy/opa.go` - Enhanced OPA integration with bundle support
 
 **🔄 Future Enhancements:**
 
+**High Priority (Next Sprint):**
+
+1. **VSA Package Refactoring** ✅ **COMPLETED** - Consolidated validation logic, removed unused code, moved dependency analysis to policy layer
+2. **Policy Violations Investigation** - Debug why `"violations": null` appears with `"result": "FAILED"` in policy evaluation
+3. **Dynamic signer identity validation** - Use OPA policies to determine valid certificate identities instead of hardcoding
+4. **Flexible policy queries** - Allow customization of OPA queries for different validation aspects (signer identities, policy evaluation, violations)
+5. **Threshold-based vulnerability policies** - Replace "all or nothing" approach with configurable thresholds for better risk management
+
+**Medium Priority (Future Sprint):**
+
 1. **VSA consumption features** - Add verification capabilities for existing VSAs
 2. **DSSE envelope handling** - Direct envelope signature verification
-3. **Policy-based VSA validation** - Validate VSAs against OPA policies
-4. **VSA composition** - Combine multiple VSAs into summary attestations
-5. **Threshold verification** - Multi-party VSA validation
+3. **GitHub policy bundle support** - Download policies from GitHub tree URLs with subdirectory extraction
+
+**Low Priority (Future Enhancement):**
+
+1. **Policy-based VSA validation** - Validate VSAs against OPA policies
+2. **VSA composition** - Combine multiple VSAs into summary attestations
+3. **Threshold verification** - Multi-party VSA validation
+
+**Inspired by Legacy Implementations:**
+
+- **Dynamic Signer Identity Query**: `data.governance.signer_identities` - Query OPA policy for valid signers
+- **Configurable Policy Queries**: Support custom Rego queries for different validation aspects
+- **Policy-Driven Architecture**: Both identity validation and policy evaluation use OPA consistently
+- **Dependency Levels Tracking**: Track vulnerability counts by severity (inspired by Python VSA implementation)
+
+**Vulnerability Policy Improvements:**
+
+Current dependency vulnerability policies use an "all or nothing" approach where any vulnerability of a given severity causes complete failure. Proposed enhancements:
+
+1. **Threshold-Based Policies**: Allow configurable limits (e.g., "allow up to 5 low-severity vulnerabilities")
+2. **Risk Score-Based Assessment**: Weight vulnerabilities by severity for nuanced risk management
+3. **VSA Metrics Integration**: Include detailed vulnerability counts in VSA metadata
+4. **Configurable Risk Tolerance**: Organizations can choose appropriate security vs. velocity balance
+
+```go
+type DependencyLevels struct {
+    Critical int `json:"critical"`
+    High     int `json:"high"`
+    Medium   int `json:"medium"`
+    Low      int `json:"low"`
+    Total    int `json:"total"`
+}
+```
 
 ### Benefits of Hybrid Approach
 

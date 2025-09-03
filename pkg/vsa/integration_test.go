@@ -1,3 +1,7 @@
+// Package vsa - integration_test.go
+// Integration tests using real attestation files and comprehensive VSA workflows.
+// Tests end-to-end functionality with actual GitHub attestation data.
+
 package vsa
 
 import (
@@ -5,6 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+)
+
+// Test constants for integration tests
+const (
+	integrationTestImageRef = "ghcr.io/liatrio/test-image:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	integrationTestImageRef2 = "ghcr.io/liatrio/multi-attestation-test:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	integrationTestPolicyURI = "https://github.com/liatrio/liatrio-rego-policy-library/policies/security-policy"
+	integrationTestPolicyURI2 = "https://github.com/liatrio/liatrio-rego-policy-library/policies/multi-attestation-policy"
 )
 
 // TestRealAttestationFiles tests VSA generation with actual attestation files
@@ -38,8 +50,8 @@ func TestRealAttestationFiles(t *testing.T) {
 			}
 
 			// Create VSA with real attestation as input
-			imageRef := "ghcr.io/liatrio/test-image:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-			policyURI := "https://github.com/liatrio/liatrio-rego-policy-library/policies/security-policy"
+			imageRef := integrationTestImageRef
+			policyURI := integrationTestPolicyURI
 
 			// Simulate verification results
 			verificationResults := map[string]bool{
@@ -63,8 +75,7 @@ func TestRealAttestationFiles(t *testing.T) {
 					"sha256": "policy789hash",
 				},
 				AdditionalVerifiers: map[string]string{
-					"opa":           "v0.58.0",
-					"slsa-verifier": "v2.5.1",
+					"opa": "v0.58.0",
 				},
 			}
 
@@ -164,8 +175,8 @@ func TestVSAWithMultipleRealAttestations(t *testing.T) {
 	}
 
 	// Generate VSA with multiple real attestations
-	imageRef := "ghcr.io/liatrio/multi-attestation-test:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-	policyURI := "https://github.com/liatrio/liatrio-rego-policy-library/policies/multi-attestation-policy"
+	imageRef := integrationTestImageRef2
+	policyURI := integrationTestPolicyURI2
 
 	verificationResults := map[string]bool{
 		"attestation.provenance":    true,
@@ -205,14 +216,7 @@ func TestVSAWithMultipleRealAttestations(t *testing.T) {
 		t.Errorf("Expected %d input attestations, got %d", len(inputAttestations), len(vsa.Predicate.InputAttestations))
 	}
 
-	// Verify dependency levels are calculated
-	if vsa.Predicate.DependencyLevels["SLSA_BUILD_LEVEL_2"] != 1 {
-		t.Errorf("Expected 1 dependency at SLSA_BUILD_LEVEL_2, got %d", vsa.Predicate.DependencyLevels["SLSA_BUILD_LEVEL_2"])
-	}
-
-	if vsa.Predicate.DependencyLevels["SLSA_BUILD_LEVEL_3"] != 1 {
-		t.Errorf("Expected 1 dependency at SLSA_BUILD_LEVEL_3, got %d", vsa.Predicate.DependencyLevels["SLSA_BUILD_LEVEL_3"])
-	}
+	// Note: Dependency level validation moved to policy evaluation layer
 
 	// Verify all verifier versions are tracked
 	expectedVerifiers := []string{"autogov-verify", "opa", "slsa-verifier"}

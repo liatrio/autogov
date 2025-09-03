@@ -1,3 +1,7 @@
+// Package vsa - vsa.go
+// Core VSA types, structures, and generation functions.
+// Contains the main VSA data structures and factory functions for creating VSAs.
+
 package vsa
 
 import (
@@ -8,7 +12,7 @@ import (
 )
 
 // VSA represents a Verification Summary Attestation
-// Based on the in-toto VSA specification
+// Based on the in-toto VSA specification and SLSA v1.1
 type VSA struct {
 	Type          string                 `json:"_type"`
 	PredicateType string                 `json:"predicateType"`
@@ -18,8 +22,8 @@ type VSA struct {
 }
 
 type VSASubject struct {
-	Name   string            `json:"name"`
-	Digest map[string]string `json:"digest"`
+	URI    string            `json:"uri"`
+	Digest map[string]string `json:"digest,omitempty"`
 }
 
 // ResourceDescriptor represents a resource with URI and digest (SLSA v1.1)
@@ -28,15 +32,55 @@ type ResourceDescriptor struct {
 	Digest map[string]string `json:"digest,omitempty"`
 }
 
+// VSAPolicy represents policy information (supports both content and URI)
+type VSAPolicy struct {
+	Content string            `json:"content,omitempty"` // Policy content (e.g., Datalog, Rego)
+	URI     string            `json:"uri,omitempty"`     // Policy URI
+	Digest  map[string]string `json:"digest,omitempty"`  // Policy digest
+}
+
+// VSALevel represents a verified SLSA level
+type VSALevel struct {
+	Level string `json:"level"`           // e.g., "SLSA_BUILD_LEVEL_3"
+	Track string `json:"track,omitempty"` // e.g., "BUILD", "SOURCE"
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for backward compatibility
+// Supports both string format (legacy) and object format (new)
+func (v *VSALevel) UnmarshalJSON(data []byte) error {
+	// Try to unmarshal as string first (legacy format)
+	var levelStr string
+	if err := json.Unmarshal(data, &levelStr); err == nil {
+		v.Level = levelStr
+		// Extract track from level string if possible
+		if strings.HasPrefix(levelStr, "SLSA_") {
+			parts := strings.Split(levelStr, "_")
+			if len(parts) >= 2 {
+				v.Track = parts[1]
+			}
+		}
+		return nil
+	}
+	
+	// Try to unmarshal as object (new format)
+	type Alias VSALevel
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(v),
+	}
+	return json.Unmarshal(data, aux)
+}
+
 type VSAPredicate struct {
 	Verifier           VSAVerifier          `json:"verifier"`
-	TimeVerified       *time.Time           `json:"timeVerified,omitempty"` // Optional in v1.1
+	TimeVerified       string               `json:"timeVerified"`                // ISO 8601 timestamp
 	ResourceURI        string               `json:"resourceUri"`
-	Policy             ResourceDescriptor   `json:"policy"`                      // Updated to ResourceDescriptor
+	Policy             VSAPolicy            `json:"policy"`                      // Support both content and URI
 	InputAttestations  []ResourceDescriptor `json:"inputAttestations,omitempty"` // NEW in v1.1
-	VerificationResult string               `json:"verificationResult"`          // Simplified to string
-	VerifiedLevels     []string             `json:"verifiedLevels,omitempty"`
-	DependencyLevels   map[string]int       `json:"dependencyLevels,omitempty"` // NEW in v1.1: count of deps at each level
+	VerificationResult string               `json:"verificationResult"`          // PASSED or FAILED
+	VerifiedLevels     []VSALevel           `json:"verifiedLevels,omitempty"`    // SLSA levels achieved
+	DependencyLevels   map[string]int       `json:"dependencyLevels,omitempty"` // NEW in v1.1: count of deps at each level (deprecated - use policy evaluation)
 	SlsaVersion        string               `json:"slsaVersion,omitempty"`      // NEW in v1.1
 }
 
@@ -96,15 +140,15 @@ func GenerateVSAWithOptions(imageRef string, policyURI string, verificationResul
 		verifierVersions[tool] = ver
 	}
 
-	// Analyze dependencies for SLSA levels
-	dependencyLevels := analyzeDependencyLevels(opts.Dependencies)
+	// Note: Dependency level analysis moved to policy evaluation layer
+	dependencyLevels := make(map[string]int) // Empty map for backward compatibility
 
 	vsa := &VSA{
 		Type:          "https://in-toto.io/Statement/v1",
 		PredicateType: "https://slsa.dev/verification_summary/v1",
 		Subject: []VSASubject{
 			{
-				Name: imageRef,
+				URI: imageRef,
 				Digest: map[string]string{
 					"sha256": digest,
 				},
@@ -115,18 +159,16 @@ func GenerateVSAWithOptions(imageRef string, policyURI string, verificationResul
 				ID:      "https://github.com/liatrio/autogov-verify",
 				Version: verifierVersions,
 			},
-			TimeVerified: &now,
+			TimeVerified: now.Format(time.RFC3339),
 			ResourceURI:  imageRef,
-			Policy: ResourceDescriptor{
+			Policy: VSAPolicy{
 				URI:    policyURI,
 				Digest: opts.PolicyDigest,
 			},
 			InputAttestations:  opts.InputAttestations,
 			VerificationResult: result,
-			VerifiedLevels: []string{
-				"SLSA_BUILD_LEVEL_3",
-				"AUTOGOV_ATTESTATION_REQUIRED",
-				"AUTOGOV_SECURITY_CONTEXT",
+			VerifiedLevels: []VSALevel{
+				{Level: "SLSA_BUILD_LEVEL_3", Track: "BUILD"},
 			},
 			DependencyLevels: dependencyLevels,
 			SlsaVersion:      "1.1",
@@ -146,160 +188,6 @@ func GenerateVSA(imageRef string, policyURI string, verificationResults map[stri
 	return GenerateVSAWithOptions(imageRef, policyURI, verificationResults, VSAOptions{})
 }
 
-// analyzeDependencyLevels analyzes dependencies and counts them by SLSA level
-func analyzeDependencyLevels(dependencies []Dependency) map[string]int {
-	levels := make(map[string]int)
-
-	for _, dep := range dependencies {
-		if dep.VerifiedLevel != "" {
-			levels[dep.VerifiedLevel]++
-		}
-	}
-
-	return levels
-}
-
-// ValidateVSA validates an existing VSA (SLSA v1.1 compliant)
-func ValidateVSA(vsaBytes []byte) (*VSA, error) {
-	var vsa VSA
-	if err := json.Unmarshal(vsaBytes, &vsa); err != nil {
-		return nil, NewParsingError("json", "failed to unmarshal VSA", err)
-	}
-
-	if err := vsa.ValidateComprehensive(); err != nil {
-		return nil, err
-	}
-
-	return &vsa, nil
-}
-
-// ValidateComprehensive performs comprehensive VSA validation
-func (v *VSA) ValidateComprehensive() error {
-	// Validate statement type
-	if err := v.validateStatementType(); err != nil {
-		return err
-	}
-
-	// Validate predicate type
-	if err := v.validatePredicateType(); err != nil {
-		return err
-	}
-
-	// Validate subject digests
-	if err := v.validateSubjectDigests(); err != nil {
-		return err
-	}
-
-	// Validate verifier
-	if err := v.validateVerifier(); err != nil {
-		return err
-	}
-
-	// Validate resource URI
-	if err := v.validateResourceURI(); err != nil {
-		return err
-	}
-
-	// Validate verification result
-	if err := v.validateVerificationResult(); err != nil {
-		return err
-	}
-
-	// Validate SLSA levels
-	if err := v.validateSLSALevels(); err != nil {
-		return err
-	}
-
-	// Validate digest formats
-	if err := v.ValidateDigestFormats(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// validateStatementType validates the VSA statement type
-func (v *VSA) validateStatementType() error {
-	// Support both v0.1 and v1 for backward compatibility
-	if v.Type != "https://in-toto.io/Statement/v1" && v.Type != "https://in-toto.io/Statement/v0.1" {
-		return NewValidationError("_type", 
-			fmt.Sprintf("invalid statement type: %s (expected https://in-toto.io/Statement/v1 or v0.1)", v.Type), nil)
-	}
-	return nil
-}
-
-// validatePredicateType validates the VSA predicate type
-func (v *VSA) validatePredicateType() error {
-	if v.PredicateType != "https://slsa.dev/verification_summary/v1" {
-		return NewValidationError("predicateType", 
-			fmt.Sprintf("invalid predicate type: %s (expected https://slsa.dev/verification_summary/v1)", v.PredicateType), nil)
-	}
-	return nil
-}
-
-// validateSubjectDigests validates VSA subjects have proper structure
-func (v *VSA) validateSubjectDigests() error {
-	if len(v.Subject) == 0 {
-		return NewValidationError("subject", "no subjects found in VSA", nil)
-	}
-
-	for i, subject := range v.Subject {
-		if subject.Name == "" {
-			return NewValidationError("subject", 
-				fmt.Sprintf("subject %d missing name", i), nil)
-		}
-
-		if len(subject.Digest) == 0 {
-			return NewValidationError("subject", 
-				fmt.Sprintf("subject %d missing digest", i), nil)
-		}
-	}
-
-	return nil
-}
-
-// validateVerifier validates the VSA verifier
-func (v *VSA) validateVerifier() error {
-	if v.Predicate.Verifier.ID == "" {
-		return NewValidationError("verifier", "verifier ID is required", nil)
-	}
-
-	// Validate verifier ID format (should be a URL)
-	if !strings.HasPrefix(v.Predicate.Verifier.ID, "https://") {
-		return NewValidationError("verifier", 
-			fmt.Sprintf("verifier ID should be a URL: %s", v.Predicate.Verifier.ID), nil)
-	}
-
-	return nil
-}
-
-// validateResourceURI validates the resource URI
-func (v *VSA) validateResourceURI() error {
-	if v.Predicate.ResourceURI == "" {
-		return NewValidationError("resourceUri", "resourceURI is required", nil)
-	}
-	return nil
-}
-
-// validateVerificationResult validates the verification result
-func (v *VSA) validateVerificationResult() error {
-	if v.Predicate.VerificationResult == "" {
-		return NewValidationError("verificationResult", "verificationResult is required", nil)
-	}
-
-	if v.Predicate.VerificationResult != "PASSED" && v.Predicate.VerificationResult != "FAILED" {
-		return NewValidationError("verificationResult", 
-			fmt.Sprintf("invalid verificationResult: %s (must be PASSED or FAILED)", v.Predicate.VerificationResult), nil)
-	}
-
-	return nil
-}
-
-// validateSLSALevels validates SLSA level formats
-func (v *VSA) validateSLSALevels() error {
-	_, err := ExtractSLSATrackLevels(v.Predicate.VerifiedLevels)
-	return err
-}
 
 // extractDigestFromImageRef extracts SHA256 digest from image reference
 func extractDigestFromImageRef(imageRef string) (string, error) {

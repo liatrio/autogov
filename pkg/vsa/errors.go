@@ -1,6 +1,12 @@
+// Package vsa - errors.go
+// Contains error types and constructors for VSA validation and parsing errors.
+// Provides standardized error handling across the VSA package.
+
 package vsa
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // VSAError represents a structured error for VSA operations
 type VSAError struct {

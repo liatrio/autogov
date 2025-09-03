@@ -19,6 +19,7 @@ A production-ready tool for verifying GitHub Artifact Attestations with SLSA v1.
 - **Certificate Identity Validation**: Validates against approved certificate identity lists
 - **Offline Verification**: Supports pre-downloaded attestation artifacts
 - **Dynamic Trusted Root**: Automatically fetches latest GitHub trusted roots
+- **VSA Validation**: Comprehensive field validation, structured error handling, and multi-format digest support
 - **Production Ready**: Comprehensive error handling, caching, and monitoring support
 
 This tool verifies GitHub Artifact Attestations using the sigstore-go v1.0.0 API and supports attestations in the Sigstore bundle format used by [GitHub Artifact Attestations, npm Provenance, Homebrew Provenance, etc](https://blog.sigstore.dev/cosign-verify-bundles/).
@@ -127,7 +128,7 @@ And one of the following:
 
 ### Optional Flags
 
-- `--cert-issuer, -s`: Certificate issuer to verify against (default: https://token.actions.githubusercontent.com)
+- `--cert-issuer, -s`: Certificate issuer to verify against (default: <https://token.actions.githubusercontent.com>)
 - `--source-ref, -r`: Source repository ref to verify against (e.g., refs/heads/main)
 - `--quiet, -q`: Only show errors and final results
 
@@ -140,12 +141,20 @@ The tool supports validating certificate identities against a source of truth li
 
 #### VSA and Policy Flags
 
-The tool supports generating SLSA v1.1 Verification Summary Attestations (VSAs) and evaluating OPA policies:
+The tool supports generating SLSA v1.1 Verification Summary Attestations (VSAs) with enhanced validation and evaluating OPA policies:
 
-- `--generate-vsa`: Generate a VSA after successful verification
+- `--generate-vsa`: Generate a VSA after successful verification with comprehensive validation
 - `--vsa-output`: Path to save the generated VSA (e.g., `./verification-summary.json`)
 - `--policy-bundle-path`: Path or URL to OPA policy bundle for evaluation
+- `--policy-uri`: Policy URI for VSA generation (required if --generate-vsa is used)
 - `--attestations-path`: Path to directory containing attestation files for offline verification
+
+**Enhanced VSA Features:**
+
+- **Comprehensive Validation**: Detailed field validation with structured error types
+- **SLSA Level Parsing**: Robust parsing of SLSA levels with track extraction (e.g., `SLSA_BUILD_LEVEL_3`)
+- **Multi-Format Digest Support**: Validation for multiple hash algorithms beyond SHA256
+- **Policy Integration**: OPA policy evaluation results included in VSA metadata
 
 The certificate identity source of truth is a JSON file with the following structure:
 
@@ -247,7 +256,7 @@ autogov-verify \
   --cert-identity-list "https://raw.githubusercontent.com/liatrio/liatrio-gh-autogov-workflows/refs/heads/main/cert-identities.json"
 ```
 
-Generate VSA with policy evaluation:
+Generate enhanced VSA with policy evaluation:
 
 ```bash
 export GITHUB_AUTH_TOKEN=your_token
@@ -256,8 +265,18 @@ autogov-verify \
   --artifact-digest "ghcr.io/liatrio/demo-gh-autogov-workflows@sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
   --generate-vsa \
   --vsa-output ./verification-summary.json \
+  --policy-uri "https://github.com/liatrio/liatrio-rego-policy-library" \
   --policy-bundle-path "ghcr.io/liatrio/liatrio-rego-policy-library:latest"
 ```
+
+**VSA Output Features:**
+
+- **Comprehensive Validation**: All VSA fields validated with detailed error reporting
+- **SLSA Level Details**: Verified levels include `SLSA_BUILD_LEVEL_3` (per SLSA v1.1 specification) plus custom autogov levels
+- **Policy Results**: Complete OPA policy evaluation results and violations
+- **Attestation Summary**: Details of all verified attestation types (vulnerability, SBOM, provenance, cosign)
+
+**SLSA v1.1 Compliance**: The tool validates against official SLSA Build track levels (L0-L3) as defined in the [SLSA v1.1 specification](https://slsa.dev/spec/v1.1/levels)
 
 ## Output
 

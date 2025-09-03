@@ -4,6 +4,12 @@ import (
 	"testing"
 )
 
+const (
+	testStatementType = "https://in-toto.io/Statement/v1"
+	testPredicateType = "https://slsa.dev/verification_summary/v1"
+	testURI           = "https://test.com"
+)
+
 func TestVSAComprehensiveValidation(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -15,11 +21,11 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 		{
 			name: "valid VSA",
 			vsa: &VSA{
-				Type:          "https://in-toto.io/Statement/v1",
-				PredicateType: "https://slsa.dev/verification_summary/v1",
+				Type:          testStatementType,
+				PredicateType: testPredicateType,
 				Subject: []VSASubject{
 					{
-						Name: "test-image",
+						URI: testURI,
 						Digest: map[string]string{
 							"sha256": "a7833c841a486169ec4b376ebec4561f9de5280add97b86ebd075e401d3fd052",
 						},
@@ -27,13 +33,12 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 				},
 				Predicate: VSAPredicate{
 					Verifier: VSAVerifier{
-						ID: "https://github.com/liatrio/autogov-verify",
+						ID: testURI,
 					},
-					ResourceURI:        "test-resource",
+					ResourceURI:        testURI,
 					VerificationResult: "PASSED",
-					VerifiedLevels: []string{
-						"SLSA_BUILD_LEVEL_3",
-						"AUTOGOV_ATTESTATION_REQUIRED",
+					VerifiedLevels: []VSALevel{
+						{Level: "SLSA_BUILD_LEVEL_3", Track: "BUILD"},
 					},
 				},
 			},
@@ -43,12 +48,12 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 			name: "invalid statement type",
 			vsa: &VSA{
 				Type:          "invalid-type",
-				PredicateType: "https://slsa.dev/verification_summary/v1",
+				PredicateType: testPredicateType,
 				Subject: []VSASubject{
-					{Name: "test", Digest: map[string]string{"sha256": "abc123"}},
+					{URI: "test", Digest: map[string]string{"sha256": "a7833c841a486169ec4b376ebec4561f9de5280add97b86ebd075e401d3fd052"}},
 				},
 				Predicate: VSAPredicate{
-					Verifier:           VSAVerifier{ID: "https://test.com"},
+					Verifier:           VSAVerifier{ID: testURI},
 					ResourceURI:        "test",
 					VerificationResult: "PASSED",
 				},
@@ -60,13 +65,13 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 		{
 			name: "invalid predicate type",
 			vsa: &VSA{
-				Type:          "https://in-toto.io/Statement/v1",
+				Type:          testStatementType,
 				PredicateType: "invalid-predicate",
 				Subject: []VSASubject{
-					{Name: "test", Digest: map[string]string{"sha256": "abc123"}},
+					{URI: "test", Digest: map[string]string{"sha256": "a7833c841a486169ec4b376ebec4561f9de5280add97b86ebd075e401d3fd052"}},
 				},
 				Predicate: VSAPredicate{
-					Verifier:           VSAVerifier{ID: "https://test.com"},
+					Verifier:           VSAVerifier{ID: testURI},
 					ResourceURI:        "test",
 					VerificationResult: "PASSED",
 				},
@@ -78,10 +83,10 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 		{
 			name: "missing verifier ID",
 			vsa: &VSA{
-				Type:          "https://in-toto.io/Statement/v1",
-				PredicateType: "https://slsa.dev/verification_summary/v1",
+				Type:          testStatementType,
+				PredicateType: testPredicateType,
 				Subject: []VSASubject{
-					{Name: "test", Digest: map[string]string{"sha256": "abc123"}},
+					{URI: "test", Digest: map[string]string{"sha256": "a7833c841a486169ec4b376ebec4561f9de5280add97b86ebd075e401d3fd052"}},
 				},
 				Predicate: VSAPredicate{
 					Verifier:           VSAVerifier{ID: ""},
@@ -96,15 +101,21 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 		{
 			name: "invalid verification result",
 			vsa: &VSA{
-				Type:          "https://in-toto.io/Statement/v1",
-				PredicateType: "https://slsa.dev/verification_summary/v1",
+				Type:          testStatementType,
+				PredicateType: testPredicateType,
 				Subject: []VSASubject{
-					{Name: "test", Digest: map[string]string{"sha256": "abc123"}},
+					{
+						URI: testURI,
+						Digest: map[string]string{"sha256": "a7833c841a486169ec4b376ebec4561f9de5280add97b86ebd075e401d3fd052"},
+					},
 				},
 				Predicate: VSAPredicate{
-					Verifier:           VSAVerifier{ID: "https://test.com"},
-					ResourceURI:        "test",
-					VerificationResult: "INVALID",
+					Verifier: VSAVerifier{
+						ID: testURI,
+						Version: map[string]string{"version": "1.0"},
+					},
+					TimeVerified: "",
+					ResourceURI:  testURI,
 				},
 			},
 			wantErr:  true,
@@ -114,17 +125,25 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 		{
 			name: "invalid SLSA level format",
 			vsa: &VSA{
-				Type:          "https://in-toto.io/Statement/v1",
-				PredicateType: "https://slsa.dev/verification_summary/v1",
+				Type:          testStatementType,
+				PredicateType: testPredicateType,
 				Subject: []VSASubject{
-					{Name: "test", Digest: map[string]string{"sha256": "abc123"}},
+					{
+						URI: testURI,
+						Digest: map[string]string{"sha256": "a7833c841a486169ec4b376ebec4561f9de5280add97b86ebd075e401d3fd052"},
+					},
 				},
 				Predicate: VSAPredicate{
-					Verifier:           VSAVerifier{ID: "https://test.com"},
-					ResourceURI:        "test",
+					Verifier: VSAVerifier{
+						ID: testURI,
+						Version: map[string]string{"version": "1.0"},
+					},
+					TimeVerified:       "2023-01-01T00:00:00Z",
+					ResourceURI:        testURI,
+					Policy:             VSAPolicy{URI: testURI},
 					VerificationResult: "PASSED",
-					VerifiedLevels: []string{
-						"SLSA_INVALID_FORMAT",
+					VerifiedLevels: []VSALevel{
+						{Level: "SLSA_BUILD_INVALID_FORMAT"},
 					},
 				},
 			},
@@ -256,7 +275,7 @@ func TestDigestValidation(t *testing.T) {
 	vsa := &VSA{
 		Subject: []VSASubject{
 			{
-				Name: "test-image",
+				URI: "test-image",
 				Digest: map[string]string{
 					"sha256": "a7833c841a486169ec4b376ebec4561f9de5280add97b86ebd075e401d3fd052",
 					"sha1":   "da39a3ee5e6b4b0d3255bfef95601890afd80709",
@@ -327,11 +346,11 @@ func TestDigestValidation(t *testing.T) {
 
 func TestValidateVSAFromJSON(t *testing.T) {
 	validVSAJSON := `{
-		"_type": "https://in-toto.io/Statement/v1",
-		"predicateType": "https://slsa.dev/verification_summary/v1",
+		"_type": "` + testStatementType + `",
+		"predicateType": "` + testPredicateType + `",
 		"subject": [
 			{
-				"name": "test-image",
+				"uri": "test-image",
 				"digest": {
 					"sha256": "a7833c841a486169ec4b376ebec4561f9de5280add97b86ebd075e401d3fd052"
 				}
@@ -352,10 +371,12 @@ func TestValidateVSAFromJSON(t *testing.T) {
 	vsa, err := ValidateVSA([]byte(validVSAJSON))
 	if err != nil {
 		t.Errorf("ValidateVSA() unexpected error: %v", err)
+		return
 	}
 	
 	if vsa == nil {
 		t.Error("ValidateVSA() returned nil VSA")
+		return
 	}
 	
 	if vsa.Predicate.VerificationResult != "PASSED" {
