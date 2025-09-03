@@ -283,12 +283,7 @@ func (v *VSA) validateVerificationResult() error {
 
 // validateSLSALevels validates SLSA level formats
 func (v *VSA) validateSLSALevels() error {
-	// Convert VSALevel slice to string slice for compatibility
-	levelStrings := make([]string, len(v.Predicate.VerifiedLevels))
-	for i, level := range v.Predicate.VerifiedLevels {
-		levelStrings[i] = level.Level
-	}
-
-	_, err := ExtractSLSATrackLevels(levelStrings)
+	// VerifiedLevels is already a string slice per spec
+	_, err := ExtractSLSATrackLevels(v.Predicate.VerifiedLevels)
 	return err
 }

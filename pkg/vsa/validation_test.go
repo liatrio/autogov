@@ -38,8 +38,8 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 					},
 					ResourceURI:        testURI,
 					VerificationResult: "PASSED",
-					VerifiedLevels: []VSALevel{
-						{Level: "SLSA_BUILD_LEVEL_3", Track: "BUILD"},
+					VerifiedLevels: []string{
+						"SLSA_BUILD_LEVEL_3",
 					},
 				},
 			},
@@ -140,8 +140,8 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 					ResourceURI:        testURI,
 					Policy:             VSAPolicy{URI: testURI},
 					VerificationResult: "PASSED",
-					VerifiedLevels: []VSALevel{
-						{Level: "SLSA_BUILD_INVALID_FORMAT"},
+					VerifiedLevels: []string{
+						"SLSA_BUILD_INVALID_FORMAT",
 					},
 				},
 			},

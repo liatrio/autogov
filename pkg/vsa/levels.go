@@ -48,12 +48,13 @@ func ExtractSLSATrackLevels(trackLevels []string) (SLSATrackLevels, error) {
 	return result, nil
 }
 
-// ExtractSLSALevels extracts SLSA levels from VSALevel slice
-func ExtractSLSALevels(levels []VSALevel) []string {
+// ExtractSLSALevels extracts valid SLSA levels from a string slice
+// This is now a simple filter since verifiedLevels is already []string per spec
+func ExtractSLSALevels(levels []string) []string {
 	var result []string
 	for _, level := range levels {
-		if IsSLSATrackLevel(level.Level) {
-			result = append(result, level.Level)
+		if IsSLSATrackLevel(level) {
+			result = append(result, level)
 		}
 	}
 	return result

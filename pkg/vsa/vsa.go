@@ -39,7 +39,8 @@ type VSAPolicy struct {
 	Digest  map[string]string `json:"digest,omitempty"`  // Policy digest
 }
 
-// VSALevel represents a verified SLSA level
+// VSALevel represents a verified SLSA level (for internal use only)
+// The actual VSA predicate uses string array for verifiedLevels per spec
 type VSALevel struct {
 	Level string `json:"level"`           // e.g., "SLSA_BUILD_LEVEL_3"
 	Track string `json:"track,omitempty"` // e.g., "BUILD", "SOURCE"
@@ -51,13 +52,12 @@ func (v *VSALevel) UnmarshalJSON(data []byte) error {
 	// Try to unmarshal as string first (legacy format)
 	var levelStr string
 	if err := json.Unmarshal(data, &levelStr); err == nil {
-		v.Level = levelStr
-		// Extract track from level string if possible
-		if strings.HasPrefix(levelStr, "SLSA_") {
-			parts := strings.Split(levelStr, "_")
-			if len(parts) >= 2 {
-				v.Track = parts[1]
-			}
+		// Parse the string format to extract track if present
+		if strings.HasPrefix(levelStr, "SLSA_BUILD_LEVEL_") {
+			v.Level = levelStr
+			v.Track = "BUILD"
+		} else {
+			v.Level = levelStr
 		}
 		return nil
 	}
@@ -79,8 +79,8 @@ type VSAPredicate struct {
 	Policy             VSAPolicy            `json:"policy"`                      // Support both content and URI
 	InputAttestations  []ResourceDescriptor `json:"inputAttestations,omitempty"` // NEW in v1.1
 	VerificationResult string               `json:"verificationResult"`          // PASSED or FAILED
-	VerifiedLevels     []VSALevel           `json:"verifiedLevels,omitempty"`    // SLSA levels achieved
-	DependencyLevels   map[string]int       `json:"dependencyLevels,omitempty"`  // NEW in v1.1: count of deps at each level (deprecated - use policy evaluation)
+	VerifiedLevels     []string             `json:"verifiedLevels,omitempty"`    // SLSA levels achieved (spec: array of strings)
+	DependencyLevels   map[string]uint64    `json:"dependencyLevels,omitempty"`  // NEW in v1.1: count of deps at each level
 	SlsaVersion        string               `json:"slsaVersion,omitempty"`       // NEW in v1.1
 }
 
@@ -141,7 +141,7 @@ func GenerateVSAWithOptions(imageRef string, policyURI string, verificationResul
 	}
 
 	// Note: Dependency level analysis moved to policy evaluation layer
-	dependencyLevels := make(map[string]int) // Empty map for backward compatibility
+	dependencyLevels := make(map[string]uint64) // Empty map for backward compatibility
 
 	vsa := &VSA{
 		Type:          "https://in-toto.io/Statement/v1",
@@ -167,8 +167,8 @@ func GenerateVSAWithOptions(imageRef string, policyURI string, verificationResul
 			},
 			InputAttestations:  opts.InputAttestations,
 			VerificationResult: result,
-			VerifiedLevels: []VSALevel{
-				{Level: "SLSA_BUILD_LEVEL_3", Track: "BUILD"},
+			VerifiedLevels: []string{
+				"SLSA_BUILD_LEVEL_3",
 			},
 			DependencyLevels: dependencyLevels,
 			SlsaVersion:      "1.1",
