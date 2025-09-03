@@ -85,9 +85,37 @@ If testing locally, use a PAT (e.g., a [Classic Personal Token](https://docs.git
 go install github.com/liatrio/autogov-verify@latest
 ```
 
-## Local Development
+## Development
 
-The project includes a Makefile with several useful targets for local development:
+### Prerequisites
+
+- Go 1.21 or higher
+- GitHub CLI (`gh`) for trusted root fetching
+- Docker for container registry access
+- golangci-lint for code quality checks
+- GitHub Personal Access Token with appropriate permissions
+
+### Local Development
+
+```bash
+# Clone and setup
+git clone https://github.com/liatrio/autogov-verify
+cd autogov-verify
+
+# Install dependencies
+go mod download
+
+# Run tests
+make test
+
+# Build binary
+make build
+
+# Run linter
+make lint
+```
+
+### Available Make Targets
 
 ```bash
 make help         # Show all available make targets
@@ -100,12 +128,50 @@ make verify      # Run format, lint, and test
 make install     # Install binary to /usr/local/bin
 ```
 
-For development, you'll need:
+### Testing
 
-- Go 1.21 or higher
-- golangci-lint (for linting)
-- A GitHub Personal Access Token with appropriate organization permissions for testing
-  - Set the token as the `GITHUB_AUTH_TOKEN` environment variable to run tests
+```bash
+# Unit tests
+go test ./...
+
+# Integration tests with real attestations
+export GITHUB_AUTH_TOKEN=your_token
+go test -tags=integration ./...
+
+# Test with coverage
+go test -cover ./...
+
+# Benchmark tests
+go test -bench=. ./...
+```
+
+### Architecture Overview
+
+The tool is organized into several key packages:
+
+- **`pkg/attestations/`**: GitHub API integration, sigstore verification, certificate validation
+- **`pkg/vsa/`**: SLSA v1.1 VSA generation with comprehensive validation
+- **`pkg/policy/`**: OPA integration for policy evaluation
+- **`pkg/storage/`**: ORAS-Go integration for VSA storage in OCI registries
+- **`pkg/certid/`**: Certificate identity validation against approved lists
+- **`pkg/github/`**: GitHub client and token management
+
+### Contributing
+
+1. **Create an issue** for new features or bugs
+2. **Fork the repository** and create a feature branch
+3. **Write tests** for your changes (maintain >75% coverage)
+4. **Run `make verify`** to ensure code quality
+5. **Submit a pull request** with a clear description
+
+#### Code Standards
+
+- Follow Go best practices and idioms
+- Prefer functional programming patterns
+- Use meaningful variable and function names
+- Add comprehensive error handling with context
+- Document all public APIs with GoDoc comments
+- Ensure zero linter warnings (`golangci-lint run`)
 
 ## Usage
 
@@ -395,6 +461,36 @@ or
 
 ```text
 ⚠ Failed to fetch dynamic trusted root, using embedded fallback
+```
+
+## Advanced Features
+
+### VSA Generation with Policy Evaluation
+
+The tool generates SLSA v1.1 compliant Verification Summary Attestations (VSAs) with integrated OPA policy evaluation:
+
+```go
+// Verification workflow
+1. Collect attestations from GitHub
+2. Verify signatures using sigstore-go
+3. Evaluate OPA/Rego policies
+4. Generate comprehensive VSA
+5. Store VSA in OCI registry
+```
+
+### Offline Verification
+
+For environments without GitHub API access, use pre-downloaded attestations:
+
+```bash
+# Download attestations
+gh attestation download --repo owner/repo --digest sha256:xxx
+
+# Verify offline
+autogov-verify \
+  --blob-path file.txt \
+  --attestations-path ./attestations \
+  --cert-identity "..."
 ```
 
 ## Troubleshooting

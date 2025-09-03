@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -23,10 +24,8 @@ const (
 func TestRealAttestationFiles(t *testing.T) {
 	// Test with real attestation files from testdata
 	attestationFiles := []string{
-		"../../testdata/attestations/liatrio-demo-gh-autogov-workflows-attestation-8988149.sigstore.json",
-		"../../testdata/attestations/liatrio-liatrio-gh-autogov-workflows-attestation-9778641.sigstore.json",
-		"../../testdata/attestations/liatrio-liatrio-rego-policy-library-attestation-9125692.sigstore.json",
-		"../../testdata/attestations/liatrio-liatrio-rego-policy-library-attestation-9125693.sigstore.json",
+		"../../testdata/attestations/multi-type-attestations.jsonl",
+		"../../testdata/attestations/single-slsa-provenance.json",
 	}
 
 	for _, attestationFile := range attestationFiles {
@@ -44,9 +43,29 @@ func TestRealAttestationFiles(t *testing.T) {
 			}
 
 			// Parse attestation to extract metadata
+			// Handle both JSON and JSONL formats
 			var attestation map[string]interface{}
+			
+			// Try parsing as regular JSON first
 			if err := json.Unmarshal(attestationData, &attestation); err != nil {
-				t.Fatalf("Failed to parse attestation: %v", err)
+				// If regular JSON fails, try JSONL format (newline-delimited JSON)
+				lines := strings.Split(string(attestationData), "\n")
+				for _, line := range lines {
+					line = strings.TrimSpace(line)
+					if line == "" {
+						continue
+					}
+					// Try to parse each line as JSON
+					if err := json.Unmarshal([]byte(line), &attestation); err == nil {
+						// Successfully parsed a line, use it
+						break
+					}
+				}
+				
+				// If still no valid attestation found, fail
+				if attestation == nil {
+					t.Fatalf("Failed to parse attestation (tried both JSON and JSONL formats): %v", err)
+				}
 			}
 
 			// Create VSA with real attestation as input
@@ -141,11 +160,12 @@ func calculateFileHash(data []byte) string {
 	return "file-hash-" + string(rune(len(data)%1000))
 }
 
+
 // TestVSAWithMultipleRealAttestations tests VSA generation with multiple real attestations
 func TestVSAWithMultipleRealAttestations(t *testing.T) {
 	attestationFiles := []string{
-		"../../testdata/attestations/liatrio-demo-gh-autogov-workflows-attestation-8988149.sigstore.json",
-		"../../testdata/attestations/liatrio-liatrio-gh-autogov-workflows-attestation-9778641.sigstore.json",
+		"../../testdata/attestations/multi-type-attestations.jsonl",
+		"../../testdata/attestations/single-slsa-provenance.json",
 	}
 
 	var inputAttestations []ResourceDescriptor
