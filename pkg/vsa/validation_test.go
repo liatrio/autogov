@@ -8,6 +8,7 @@ const (
 	testStatementType = "https://in-toto.io/Statement/v1"
 	testPredicateType = "https://slsa.dev/verification_summary/v1"
 	testURI           = "https://test.com"
+	testDigest        = "a7833c841a486169ec4b376ebec4561f9de5280add97b86ebd075e401d3fd052"
 )
 
 func TestVSAComprehensiveValidation(t *testing.T) {
@@ -123,20 +124,17 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 			errField: "verificationResult",
 		},
 		{
-			name: "invalid SLSA level format",
+			name: "invalid SLSA level format (ignored)",
 			vsa: &VSA{
-				Type:          testStatementType,
-				PredicateType: testPredicateType,
-				Subject: []VSASubject{
-					{
-						URI: testURI,
-						Digest: map[string]string{"sha256": "a7833c841a486169ec4b376ebec4561f9de5280add97b86ebd075e401d3fd052"},
-					},
-				},
+				Type: "https://in-toto.io/Statement/v1",
+				PredicateType: "https://slsa.dev/verification_summary/v1",
+				Subject: []VSASubject{{
+					URI:    testURI,
+					Digest: map[string]string{"sha256": testDigest},
+				}},
 				Predicate: VSAPredicate{
 					Verifier: VSAVerifier{
 						ID: testURI,
-						Version: map[string]string{"version": "1.0"},
 					},
 					TimeVerified:       "2023-01-01T00:00:00Z",
 					ResourceURI:        testURI,
@@ -147,9 +145,9 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 					},
 				},
 			},
-			wantErr:  true,
-			errType:  "validation",
-			errField: "verifiedLevels",
+			wantErr:  false, // Invalid formats are ignored, not errors
+			errType:  "",
+			errField: "",
 		},
 	}
 
@@ -185,91 +183,7 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 	}
 }
 
-func TestExtractSLSATrackLevels(t *testing.T) {
-	tests := []struct {
-		name           string
-		verifiedLevels []string
-		expected       SLSATrackLevels
-		wantErr        bool
-	}{
-		{
-			name: "valid SLSA levels",
-			verifiedLevels: []string{
-				"SLSA_BUILD_LEVEL_3",
-				"SLSA_SOURCE_LEVEL_2",
-				"AUTOGOV_CUSTOM_LEVEL",
-			},
-			expected: SLSATrackLevels{
-				"BUILD":  3,
-				"SOURCE": 2,
-			},
-			wantErr: false,
-		},
-		{
-			name: "highest level per track",
-			verifiedLevels: []string{
-				"SLSA_BUILD_LEVEL_2",
-				"SLSA_BUILD_LEVEL_3",
-				"SLSA_BUILD_LEVEL_1",
-			},
-			expected: SLSATrackLevels{
-				"BUILD": 3,
-			},
-			wantErr: false,
-		},
-		{
-			name: "invalid SLSA level format",
-			verifiedLevels: []string{
-				"SLSA_INVALID_FORMAT",
-			},
-			wantErr: true,
-		},
-		{
-			name: "invalid level number",
-			verifiedLevels: []string{
-				"SLSA_BUILD_LEVEL_INVALID",
-			},
-			wantErr: true,
-		},
-		{
-			name: "level out of range",
-			verifiedLevels: []string{
-				"SLSA_BUILD_LEVEL_5",
-			},
-			wantErr: true,
-		},
-	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExtractSLSATrackLevels(tt.verifiedLevels)
-			
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("ExtractSLSATrackLevels() expected error, got nil")
-				}
-				return
-			}
-			
-			if err != nil {
-				t.Errorf("ExtractSLSATrackLevels() unexpected error: %v", err)
-				return
-			}
-			
-			if len(result) != len(tt.expected) {
-				t.Errorf("ExtractSLSATrackLevels() result length = %d, want %d", len(result), len(tt.expected))
-			}
-			
-			for track, expectedLevel := range tt.expected {
-				if actualLevel, exists := result[track]; !exists {
-					t.Errorf("ExtractSLSATrackLevels() missing track %s", track)
-				} else if actualLevel != expectedLevel {
-					t.Errorf("ExtractSLSATrackLevels() track %s level = %d, want %d", track, actualLevel, expectedLevel)
-				}
-			}
-		})
-	}
-}
 
 func TestDigestValidation(t *testing.T) {
 	vsa := &VSA{

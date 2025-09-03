@@ -278,6 +278,63 @@ autogov-verify \
 
 **SLSA v1.1 Compliance**: The tool validates against official SLSA Build track levels (L0-L3) as defined in the [SLSA v1.1 specification](https://slsa.dev/spec/v1.1/levels)
 
+### VSA Metadata Structure
+
+The generated VSA includes comprehensive metadata about the verification and policy evaluation:
+
+```json
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "subject": [...],
+  "predicateType": "https://slsa.dev/verification_summary/v1.1",
+  "predicate": {
+    "verifier": {...},
+    "timeVerified": "2024-01-20T15:30:00Z",
+    "policy": {...},
+    "inputAttestations": [...],
+    "verificationResult": "PASSED",
+    "verifiedLevels": [...]
+  },
+  "metadata": {
+    "autogov.policy.evaluation": {
+      "result": "PASSED",
+      "violations": [],
+      "evaluation_time": "2024-01-20T15:30:00Z",
+      "policy_bundle": "ghcr.io/liatrio/liatrio-rego-policy-library:latest",
+      "opa_version": "v1.8.0",
+      "governance_rules": ["governance.allow", "governance.violations"],
+      "details": {
+        "total_policies": 15,
+        "policies_evaluated": 15,
+        "policies_passed": 15
+      }
+    },
+    "autogov.policy.violation_summary": {
+      // Grouped violations by policy type (if any)
+    },
+    "autogov.policy.metrics": {
+      "total_violations": 0,
+      "compliance_status": "PASSED",
+      "input_attestations": 4,
+      "evaluation_duration": 125
+    },
+    "autogov.verification.details": {
+      "provenance": true,
+      "sbom": true,
+      "vulnerability": true,
+      "cosign": true
+    }
+  }
+}
+```
+
+**Metadata Fields:**
+
+- **`autogov.policy.evaluation`**: Core policy evaluation results including pass/fail status, violations, and policy details
+- **`autogov.policy.violation_summary`**: Violations grouped by policy type for quick identification of issues
+- **`autogov.policy.metrics`**: Compliance metrics and statistics for reporting
+- **`autogov.verification.details`**: Attestation verification results by type
+
 ## Output
 
 The tool provides detailed output about the verification process:

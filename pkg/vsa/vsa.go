@@ -61,7 +61,7 @@ func (v *VSALevel) UnmarshalJSON(data []byte) error {
 		}
 		return nil
 	}
-	
+
 	// Try to unmarshal as object (new format)
 	type Alias VSALevel
 	aux := &struct {
@@ -74,14 +74,14 @@ func (v *VSALevel) UnmarshalJSON(data []byte) error {
 
 type VSAPredicate struct {
 	Verifier           VSAVerifier          `json:"verifier"`
-	TimeVerified       string               `json:"timeVerified"`                // ISO 8601 timestamp
+	TimeVerified       string               `json:"timeVerified"` // ISO 8601 timestamp
 	ResourceURI        string               `json:"resourceUri"`
 	Policy             VSAPolicy            `json:"policy"`                      // Support both content and URI
 	InputAttestations  []ResourceDescriptor `json:"inputAttestations,omitempty"` // NEW in v1.1
 	VerificationResult string               `json:"verificationResult"`          // PASSED or FAILED
 	VerifiedLevels     []VSALevel           `json:"verifiedLevels,omitempty"`    // SLSA levels achieved
-	DependencyLevels   map[string]int       `json:"dependencyLevels,omitempty"` // NEW in v1.1: count of deps at each level (deprecated - use policy evaluation)
-	SlsaVersion        string               `json:"slsaVersion,omitempty"`      // NEW in v1.1
+	DependencyLevels   map[string]int       `json:"dependencyLevels,omitempty"`  // NEW in v1.1: count of deps at each level (deprecated - use policy evaluation)
+	SlsaVersion        string               `json:"slsaVersion,omitempty"`       // NEW in v1.1
 }
 
 type VSAVerifier struct {
@@ -187,7 +187,6 @@ func GenerateVSAWithOptions(imageRef string, policyURI string, verificationResul
 func GenerateVSA(imageRef string, policyURI string, verificationResults map[string]bool) (*VSA, error) {
 	return GenerateVSAWithOptions(imageRef, policyURI, verificationResults, VSAOptions{})
 }
-
 
 // extractDigestFromImageRef extracts SHA256 digest from image reference
 func extractDigestFromImageRef(imageRef string) (string, error) {

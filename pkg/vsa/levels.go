@@ -1,78 +1,82 @@
-// Package vsa - levels.go
-// Contains SLSA level parsing, validation, and utility functions.
-// Handles SLSA track level extraction and validation logic.
-
 package vsa
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 )
 
-// SLSATrackLevels represents SLSA levels organized by track
-type SLSATrackLevels map[string]int
+// SLSATrackLevels represents the SLSA tracks and their levels
+type SLSATrackLevels struct {
+	BuildTrack      int
+	DependencyTrack int
+}
 
-// ExtractSLSATrackLevels parses SLSA levels from string format and returns highest level per track
-func ExtractSLSATrackLevels(verifiedLevels []string) (SLSATrackLevels, error) {
-	trackLevels := make(SLSATrackLevels)
-	
-	for _, level := range verifiedLevels {
-		if !strings.HasPrefix(level, "SLSA_") {
+// ExtractSLSATrackLevels parses SLSA track levels from a list of strings
+func ExtractSLSATrackLevels(trackLevels []string) (SLSATrackLevels, error) {
+	var result SLSATrackLevels
+
+	for _, level := range trackLevels {
+		parts := strings.Split(level, "_")
+		if len(parts) < 4 {
 			continue
 		}
-		
-		parts := strings.SplitN(level, "_", 4)
-		if len(parts) != 4 {
-			return nil, NewValidationError("verifiedLevels", 
-				fmt.Sprintf("invalid SLSA level format: %s (expected SLSA_<TRACK>_LEVEL_<N>)", level), nil)
+
+		// Format: SLSA_<TRACK>_LEVEL_<NUMBER>
+		if parts[0] != "SLSA" || parts[2] != "LEVEL" {
+			continue
 		}
-		
+
 		track := parts[1]
-		levelStr := parts[3]
-		
-		levelNum, err := strconv.Atoi(levelStr)
+		levelNum := 0
+		_, err := fmt.Sscanf(parts[3], "%d", &levelNum)
 		if err != nil {
-			return nil, NewValidationError("verifiedLevels", 
-				fmt.Sprintf("invalid SLSA level number: %s", levelStr), err)
+			continue
 		}
-		
-		if levelNum < 1 || levelNum > 4 {
-			return nil, NewValidationError("verifiedLevels", 
-				fmt.Sprintf("SLSA level out of range (1-4): %d", levelNum), nil)
-		}
-		
-		// Keep the highest level for each track
-		if currentLevel, exists := trackLevels[track]; !exists || levelNum > currentLevel {
-			trackLevels[track] = levelNum
+
+		switch track {
+		case "BUILD":
+			if levelNum > result.BuildTrack {
+				result.BuildTrack = levelNum
+			}
+		case "DEPENDENCY":
+			if levelNum > result.DependencyTrack {
+				result.DependencyTrack = levelNum
+			}
 		}
 	}
-	
-	return trackLevels, nil
+
+	return result, nil
 }
 
-// ExtractSLSALevels extracts SLSA levels from a list of verified levels
-func ExtractSLSALevels(verifiedLevels []string) []string {
-	var slsaLevels []string
-	for _, level := range verifiedLevels {
-		if IsSLSATrackLevel(level) {
-			slsaLevels = append(slsaLevels, level)
+// ExtractSLSALevels extracts SLSA levels from VSALevel slice
+func ExtractSLSALevels(levels []VSALevel) []string {
+	var result []string
+	for _, level := range levels {
+		if IsSLSATrackLevel(level.Level) {
+			result = append(result, level.Level)
 		}
 	}
-	return slsaLevels
+	return result
 }
 
-// IsSLSATrackLevel checks if a level string represents a valid SLSA track level
+// IsSLSATrackLevel checks if a level string is a valid SLSA track level
 func IsSLSATrackLevel(level string) bool {
-	if !strings.HasPrefix(level, "SLSA_") {
-		return false
+	// Valid SLSA v1.1 track levels
+	validLevels := []string{
+		"SLSA_BUILD_LEVEL_0",
+		"SLSA_BUILD_LEVEL_1",
+		"SLSA_BUILD_LEVEL_2",
+		"SLSA_BUILD_LEVEL_3",
+		"SLSA_DEPENDENCY_LEVEL_0",
+		"SLSA_DEPENDENCY_LEVEL_1",
+		"SLSA_DEPENDENCY_LEVEL_2",
+		"SLSA_DEPENDENCY_LEVEL_3",
 	}
-	
-	parts := strings.SplitN(level, "_", 4)
-	if len(parts) != 4 || parts[2] != "LEVEL" {
-		return false
+
+	for _, valid := range validLevels {
+		if level == valid {
+			return true
+		}
 	}
-	
-	levelNum, err := strconv.Atoi(parts[3])
-	return err == nil && levelNum >= 1 && levelNum <= 4
+	return false
 }

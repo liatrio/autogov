@@ -130,37 +130,53 @@ func TestGenerateVSAWithOptions(t *testing.T) {
 // TestSLSALevelParsing tests the SLSA level parsing utilities
 func TestSLSALevelParsing(t *testing.T) {
 	testCases := []struct {
-		name           string
-		trackLevels    []string
-		expectedLevels map[string]int
-		expectError    bool
+		name               string
+		trackLevels        []string
+		expectedBuildTrack int
+		expectedDepTrack   int
+		expectError        bool
 	}{
 		{
-			name:        "Valid SLSA levels",
-			trackLevels: []string{"SLSA_BUILD_LEVEL_2", "SLSA_SOURCE_LEVEL_1", "SLSA_BUILD_LEVEL_3"},
-			expectedLevels: map[string]int{
-				"BUILD":  3, // Should take the highest level
-				"SOURCE": 1,
-			},
-			expectError: false,
+			name:               "Valid build levels only",
+			trackLevels:        []string{"SLSA_BUILD_LEVEL_2", "SLSA_BUILD_LEVEL_3"},
+			expectedBuildTrack: 3, // Should take the highest level
+			expectedDepTrack:   0,
+			expectError:        false,
 		},
 		{
-			name:        "Mixed SLSA and custom levels",
-			trackLevels: []string{"SLSA_BUILD_LEVEL_2", "CUSTOM_LEVEL", "AUTOGOV_ATTESTATION_REQUIRED"},
-			expectedLevels: map[string]int{
-				"BUILD": 2,
-			},
-			expectError: false,
+			name:               "Valid dependency levels only",
+			trackLevels:        []string{"SLSA_DEPENDENCY_LEVEL_1", "SLSA_DEPENDENCY_LEVEL_2"},
+			expectedBuildTrack: 0,
+			expectedDepTrack:   2, // Should take the highest level
+			expectError:        false,
 		},
 		{
-			name:        "Invalid SLSA level format",
-			trackLevels: []string{"SLSA_BUILD_INVALID"},
-			expectError: true,
+			name:               "Mixed build and dependency levels",
+			trackLevels:        []string{"SLSA_BUILD_LEVEL_2", "SLSA_DEPENDENCY_LEVEL_1", "SLSA_BUILD_LEVEL_3"},
+			expectedBuildTrack: 3,
+			expectedDepTrack:   1,
+			expectError:        false,
 		},
 		{
-			name:        "Invalid SLSA level number",
-			trackLevels: []string{"SLSA_BUILD_LEVEL_ABC"},
-			expectError: true,
+			name:               "Mixed SLSA and custom levels",
+			trackLevels:        []string{"SLSA_BUILD_LEVEL_2", "CUSTOM_LEVEL", "AUTOGOV_ATTESTATION_REQUIRED"},
+			expectedBuildTrack: 2,
+			expectedDepTrack:   0,
+			expectError:        false,
+		},
+		{
+			name:               "Invalid SLSA level format",
+			trackLevels:        []string{"SLSA_BUILD_INVALID"},
+			expectedBuildTrack: 0, // Invalid format is ignored
+			expectedDepTrack:   0,
+			expectError:        false,
+		},
+		{
+			name:               "Invalid SLSA level number",
+			trackLevels:        []string{"SLSA_BUILD_LEVEL_ABC"},
+			expectedBuildTrack: 0, // Invalid number is ignored
+			expectedDepTrack:   0,
+			expectError:        false,
 		},
 	}
 
@@ -180,14 +196,12 @@ func TestSLSALevelParsing(t *testing.T) {
 				return
 			}
 
-			if len(levels) != len(tc.expectedLevels) {
-				t.Errorf("Expected %d levels, got %d", len(tc.expectedLevels), len(levels))
+			if levels.BuildTrack != tc.expectedBuildTrack {
+				t.Errorf("Expected BuildTrack=%d, got %d", tc.expectedBuildTrack, levels.BuildTrack)
 			}
 
-			for track, expectedLevel := range tc.expectedLevels {
-				if levels[track] != expectedLevel {
-					t.Errorf("Expected level %d for track %s, got %d", expectedLevel, track, levels[track])
-				}
+			if levels.DependencyTrack != tc.expectedDepTrack {
+				t.Errorf("Expected DependencyTrack=%d, got %d", tc.expectedDepTrack, levels.DependencyTrack)
 			}
 		})
 	}
@@ -196,21 +210,34 @@ func TestSLSALevelParsing(t *testing.T) {
 // TestIsSLSATrackLevel tests the SLSA track level detection
 func TestIsSLSATrackLevel(t *testing.T) {
 	testCases := []struct {
+		name     string
 		level    string
 		expected bool
 	}{
-		{"SLSA_BUILD_LEVEL_2", true},
-		{"SLSA_SOURCE_LEVEL_1", true},
-		{"CUSTOM_LEVEL", false},
-		{"AUTOGOV_ATTESTATION_REQUIRED", false},
-		{"", false},
+		{"valid build level 0", "SLSA_BUILD_LEVEL_0", true},
+		{"valid build level 1", "SLSA_BUILD_LEVEL_1", true},
+		{"valid build level 2", "SLSA_BUILD_LEVEL_2", true},
+		{"valid build level 3", "SLSA_BUILD_LEVEL_3", true},
+		{"valid dependency level 0", "SLSA_DEPENDENCY_LEVEL_0", true},
+		{"valid dependency level 1", "SLSA_DEPENDENCY_LEVEL_1", true},
+		{"valid dependency level 2", "SLSA_DEPENDENCY_LEVEL_2", true},
+		{"valid dependency level 3", "SLSA_DEPENDENCY_LEVEL_3", true},
+		{"invalid - higher level number", "SLSA_BUILD_LEVEL_4", false},
+		{"invalid - source level", "SLSA_SOURCE_LEVEL_1", false},
+		{"invalid - custom level", "CUSTOM_LEVEL", false},
+		{"invalid - wrong format", "SLSA_INVALID_LEVEL", false},
+		{"invalid - empty string", "", false},
+		{"invalid - autogov level", "AUTOGOV_LEVEL_1", false},
+		{"invalid - partial match", "SLSA_BUILD", false},
+		{"invalid - case sensitivity", "slsa_build_level_1", false},
+		{"invalid - autogov attestation", "AUTOGOV_ATTESTATION_REQUIRED", false},
 	}
 
 	for _, tc := range testCases {
-		t.Run(tc.level, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			result := IsSLSATrackLevel(tc.level)
 			if result != tc.expected {
-				t.Errorf("Expected %v for level %s, got %v", tc.expected, tc.level, result)
+				t.Errorf("IsSLSATrackLevel(%q) = %v, want %v", tc.level, result, tc.expected)
 			}
 		})
 	}

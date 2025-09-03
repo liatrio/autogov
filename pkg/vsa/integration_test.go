@@ -13,9 +13,9 @@ import (
 
 // Test constants for integration tests
 const (
-	integrationTestImageRef = "ghcr.io/liatrio/test-image:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-	integrationTestImageRef2 = "ghcr.io/liatrio/multi-attestation-test:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-	integrationTestPolicyURI = "https://github.com/liatrio/liatrio-rego-policy-library/policies/security-policy"
+	integrationTestImageRef   = "ghcr.io/liatrio/test-image:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	integrationTestImageRef2  = "ghcr.io/liatrio/multi-attestation-test:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	integrationTestPolicyURI  = "https://github.com/liatrio/liatrio-rego-policy-library/policies/security-policy"
 	integrationTestPolicyURI2 = "https://github.com/liatrio/liatrio-rego-policy-library/policies/multi-attestation-policy"
 )
 

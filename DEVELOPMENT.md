@@ -72,9 +72,10 @@ AutoGov-Verify is a **production-ready** GitHub Artifact Attestation verificatio
 #### 3. Policy Engine (`pkg/policy/`)
 
 - **OPA Integration**: Uses OPA Go SDK for in-process evaluation
-- **Bundle Management**: Downloads and caches policy bundles
-- **Result Integration**: Includes policy results in VSA generation
-- **Sigstore Format**: Converts attestations to expected policy input format
+- **Bundle Management**: Downloads and caches policy bundles from OCI registries or local paths
+- **Result Integration**: Includes comprehensive policy results in VSA metadata
+- **Sigstore Format**: Converts OCI signatures to expected policy input format
+- **Violation Tracking**: Detailed violation messages grouped by policy type
 
 #### 4. Storage Layer (`pkg/storage/`)
 
@@ -95,11 +96,59 @@ func (av *AutoGovVerifier) VerifyAndGenerateVSA(imageRef string, policyPath stri
     // 3. Perform OPA/Rego policy evaluation
     policyResults, err := av.evaluateOPAPolicy(imageRef, attestations, policyPath)
     
-    // 4. Generate comprehensive VSA
+    // 4. Generate comprehensive VSA with enhanced metadata
     vsa := av.generateVSAWithResults(attestationResults, policyResults)
     
-    // 5. Store VSA using ORAS-Go
+    // 5. Add policy evaluation metadata to VSA
+    if policyResults != nil {
+        vsa.Metadata["autogov.policy.evaluation"] = PolicyEvaluation{
+            Result:      policyResults.Result,
+            Violations:  policyResults.Violations,
+            Timestamp:   policyResults.Timestamp,
+        }
+        vsa.Metadata["autogov.policy.metrics"] = PolicyMetrics{
+            TotalViolations: len(policyResults.Violations),
+            ComplianceStatus: policyResults.Result,
+        }
+    }
+    
+    // 6. Store VSA using ORAS-Go
     return av.storage.StoreVSA(context.Background(), vsa, imageRef)
+}
+```
+
+### VSA Metadata Structure
+
+The VSA includes comprehensive metadata about policy evaluation results:
+
+#### Policy Evaluation Metadata
+
+```json
+{
+  "autogov.policy.evaluation": {
+    "result": "PASSED" | "FAILED",
+    "violations": [
+      {
+        "policy": "security.metadata",
+        "message": "Missing required metadata field"
+      }
+    ],
+    "evaluation_time": "2024-01-20T15:30:00Z",
+    "policy_bundle": "/path/to/policy",
+    "opa_version": "v1.8.0",
+    "governance_rules": ["governance.allow", "governance.violations"],
+    "details": {...}
+  },
+  "autogov.policy.violation_summary": {
+    "security.metadata": ["Missing required field: description"],
+    "dependency.vulnerability": ["High severity: CVE-2024-1234"]
+  },
+  "autogov.policy.metrics": {
+    "total_violations": 2,
+    "compliance_status": "FAILED",
+    "input_attestations": 4,
+    "evaluation_duration": 125
+  }
 }
 ```
 
