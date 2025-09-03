@@ -17,19 +17,19 @@ import (
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
-// VSAStorage handles VSA storage and retrieval using ORAS-Go
+// handles VSA storage and retrieval using ORAS-Go
 type VSAStorage struct {
 	repo *remote.Repository
 }
 
-// NewVSAStorage creates a new VSA storage instance for a specific repository
+// creates a new VSA storage instance for a specific repository
 func NewVSAStorage(repoRef string) (*VSAStorage, error) {
 	repo, err := remote.NewRepository(repoRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create repository: %w", err)
 	}
 
-	// Configure authentication similar to attestations.go
+	// authentication config similar to attestations.go
 	repo.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
@@ -38,14 +38,14 @@ func NewVSAStorage(repoRef string) (*VSAStorage, error) {
 	return &VSAStorage{repo: repo}, nil
 }
 
-// NewVSAStorageWithAuth creates a VSA storage instance with authentication
+// creates a VSA storage instance with authentication
 func NewVSAStorageWithAuth(repoRef, username, token string) (*VSAStorage, error) {
 	repo, err := remote.NewRepository(repoRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create repository: %w", err)
 	}
 
-	// Configure authentication
+	// authentication config
 	repo.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
@@ -58,19 +58,19 @@ func NewVSAStorageWithAuth(repoRef, username, token string) (*VSAStorage, error)
 	return &VSAStorage{repo: repo}, nil
 }
 
-// StoreVSA stores a VSA as a manifest in the registry
+// stores a VSA as a manifest in the registry
 func (s *VSAStorage) StoreVSA(ctx context.Context, vsa *vsa.VSA, tag string) error {
-	// Marshal VSA to JSON
+	// VSA to JSON
 	vsaBytes, err := json.Marshal(vsa)
 	if err != nil {
 		return fmt.Errorf("failed to marshal VSA: %w", err)
 	}
 
-	// Calculate digest
+	// calculate digest
 	hash := sha256.Sum256(vsaBytes)
 	vsaDigest := digest.NewDigestFromBytes(digest.SHA256, hash[:])
 
-	// Create descriptor for VSA
+	// create descriptor for VSA
 	desc := ocispec.Descriptor{
 		MediaType: "application/vnd.in-toto+json",
 		Digest:    vsaDigest,
@@ -81,12 +81,12 @@ func (s *VSAStorage) StoreVSA(ctx context.Context, vsa *vsa.VSA, tag string) err
 		},
 	}
 
-	// Push VSA content as blob
+	// push VSA content as blob
 	if err := s.repo.Blobs().Push(ctx, desc, bytes.NewReader(vsaBytes)); err != nil {
 		return fmt.Errorf("failed to push VSA blob: %w", err)
 	}
 
-	// Create manifest
+	// create manifest
 	manifest := ocispec.Manifest{
 		MediaType: ocispec.MediaTypeImageManifest,
 		Config: ocispec.Descriptor{
@@ -98,13 +98,13 @@ func (s *VSAStorage) StoreVSA(ctx context.Context, vsa *vsa.VSA, tag string) err
 	}
 	manifest.SchemaVersion = 2
 
-	// Marshal manifest
+	// marshal manifest
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
 		return fmt.Errorf("failed to marshal manifest: %w", err)
 	}
 
-	// Push manifest
+	// push manifest
 	manifestDigest := digest.FromBytes(manifestBytes)
 	manifestDesc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageManifest,
@@ -116,7 +116,7 @@ func (s *VSAStorage) StoreVSA(ctx context.Context, vsa *vsa.VSA, tag string) err
 		return fmt.Errorf("failed to push manifest: %w", err)
 	}
 
-	// Tag the manifest using reference
+	// tag the manifest using reference
 	if err := s.repo.PushReference(ctx, manifestDesc, bytes.NewReader(manifestBytes), tag); err != nil {
 		return fmt.Errorf("failed to tag VSA: %w", err)
 	}
@@ -124,15 +124,15 @@ func (s *VSAStorage) StoreVSA(ctx context.Context, vsa *vsa.VSA, tag string) err
 	return nil
 }
 
-// RetrieveVSA retrieves a VSA from the registry
+// retrieves a VSA from the registry
 func (s *VSAStorage) RetrieveVSA(ctx context.Context, tag string) (*vsa.VSA, error) {
-	// Resolve tag to get manifest descriptor
+	// resolve tag to get manifest descriptor
 	manifestDesc, err := s.repo.Resolve(ctx, tag)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve VSA tag: %w", err)
 	}
 
-	// Fetch manifest
+	// fetch manifest
 	manifestReader, err := s.repo.Manifests().Fetch(ctx, manifestDesc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch manifest: %w", err)
@@ -148,20 +148,20 @@ func (s *VSAStorage) RetrieveVSA(ctx context.Context, tag string) (*vsa.VSA, err
 		return nil, fmt.Errorf("failed to read manifest: %w", err)
 	}
 
-	// Parse manifest
+	// parse manifest
 	var manifest ocispec.Manifest
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal manifest: %w", err)
 	}
 
-	// Get the first layer (VSA content)
+	// get the first layer (VSA content)
 	if len(manifest.Layers) == 0 {
 		return nil, fmt.Errorf("no layers found in VSA manifest")
 	}
 
 	vsaDesc := manifest.Layers[0]
 
-	// Fetch VSA content
+	// fetch VSA content
 	vsaReader, err := s.repo.Blobs().Fetch(ctx, vsaDesc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch VSA content: %w", err)
@@ -177,7 +177,7 @@ func (s *VSAStorage) RetrieveVSA(ctx context.Context, tag string) (*vsa.VSA, err
 		return nil, fmt.Errorf("failed to read VSA content: %w", err)
 	}
 
-	// Unmarshal VSA
+	// unmarshal VSA
 	var vsaObj vsa.VSA
 	if err := json.Unmarshal(vsaBytes, &vsaObj); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal VSA: %w", err)
@@ -186,25 +186,25 @@ func (s *VSAStorage) RetrieveVSA(ctx context.Context, tag string) (*vsa.VSA, err
 	return &vsaObj, nil
 }
 
-// PolicyStorage handles OPA/Rego policy retrieval from OCI containers
+// handles OPA/Rego policy retrieval from OCI containers
 type PolicyStorage struct {
 	repo *remote.Repository
 }
 
-// NewPolicyStorage creates a new policy storage instance for liatrio-rego-policy-library
+// creates a new policy storage instance for liatrio-rego-policy-library
 func NewPolicyStorage(repoRef string) (*PolicyStorage, error) {
 	repo, err := remote.NewRepository(repoRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create repository: %w", err)
 	}
 
-	// Configure authentication for policy repository
+	// authentication config
 	repo.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
 	}
 
-	// Try to get token from environment for authentication
+	// get token from environment for authentication
 	if token := getTokenFromEnv(); token != "" {
 		repo.Client = &auth.Client{
 			Client: retry.DefaultClient,
@@ -219,15 +219,15 @@ func NewPolicyStorage(repoRef string) (*PolicyStorage, error) {
 	return &PolicyStorage{repo: repo}, nil
 }
 
-// RetrievePolicy retrieves a Rego policy from OCI container
+// retrieves a Rego policy from OCI container
 func (p *PolicyStorage) RetrievePolicy(ctx context.Context, policyTag string) ([]byte, error) {
-	// Resolve tag to get manifest descriptor
+	// resolve tag to get manifest descriptor
 	manifestDesc, err := p.repo.Resolve(ctx, policyTag)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve policy tag: %w", err)
 	}
 
-	// Fetch manifest
+	// fetch manifest
 	manifestReader, err := p.repo.Manifests().Fetch(ctx, manifestDesc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch manifest: %w", err)
@@ -243,20 +243,20 @@ func (p *PolicyStorage) RetrievePolicy(ctx context.Context, policyTag string) ([
 		return nil, fmt.Errorf("failed to read manifest: %w", err)
 	}
 
-	// Parse manifest
+	// parse manifest
 	var manifest ocispec.Manifest
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal manifest: %w", err)
 	}
 
-	// Get the first layer (policy content)
+	// get the first layer (policy content)
 	if len(manifest.Layers) == 0 {
 		return nil, fmt.Errorf("no layers found in policy manifest")
 	}
 
 	policyDesc := manifest.Layers[0]
 
-	// Fetch policy content
+	// fetch policy content
 	policyReader, err := p.repo.Blobs().Fetch(ctx, policyDesc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch policy content: %w", err)
@@ -275,9 +275,9 @@ func (p *PolicyStorage) RetrievePolicy(ctx context.Context, policyTag string) ([
 	return policyBytes, nil
 }
 
-// GetPolicyDigest calculates the digest of a policy for VSA ResourceDescriptor
+// calculates the digest of a policy for VSA ResourceDescriptor
 func (p *PolicyStorage) GetPolicyDigest(ctx context.Context, policyTag string) (map[string]string, error) {
-	// Resolve tag to get manifest descriptor
+	// resolve tag to get manifest descriptor
 	manifestDesc, err := p.repo.Resolve(ctx, policyTag)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve policy descriptor: %w", err)
@@ -288,7 +288,7 @@ func (p *PolicyStorage) GetPolicyDigest(ctx context.Context, policyTag string) (
 	}, nil
 }
 
-// getTokenFromEnv gets authentication token from environment variables
+// gets authentication token from environment variables
 func getTokenFromEnv() string {
 	if token := os.Getenv("GH_TOKEN"); token != "" {
 		return token

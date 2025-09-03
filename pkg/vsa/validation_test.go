@@ -15,10 +15,10 @@ const (
 
 func TestVSAComprehensiveValidation(t *testing.T) {
 	tests := []struct {
-		name    string
-		vsa     *VSA
-		wantErr bool
-		errType string
+		name     string
+		vsa      *VSA
+		wantErr  bool
+		errType  string
 		errField string
 	}{
 		{
@@ -108,13 +108,13 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 				PredicateType: testPredicateType,
 				Subject: []VSASubject{
 					{
-						URI: testURI,
+						URI:    testURI,
 						Digest: map[string]string{"sha256": "a7833c841a486169ec4b376ebec4561f9de5280add97b86ebd075e401d3fd052"},
 					},
 				},
 				Predicate: VSAPredicate{
 					Verifier: VSAVerifier{
-						ID: testURI,
+						ID:      testURI,
 						Version: map[string]string{"version": "1.0"},
 					},
 					TimeVerified: "",
@@ -128,7 +128,7 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 		{
 			name: "invalid SLSA level format (ignored)",
 			vsa: &VSA{
-				Type: "https://in-toto.io/Statement/v1",
+				Type:          "https://in-toto.io/Statement/v1",
 				PredicateType: "https://slsa.dev/verification_summary/v1",
 				Subject: []VSASubject{{
 					URI:    testURI,
@@ -156,23 +156,23 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.vsa.ValidateComprehensive()
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("ValidateComprehensive() expected error, got nil")
 					return
 				}
-				
+
 				vsaErr, ok := err.(*VSAError)
 				if !ok {
 					t.Errorf("ValidateComprehensive() expected VSAError, got %T", err)
 					return
 				}
-				
+
 				if vsaErr.Type != tt.errType {
 					t.Errorf("ValidateComprehensive() error type = %v, want %v", vsaErr.Type, tt.errType)
 				}
-				
+
 				if vsaErr.Field != tt.errField {
 					t.Errorf("ValidateComprehensive() error field = %v, want %v", vsaErr.Field, tt.errField)
 				}
@@ -184,8 +184,6 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 		})
 	}
 }
-
-
 
 func TestDigestValidation(t *testing.T) {
 	vsa := &VSA{
@@ -246,7 +244,7 @@ func TestDigestValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := vsa.ValidateDigests(tt.expectedDigests)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("ValidateDigests() expected error, got nil")
@@ -289,12 +287,12 @@ func TestValidateVSAFromJSON(t *testing.T) {
 		t.Errorf("ValidateVSA() unexpected error: %v", err)
 		return
 	}
-	
+
 	if vsa == nil {
 		t.Error("ValidateVSA() returned nil VSA")
 		return
 	}
-	
+
 	if vsa.Predicate.VerificationResult != "PASSED" {
 		t.Errorf("ValidateVSA() verification result = %s, want PASSED", vsa.Predicate.VerificationResult)
 	}
@@ -465,8 +463,8 @@ func TestVSALevelUnmarshalJSON(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "invalid JSON",
-			input:   `{invalid}`,
+			name:     "invalid JSON",
+			input:    `{invalid}`,
 			expected: VSALevel{},
 			wantErr:  true,
 		},
@@ -491,7 +489,7 @@ func TestVSALevelUnmarshalJSON(t *testing.T) {
 
 func TestValidateSubjectDigests(t *testing.T) {
 	const testImageURI = "test.example.com/image:latest"
-	
+
 	tests := []struct {
 		name    string
 		vsa     *VSA

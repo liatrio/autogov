@@ -8,7 +8,7 @@ import (
 	"fmt"
 )
 
-// VSAError represents a structured error for VSA operations
+// structured error for VSA operations
 type VSAError struct {
 	Type    string
 	Field   string
@@ -27,7 +27,7 @@ func (e *VSAError) Unwrap() error {
 	return e.Cause
 }
 
-// Predefined error types
+// error types
 var (
 	ErrInvalidDigest             = &VSAError{Type: "validation", Field: "digest", Message: "invalid digest format or value"}
 	ErrMismatchVerifier          = &VSAError{Type: "validation", Field: "verifier", Message: "verifier ID mismatch"}
@@ -39,7 +39,7 @@ var (
 	ErrInvalidStatementType      = &VSAError{Type: "validation", Field: "_type", Message: "invalid statement type"}
 )
 
-// NewVSAError creates a new VSA error with the specified details
+// creates a new VSA error with the specified details
 func NewVSAError(errorType, field, message string, cause error) *VSAError {
 	return &VSAError{
 		Type:    errorType,
@@ -49,12 +49,12 @@ func NewVSAError(errorType, field, message string, cause error) *VSAError {
 	}
 }
 
-// NewValidationError creates a validation error
+// creates a validation error
 func NewValidationError(field, message string, cause error) *VSAError {
 	return NewVSAError("validation", field, message, cause)
 }
 
-// NewParsingError creates a parsing error
+// creates a parsing error
 func NewParsingError(field, message string, cause error) *VSAError {
 	return NewVSAError("parsing", field, message, cause)
 }

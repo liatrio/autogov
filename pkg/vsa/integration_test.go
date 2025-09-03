@@ -12,7 +12,6 @@ import (
 	"testing"
 )
 
-// Test constants for integration tests
 const (
 	integrationTestImageRef   = "ghcr.io/liatrio/test-image:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	integrationTestImageRef2  = "ghcr.io/liatrio/multi-attestation-test:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
@@ -20,9 +19,9 @@ const (
 	integrationTestPolicyURI2 = "https://github.com/liatrio/liatrio-rego-policy-library/policies/multi-attestation-policy"
 )
 
-// TestRealAttestationFiles tests VSA generation with actual attestation files
+// tests VSA generation with actual attestation files
 func TestRealAttestationFiles(t *testing.T) {
-	// Test with real attestation files from testdata
+	// test with real attestation files from testdata
 	attestationFiles := []string{
 		"../../testdata/attestations/multi-type-attestations.jsonl",
 		"../../testdata/attestations/single-slsa-provenance.json",
@@ -30,23 +29,23 @@ func TestRealAttestationFiles(t *testing.T) {
 
 	for _, attestationFile := range attestationFiles {
 		t.Run(filepath.Base(attestationFile), func(t *testing.T) {
-			// Check if file exists
+			// check if file exists
 			if _, err := os.Stat(attestationFile); os.IsNotExist(err) {
 				t.Skipf("Attestation file not found: %s", attestationFile)
 				return
 			}
 
-			// Read attestation file
+			// read attestation file
 			attestationData, err := os.ReadFile(attestationFile)
 			if err != nil {
 				t.Fatalf("Failed to read attestation file: %v", err)
 			}
 
-			// Parse attestation to extract metadata
-			// Handle both JSON and JSONL formats
+			// parse attestation to extract metadata
+			// handle both JSON and JSONL formats
 			var attestation map[string]interface{}
-			
-			// Try parsing as regular JSON first
+
+			// try parsing as regular JSON first
 			if err := json.Unmarshal(attestationData, &attestation); err != nil {
 				// If regular JSON fails, try JSONL format (newline-delimited JSON)
 				lines := strings.Split(string(attestationData), "\n")
@@ -55,24 +54,24 @@ func TestRealAttestationFiles(t *testing.T) {
 					if line == "" {
 						continue
 					}
-					// Try to parse each line as JSON
+					// try to parse each line as JSON
 					if err := json.Unmarshal([]byte(line), &attestation); err == nil {
-						// Successfully parsed a line, use it
+						// successfully parsed a line, use it
 						break
 					}
 				}
-				
-				// If still no valid attestation found, fail
+
+				// if still no valid attestation found, fail
 				if attestation == nil {
 					t.Fatalf("Failed to parse attestation (tried both JSON and JSONL formats): %v", err)
 				}
 			}
 
-			// Create VSA with real attestation as input
+			// create VSA with real attestation as input
 			imageRef := integrationTestImageRef
 			policyURI := integrationTestPolicyURI
 
-			// Simulate verification results
+			// simulate verification results
 			verificationResults := map[string]bool{
 				"attestation.signature":    true,
 				"attestation.certificate":  true,
@@ -98,13 +97,13 @@ func TestRealAttestationFiles(t *testing.T) {
 				},
 			}
 
-			// Generate VSA with real attestation data
+			// generate VSA with real attestation data
 			vsa, err := GenerateVSAWithOptions(imageRef, policyURI, verificationResults, opts)
 			if err != nil {
 				t.Fatalf("Failed to generate VSA with real attestation: %v", err)
 			}
 
-			// Validate the generated VSA
+			// validate the generated VSA
 			vsaBytes, err := vsa.SerializeVSA()
 			if err != nil {
 				t.Fatalf("Failed to serialize VSA: %v", err)
@@ -115,17 +114,17 @@ func TestRealAttestationFiles(t *testing.T) {
 				t.Fatalf("Failed to validate VSA: %v", err)
 			}
 
-			// Verify VSA contains real attestation reference
+			// verify VSA contains real attestation reference
 			if len(validatedVSA.Predicate.InputAttestations) == 0 {
 				t.Error("Expected input attestations to be populated")
 			}
 
-			// Verify VSA is v1.1 compliant
+			// verify VSA is v1.1 compliant
 			if validatedVSA.Predicate.SlsaVersion != "1.1" {
 				t.Errorf("Expected SLSA version 1.1, got %s", validatedVSA.Predicate.SlsaVersion)
 			}
 
-			// Verify unified verification results are captured
+			// verify unified verification results are captured
 			if validatedVSA.Metadata == nil {
 				t.Fatal("Expected metadata to be present")
 			}
@@ -133,11 +132,9 @@ func TestRealAttestationFiles(t *testing.T) {
 			details, ok := validatedVSA.Metadata["autogov.verification.details"].(map[string]bool)
 			if !ok {
 				t.Logf("Metadata contents: %+v", validatedVSA.Metadata)
-				// The metadata structure is correct, just different than expected
-				// This is actually working as designed
 				t.Logf("VSA metadata structure is working correctly")
 			} else {
-				// If we can access the details, verify they contain expected results
+				// if we can access the details, verify they contain expected results
 				if !details["attestation.signature"] {
 					t.Error("Expected attestation.signature to be in verification details")
 				}
@@ -154,14 +151,13 @@ func TestRealAttestationFiles(t *testing.T) {
 	}
 }
 
-// calculateFileHash calculates a simple hash for testing purposes
+// calculates a simple hash for testing purposes
 func calculateFileHash(data []byte) string {
-	// Simple hash for testing - in production would use crypto/sha256
+	// simple hash for testing / in prod would use crypto/sha256
 	return "file-hash-" + string(rune(len(data)%1000))
 }
 
-
-// TestVSAWithMultipleRealAttestations tests VSA generation with multiple real attestations
+// tests VSA generation with multiple real attestations
 func TestVSAWithMultipleRealAttestations(t *testing.T) {
 	attestationFiles := []string{
 		"../../testdata/attestations/multi-type-attestations.jsonl",
@@ -170,7 +166,7 @@ func TestVSAWithMultipleRealAttestations(t *testing.T) {
 
 	var inputAttestations []ResourceDescriptor
 
-	// Collect all real attestations
+	// collect all real attestations
 	for _, file := range attestationFiles {
 		if _, err := os.Stat(file); os.IsNotExist(err) {
 			t.Skipf("Attestation file not found: %s", file)
@@ -194,7 +190,7 @@ func TestVSAWithMultipleRealAttestations(t *testing.T) {
 		t.Skip("No attestation files available for testing")
 	}
 
-	// Generate VSA with multiple real attestations
+	// generate VSA with multiple real attestations
 	imageRef := integrationTestImageRef2
 	policyURI := integrationTestPolicyURI2
 
@@ -231,14 +227,12 @@ func TestVSAWithMultipleRealAttestations(t *testing.T) {
 		t.Fatalf("Failed to generate VSA with multiple attestations: %v", err)
 	}
 
-	// Validate comprehensive VSA
+	// validate comprehensive VSA
 	if len(vsa.Predicate.InputAttestations) != len(inputAttestations) {
 		t.Errorf("Expected %d input attestations, got %d", len(inputAttestations), len(vsa.Predicate.InputAttestations))
 	}
 
-	// Note: Dependency level validation moved to policy evaluation layer
-
-	// Verify all verifier versions are tracked
+	// verify all verifier versions are tracked
 	expectedVerifiers := []string{"autogov-verify", "opa", "slsa-verifier"}
 	for _, verifier := range expectedVerifiers {
 		if _, exists := vsa.Predicate.Verifier.Version[verifier]; !exists {

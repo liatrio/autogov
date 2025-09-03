@@ -10,17 +10,17 @@ import (
 	"strings"
 )
 
-// DigestSet represents a collection of digests organized by algorithm
+// represents a collection of digests organized by algorithm
 type DigestSet map[string]map[string]bool
 
-// ValidateDigests validates that expected digests are present in VSA subjects
-// Supports multiple digest formats: sha256:abc123, sha1:def456, etc.
+// validates that expected digests are present in VSA subjects
+// multiple digest formats: sha256:abc123, sha1:def456, etc. are supported
 func (v *VSA) ValidateDigests(expectedDigests []string) error {
 	if len(expectedDigests) == 0 {
 		return NewValidationError("digest", "no expected digests provided", nil)
 	}
 
-	// Collect all VSA subject digests by algorithm
+	// all VSA subject digests by algorithm
 	vsaDigests := make(DigestSet)
 	for _, subject := range v.Subject {
 		for alg, digest := range subject.Digest {
@@ -35,7 +35,7 @@ func (v *VSA) ValidateDigests(expectedDigests []string) error {
 		return NewValidationError("digest", "no subject digests found in VSA", nil)
 	}
 
-	// Validate each expected digest
+	// validates expected digest
 	for _, expected := range expectedDigests {
 		if err := v.validateSingleDigest(expected, vsaDigests); err != nil {
 			return err
@@ -45,7 +45,7 @@ func (v *VSA) ValidateDigests(expectedDigests []string) error {
 	return nil
 }
 
-// validateSingleDigest validates a single digest against the VSA digest set
+// validates a single digest against the VSA digest set
 func (v *VSA) validateSingleDigest(expected string, vsaDigests DigestSet) error {
 	parts := strings.SplitN(expected, ":", 2)
 	if len(parts) != 2 {
@@ -55,14 +55,14 @@ func (v *VSA) validateSingleDigest(expected string, vsaDigests DigestSet) error 
 
 	alg, digest := parts[0], parts[1]
 
-	// Validate algorithm exists
+	// algorithm exists
 	algDigests, algExists := vsaDigests[alg]
 	if !algExists {
 		return NewValidationError("digest",
 			fmt.Sprintf("digest algorithm not found in VSA: %s", alg), nil)
 	}
 
-	// Validate specific digest exists
+	// specific digest exists
 	if !algDigests[digest] {
 		return NewValidationError("digest",
 			fmt.Sprintf("digest not found: %s", expected), nil)
@@ -71,7 +71,7 @@ func (v *VSA) validateSingleDigest(expected string, vsaDigests DigestSet) error 
 	return nil
 }
 
-// GetSupportedDigestAlgorithms returns the digest algorithms present in VSA subjects
+// returns the digest algorithms present in VSA subjects
 func (v *VSA) GetSupportedDigestAlgorithms() []string {
 	algSet := make(map[string]bool)
 
@@ -89,7 +89,7 @@ func (v *VSA) GetSupportedDigestAlgorithms() []string {
 	return algorithms
 }
 
-// ValidateDigestFormats validates that all digests in VSA subjects have proper format
+// validates that all digests in VSA subjects have proper format
 func (v *VSA) ValidateDigestFormats() error {
 	for i, subject := range v.Subject {
 		for alg, digest := range subject.Digest {
@@ -103,13 +103,13 @@ func (v *VSA) ValidateDigestFormats() error {
 	return nil
 }
 
-// validateDigestFormat validates digest format based on algorithm
+// validates digest format based on algorithm
 func validateDigestFormat(algorithm, digest string) error {
 	if digest == "" {
 		return fmt.Errorf("empty digest value")
 	}
 
-	// Basic format validation based on common algorithms
+	// format validation based on common algorithms
 	switch algorithm {
 	case "sha256":
 		if len(digest) != 64 {
@@ -128,7 +128,7 @@ func validateDigestFormat(algorithm, digest string) error {
 			return fmt.Errorf("invalid MD5 digest length: expected 32 characters, got %d", len(digest))
 		}
 	default:
-		// For unknown algorithms, just check it's not empty and is hex
+		// unknown algorithms, just check it's not empty and is hex
 		if !isHexString(digest) {
 			return fmt.Errorf("digest contains non-hexadecimal characters")
 		}
@@ -137,7 +137,7 @@ func validateDigestFormat(algorithm, digest string) error {
 	return nil
 }
 
-// isHexString checks if a string contains only hexadecimal characters
+// checks if a string contains only hexadecimal characters
 func isHexString(s string) bool {
 	for _, r := range s {
 		if (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F') {
@@ -147,7 +147,7 @@ func isHexString(s string) bool {
 	return true
 }
 
-// ValidateVSA validates an existing VSA (SLSA v1.1 compliant)
+// validates an existing VSA (SLSA v1.1 compliant)
 func ValidateVSA(vsaBytes []byte) (*VSA, error) {
 	var vsa VSA
 	if err := json.Unmarshal(vsaBytes, &vsa); err != nil {
@@ -161,44 +161,44 @@ func ValidateVSA(vsaBytes []byte) (*VSA, error) {
 	return &vsa, nil
 }
 
-// ValidateComprehensive performs comprehensive VSA validation
+// performs comprehensive VSA validation
 func (v *VSA) ValidateComprehensive() error {
-	// Validate statement type
+	// statement type
 	if err := v.validateStatementType(); err != nil {
 		return err
 	}
 
-	// Validate predicate type
+	// predicate type
 	if err := v.validatePredicateType(); err != nil {
 		return err
 	}
 
-	// Validate subject digests
+	// subject digests
 	if err := v.validateSubjectDigests(); err != nil {
 		return err
 	}
 
-	// Validate verifier
+	// verifier
 	if err := v.validateVerifier(); err != nil {
 		return err
 	}
 
-	// Validate resource URI
+	// resource URI
 	if err := v.validateResourceURI(); err != nil {
 		return err
 	}
 
-	// Validate verification result
+	// verification result
 	if err := v.validateVerificationResult(); err != nil {
 		return err
 	}
 
-	// Validate SLSA levels
+	// SLSA levels
 	if err := v.validateSLSALevels(); err != nil {
 		return err
 	}
 
-	// Validate digest formats
+	// digest formats
 	if err := v.ValidateDigestFormats(); err != nil {
 		return err
 	}
@@ -206,7 +206,7 @@ func (v *VSA) ValidateComprehensive() error {
 	return nil
 }
 
-// validateStatementType validates the VSA statement type
+// validates the VSA statement type
 func (v *VSA) validateStatementType() error {
 	// Support both v0.1 and v1 for backward compatibility
 	if v.Type != "https://in-toto.io/Statement/v1" && v.Type != "https://in-toto.io/Statement/v0.1" {
@@ -216,7 +216,7 @@ func (v *VSA) validateStatementType() error {
 	return nil
 }
 
-// validatePredicateType validates the VSA predicate type
+// validates the VSA predicate type
 func (v *VSA) validatePredicateType() error {
 	if v.PredicateType != "https://slsa.dev/verification_summary/v1" {
 		return NewValidationError("predicateType",
@@ -225,7 +225,7 @@ func (v *VSA) validatePredicateType() error {
 	return nil
 }
 
-// validateSubjectDigests validates VSA subjects have proper structure
+// validates VSA subjects have proper structure
 func (v *VSA) validateSubjectDigests() error {
 	if len(v.Subject) == 0 {
 		return NewValidationError("subject", "no subjects found in VSA", nil)
@@ -237,20 +237,20 @@ func (v *VSA) validateSubjectDigests() error {
 				fmt.Sprintf("subject %d missing URI", i), nil)
 		}
 
-		// Digest is optional for some subject types (e.g., repositories)
+		// digest optional for some subject types (e.g., repositories)
 		// but recommended for artifacts
 	}
 
 	return nil
 }
 
-// validateVerifier validates the VSA verifier
+// validates the VSA verifier
 func (v *VSA) validateVerifier() error {
 	if v.Predicate.Verifier.ID == "" {
 		return NewValidationError("verifier", "verifier ID is required", nil)
 	}
 
-	// Validate verifier ID format (should be a URL)
+	// validates verifier ID format (should be a URL)
 	if !strings.HasPrefix(v.Predicate.Verifier.ID, "https://") {
 		return NewValidationError("verifier",
 			fmt.Sprintf("verifier ID should be a URL: %s", v.Predicate.Verifier.ID), nil)
@@ -259,7 +259,7 @@ func (v *VSA) validateVerifier() error {
 	return nil
 }
 
-// validateResourceURI validates the resource URI
+// validates the resource URI
 func (v *VSA) validateResourceURI() error {
 	if v.Predicate.ResourceURI == "" {
 		return NewValidationError("resourceUri", "resourceURI is required", nil)
@@ -267,7 +267,7 @@ func (v *VSA) validateResourceURI() error {
 	return nil
 }
 
-// validateVerificationResult validates the verification result
+// validates the verification result
 func (v *VSA) validateVerificationResult() error {
 	if v.Predicate.VerificationResult == "" {
 		return NewValidationError("verificationResult", "verificationResult is required", nil)
@@ -281,7 +281,7 @@ func (v *VSA) validateVerificationResult() error {
 	return nil
 }
 
-// validateSLSALevels validates SLSA level formats
+// validates SLSA level formats
 func (v *VSA) validateSLSALevels() error {
 	// VerifiedLevels is already a string slice per spec
 	_, err := ExtractSLSATrackLevels(v.Predicate.VerifiedLevels)

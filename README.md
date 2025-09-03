@@ -478,20 +478,18 @@ The tool generates SLSA v1.1 compliant Verification Summary Attestations (VSAs) 
 5. Store VSA in OCI registry
 ```
 
-### Offline Verification
+### Blob Verification
 
-For environments without GitHub API access, use pre-downloaded attestations:
+To verify signed blobs (files) with attestations stored in GitHub:
 
 ```bash
-# Download attestations
-gh attestation download --repo owner/repo --digest sha256:xxx
-
-# Verify offline
+# Verify a blob file
 autogov-verify \
   --blob-path file.txt \
-  --attestations-path ./attestations \
   --cert-identity "..."
 ```
+
+Note: The tool requires GitHub API access to fetch attestations. Ensure your GitHub token is set.
 
 ## Troubleshooting
 

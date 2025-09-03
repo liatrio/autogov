@@ -5,7 +5,7 @@ BINARY_DIR := bin
 VERSION ?= $(shell git describe --tags --always --dirty)
 LDFLAGS := -X main.version=$(VERSION)
 
-# Note: For organization-level verification, you'll need to set up a Personal Access Token
+# note: for organization-level verification, you'll need to set up a Personal Access Token
 # with appropriate organization permissions in your GitHub organization's settings
 
 all: verify build

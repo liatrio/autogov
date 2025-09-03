@@ -50,7 +50,7 @@ func FetchTrustedRoot() ([]byte, error) {
 // first attempts to fetch the latest root dynamically, and falls back
 // to the embedded root if the dynamic fetch fails.
 func GetTrustedRoot() ([]byte, error) {
-	// Try to fetch dynamically first
+	// try to fetch dynamically first
 	trustedRoot, err := FetchTrustedRoot()
 	if err == nil {
 		fmt.Println("✓ Using dynamically fetched trusted root")

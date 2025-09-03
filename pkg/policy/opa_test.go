@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-// Test constants
 const (
 	testPolicyContent = `package governance
 
@@ -31,7 +30,7 @@ violations contains msg if {
 `
 )
 
-// Test helper to create a temporary policy directory
+// helper to create a temporary policy dir
 func createTestPolicyDir(t *testing.T) string {
 	tempDir, err := os.MkdirTemp("", "opa-test-*")
 	if err != nil {
@@ -46,7 +45,7 @@ func createTestPolicyDir(t *testing.T) string {
 	return tempDir
 }
 
-func TestNewOPAEvaluator_LocalDirectory(t *testing.T) {
+func TestNewOPAEvaluatorLocalDirectory(t *testing.T) {
 	ctx := context.Background()
 	tempDir := createTestPolicyDir(t)
 	defer func() {
@@ -73,7 +72,7 @@ func TestNewOPAEvaluator_LocalDirectory(t *testing.T) {
 	}
 }
 
-func TestNewOPAEvaluator_InvalidDirectory(t *testing.T) {
+func TestNewOPAEvaluatorInvalidDirectory(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := NewOPAEvaluator(ctx, "/nonexistent/directory")
@@ -82,7 +81,7 @@ func TestNewOPAEvaluator_InvalidDirectory(t *testing.T) {
 	}
 }
 
-func TestNewOPAEvaluator_EmptyDirectory(t *testing.T) {
+func TestNewOPAEvaluatorEmptyDirectory(t *testing.T) {
 	ctx := context.Background()
 	tempDir, err := os.MkdirTemp("", "opa-empty-test-*")
 	if err != nil {
@@ -99,13 +98,13 @@ func TestNewOPAEvaluator_EmptyDirectory(t *testing.T) {
 		t.Fatalf("Failed to create OPA evaluator: %v", err)
 	}
 
-	// Empty directory should create evaluator with 0 policies
+	// empty dir should create evaluator with 0 policies
 	if evaluator == nil {
 		t.Fatal("Expected evaluator to be created even with empty directory")
 	}
 }
 
-func TestLoadPoliciesFromPath_Success(t *testing.T) {
+func TestLoadPoliciesFromPathSuccess(t *testing.T) {
 	tempDir := createTestPolicyDir(t)
 	defer func() {
 		if err := os.RemoveAll(tempDir); err != nil {
@@ -127,14 +126,14 @@ func TestLoadPoliciesFromPath_Success(t *testing.T) {
 	}
 }
 
-func TestLoadPoliciesFromPath_NonexistentPath(t *testing.T) {
+func TestLoadPoliciesFromPathNonexistentPath(t *testing.T) {
 	_, err := loadPoliciesFromPath("/nonexistent/path")
 	if err == nil {
 		t.Fatal("Expected error for nonexistent path")
 	}
 }
 
-func TestLoadPoliciesFromPath_NoRegoFiles(t *testing.T) {
+func TestLoadPoliciesFromPathNoRegoFiles(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "opa-no-rego-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -145,7 +144,7 @@ func TestLoadPoliciesFromPath_NoRegoFiles(t *testing.T) {
 		}
 	}()
 
-	// Create a non-rego file
+	// create a non-rego file
 	txtFile := filepath.Join(tempDir, "test.txt")
 	if err := os.WriteFile(txtFile, []byte("not a rego file"), 0644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
@@ -203,11 +202,11 @@ func TestStop(t *testing.T) {
 		t.Fatalf("Failed to create OPA evaluator: %v", err)
 	}
 
-	// Stop should not panic or return error
+	// stop should not panic or return error
 	evaluator.Stop(ctx)
 }
 
-func TestPolicyViolation_JSONMarshaling(t *testing.T) {
+func TestPolicyViolationJSONMarshaling(t *testing.T) {
 	violation := PolicyViolation{
 		Policy:  "test-policy",
 		Message: "test message",
@@ -232,7 +231,7 @@ func TestPolicyViolation_JSONMarshaling(t *testing.T) {
 	}
 }
 
-func TestPolicyResult_JSONMarshaling(t *testing.T) {
+func TestPolicyResultJSONMarshaling(t *testing.T) {
 	result := PolicyResult{
 		Result: "PASSED",
 		Violations: []PolicyViolation{
@@ -263,14 +262,14 @@ func TestPolicyResult_JSONMarshaling(t *testing.T) {
 	}
 }
 
-// Test with environment variables for token authentication
-func TestDownloadBundle_WithToken(t *testing.T) {
-	// Skip if running in CI without network access
+// test w/ env vars for token auth
+func TestDownloadBundleWithToken(t *testing.T) {
+	// skip if running in CI without network access
 	if os.Getenv("CI") != "" {
 		t.Skip("Skipping network test in CI")
 	}
 
-	// Create a simple test server
+	// create a simple test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "" {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -283,7 +282,7 @@ func TestDownloadBundle_WithToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Set test token
+	// set test token
 	if err := os.Setenv("GH_TOKEN", "test-token"); err != nil {
 		t.Fatalf("Failed to set env var: %v", err)
 	}
@@ -295,25 +294,25 @@ func TestDownloadBundle_WithToken(t *testing.T) {
 
 	ctx := context.Background()
 
-	// This will fail because we're not serving a valid tar.gz, but it tests the auth logic
+	// will fail because we're not serving a valid tar.gz, but it tests the auth logic
 	_, err := downloadBundle(ctx, server.URL)
 	if err == nil {
 		t.Fatal("Expected error for invalid tar.gz content")
 	}
 
-	// The error should be about gzip/tar format, not authentication
+	// error should be about gzip/tar format, not authentication
 	if strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "unauthorized") {
 		t.Error("Authentication failed when token was provided")
 	}
 }
 
-func TestDownloadBundle_WithoutToken(t *testing.T) {
-	// Skip if running in CI without network access
+func TestDownloadBundleWithoutToken(t *testing.T) {
+	// skip if running in CI without network access
 	if os.Getenv("CI") != "" {
 		t.Skip("Skipping network test in CI")
 	}
 
-	// Create a test server that requires auth
+	// create a test server that requires auth
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "" {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -323,7 +322,7 @@ func TestDownloadBundle_WithoutToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Ensure no tokens are set
+	// ensure no tokens are set
 	for _, key := range []string{"GH_TOKEN", "GITHUB_TOKEN", "GITHUB_AUTH_TOKEN"} {
 		if err := os.Unsetenv(key); err != nil {
 			t.Logf("Warning: failed to unset env var %s: %v", key, err)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -11,7 +12,7 @@ import (
 
 	"github.com/liatrio/autogov-verify/pkg/attestations"
 	"github.com/liatrio/autogov-verify/pkg/certid"
-	"github.com/liatrio/autogov-verify/pkg/github"
+	ghclient "github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/liatrio/autogov-verify/pkg/policy"
 	"github.com/liatrio/autogov-verify/pkg/vsa"
 	"github.com/sigstore/cosign/v2/pkg/oci"
@@ -76,7 +77,7 @@ func init() {
 		}
 
 		// token validation is handled by github.GetToken() and github.NewClient()
-		if github.GetToken() == "" {
+		if token := ghclient.GetToken(); token == "" {
 			return fmt.Errorf("GH_TOKEN, GITHUB_TOKEN or GITHUB_AUTH_TOKEN environment variable is required")
 		}
 
@@ -117,7 +118,7 @@ func run(cmd *cobra.Command, args []string) error {
 	certIssuer := viper.GetString(flagCertIssuer)
 	sourceRef := viper.GetString(flagSourceRef)
 	blobPath := viper.GetString(flagBlobPath)
-	client := github.NewClient()
+	client := ghclient.NewClient()
 
 	// set up certificate identity validation options if cert-identity-list is provided
 	var certIdentityOpts *certid.Options
@@ -156,13 +157,27 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("error getting attestations: %w", err)
 	}
 
+	// use correct digest format based on verification type
+	vsaArtifactRef := artifactDigest
+	if blobPath != "" {
+		// blob verification, calculates the sha256 digest
+		blobData, err := os.ReadFile(blobPath)
+		if err != nil {
+			return fmt.Errorf("failed to read blob file for VSA: %w", err)
+		}
+		h := sha256.New()
+		h.Write(blobData)
+		// pass direct digest format
+		vsaArtifactRef = fmt.Sprintf("sha256:%x", h.Sum(nil))
+	}
+
 	if !quiet {
 		fmt.Println("\nSummary:")
 		fmt.Printf("✓ Successfully verified %d attestations\n", len(sigs))
 		fmt.Println("\nAttestation Types:")
 	}
 
-	// Collect attestation types and prepare for VSA generation
+	// collect attestation types / prepare for VSA generation
 	var attestationTypes []string
 	var inputAttestations []vsa.ResourceDescriptor
 
@@ -191,18 +206,26 @@ func run(cmd *cobra.Command, args []string) error {
 		attestationTypes = append(attestationTypes, statement.PredicateType)
 		fmt.Printf("%d. %s\n", i+1, statement.PredicateType)
 
-		// Prepare input attestation for VSA generation
+		// prep input attestation for VSA generation
+		// calculate actual SHA256 digest of the attestation payload
+		h := sha256.New()
+		h.Write(decodedPayload)
+		attestationDigest := fmt.Sprintf("%x", h.Sum(nil))
+
+		// create meaningful URI based on attestation type
+		attestationURI := fmt.Sprintf("attestation://%s/%d", statement.PredicateType, i+1)
+
 		inputAttestations = append(inputAttestations, vsa.ResourceDescriptor{
-			URI: fmt.Sprintf("attestation://%d", i+1),
+			URI: attestationURI,
 			Digest: map[string]string{
-				"sha256": fmt.Sprintf("attestation-hash-%d", i+1),
+				"sha256": attestationDigest,
 			},
 		})
 	}
 
-	// Generate VSA if requested
+	// generate VSA if requested
 	if viper.GetBool(flagGenerateVSA) {
-		if err := generateVSA(context.Background(), artifactDigest, inputAttestations, attestationTypes, sigs, quiet); err != nil {
+		if err := generateVSA(context.Background(), vsaArtifactRef, inputAttestations, attestationTypes, sigs, quiet); err != nil {
 			return fmt.Errorf("failed to generate VSA: %w", err)
 		}
 	}
@@ -210,7 +233,7 @@ func run(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// generateVSA creates a VSA after successful attestation verification
+// creates a VSA after successful attestation verification
 func generateVSA(ctx context.Context, artifactDigest string, inputAttestations []vsa.ResourceDescriptor, attestationTypes []string, sigs []oci.Signature, quiet bool) error {
 	policyURI := viper.GetString(flagPolicyURI)
 	vsaOutput := viper.GetString(flagVSAOutput)
@@ -228,13 +251,13 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 		fmt.Println("Generating Verification Summary Attestation...")
 	}
 
-	// Create verification results based on successful attestation verification
+	// verification results based on successful attestation verification
 	verificationResults := map[string]bool{
 		"attestation.verification": true,
 		"attestation.signature":    true,
 	}
 
-	// Add specific results for each attestation type
+	// specific results for each attestation type
 	for _, attType := range attestationTypes {
 		switch attType {
 		case "https://slsa.dev/provenance/v1":
@@ -248,73 +271,68 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 		}
 	}
 
-	// Perform OPA policy evaluation
+	// OPA policy evaluation
 	if !quiet {
 		fmt.Println("Evaluating OPA policy...")
 	}
 
-	// For now, use local policy path - in production this would download from the policy URI
+	// TEMPORARY: use local policy path - in production this would download from the policy URI
 	localPolicyPath := "/Users/ianhundere/Projects/autogov/liatrio-rego-policy-library"
 
-	// Declare policyResult outside conditional blocks for proper scoping
+	// conditional blocks for proper scoping
 	var policyResult *policy.PolicyResult
 
-	// Create OPA evaluator
+	// OPA evaluator
 	evaluator, err := policy.NewOPAEvaluator(ctx, localPolicyPath)
 	if err != nil {
-		log.Printf("Warning: failed to create OPA evaluator: %v", err)
-		// Fall back to simulated policy compliance
-		verificationResults["policy.compliance"] = true
-	} else {
-		defer evaluator.Stop(ctx)
+		return fmt.Errorf("failed to create OPA evaluator: %w", err)
+	}
+	defer evaluator.Stop(ctx)
 
-		// Evaluate policy against attestations
-		policyResult, err = evaluator.EvaluatePolicy(ctx, sigs)
-		if err != nil {
-			log.Printf("Warning: failed to evaluate OPA policy: %v", err)
-			// Fall back to simulated policy compliance
-			verificationResults["policy.compliance"] = true
-		} else {
-			// Include actual policy evaluation results
-			verificationResults["policy.compliance"] = (policyResult.Result == "PASSED")
+	// eval policy against attestations
+	policyResult, err = evaluator.EvaluatePolicy(ctx, sigs)
+	if err != nil {
+		return fmt.Errorf("failed to evaluate OPA policy: %w", err)
+	}
 
-			if !quiet {
-				fmt.Printf("✓ Policy evaluation completed: %s\n", policyResult.Result)
-				if len(policyResult.Violations) > 0 {
-					fmt.Printf("  Policy violations: %d\n", len(policyResult.Violations))
-					for _, violation := range policyResult.Violations {
-						fmt.Printf("    - %s: %s\n", violation.Policy, violation.Message)
-					}
-				}
+	// policy evaluation results
+	verificationResults["policy.compliance"] = (policyResult.Result == "PASSED")
+
+	if !quiet {
+		fmt.Printf("✓ Policy evaluation completed: %s\n", policyResult.Result)
+		if len(policyResult.Violations) > 0 {
+			fmt.Printf("  Policy violations: %d\n", len(policyResult.Violations))
+			for _, violation := range policyResult.Violations {
+				fmt.Printf("    - %s: %s\n", violation.Policy, violation.Message)
 			}
 		}
 	}
 
-	// Create VSA options with input attestations
+	// create VSA options with input attestations
 	opts := vsa.VSAOptions{
 		InputAttestations: inputAttestations,
 		AutoGovVersion:    "v1.1.0",
 		PolicyDigest: map[string]string{
-			"sha256": "policy-hash-placeholder", // In real implementation, calculate from policy
+			"sha256": "policy-hash-placeholder", // real implementation, calculate from policy
 		},
 		AdditionalVerifiers: map[string]string{
 			"opa": "v1.8.0",
 		},
 	}
 
-	// Generate VSA
+	// generate VSA
 	generatedVSA, err := vsa.GenerateVSAWithOptions(artifactDigest, policyURI, verificationResults, opts)
 	if err != nil {
 		return fmt.Errorf("failed to generate VSA: %w", err)
 	}
 
-	// Enhanced VSA metadata with comprehensive policy evaluation details (if policy evaluation was performed)
+	// VSA metadata
 	if policyResult != nil {
 		if generatedVSA.Metadata == nil {
 			generatedVSA.Metadata = make(map[string]interface{})
 		}
 
-		// Add detailed policy evaluation metadata
+		// policy evaluation metadata
 		generatedVSA.Metadata["autogov.policy.evaluation"] = map[string]interface{}{
 			"result":           policyResult.Result,
 			"violations":       policyResult.Violations,
@@ -325,7 +343,7 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 			"details":          policyResult.Details,
 		}
 
-		// Add violation summary for quick reference
+		// violation summary
 		if len(policyResult.Violations) > 0 {
 			violationSummary := make(map[string][]string)
 			for _, violation := range policyResult.Violations {
@@ -334,7 +352,7 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 			generatedVSA.Metadata["autogov.policy.violation_summary"] = violationSummary
 		}
 
-		// Add policy compliance metrics
+		// policy compliance metrics
 		generatedVSA.Metadata["autogov.policy.metrics"] = map[string]interface{}{
 			"total_violations":    len(policyResult.Violations),
 			"compliance_status":   policyResult.Result,
@@ -343,13 +361,13 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 		}
 	}
 
-	// Serialize VSA
+	// serializes VSA
 	vsaBytes, err := generatedVSA.SerializeVSA()
 	if err != nil {
 		return fmt.Errorf("failed to serialize VSA: %w", err)
 	}
 
-	// Write VSA to file
+	// write VSA to file
 	if err := os.WriteFile(vsaOutput, vsaBytes, 0644); err != nil {
 		return fmt.Errorf("failed to write VSA to file: %w", err)
 	}

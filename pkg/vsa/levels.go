@@ -5,13 +5,13 @@ import (
 	"strings"
 )
 
-// SLSATrackLevels represents the SLSA tracks and their levels
+// SLSA tracks and their levels
 type SLSATrackLevels struct {
 	BuildTrack      int
 	DependencyTrack int
 }
 
-// ExtractSLSATrackLevels parses SLSA track levels from a list of strings
+// parses SLSA track levels from a list of strings
 func ExtractSLSATrackLevels(trackLevels []string) (SLSATrackLevels, error) {
 	var result SLSATrackLevels
 
@@ -21,7 +21,7 @@ func ExtractSLSATrackLevels(trackLevels []string) (SLSATrackLevels, error) {
 			continue
 		}
 
-		// Format: SLSA_<TRACK>_LEVEL_<NUMBER>
+		// format: SLSA_<TRACK>_LEVEL_<NUMBER>
 		if parts[0] != "SLSA" || parts[2] != "LEVEL" {
 			continue
 		}
@@ -48,8 +48,7 @@ func ExtractSLSATrackLevels(trackLevels []string) (SLSATrackLevels, error) {
 	return result, nil
 }
 
-// ExtractSLSALevels extracts valid SLSA levels from a string slice
-// This is now a simple filter since verifiedLevels is already []string per spec
+// extracts valid SLSA levels from a string slice
 func ExtractSLSALevels(levels []string) []string {
 	var result []string
 	for _, level := range levels {
@@ -60,9 +59,9 @@ func ExtractSLSALevels(levels []string) []string {
 	return result
 }
 
-// IsSLSATrackLevel checks if a level string is a valid SLSA track level
+// checks if a level string is a valid SLSA track level
 func IsSLSATrackLevel(level string) bool {
-	// Valid SLSA v1.1 track levels
+	// valid SLSA v1.1 track levels
 	validLevels := []string{
 		"SLSA_BUILD_LEVEL_0",
 		"SLSA_BUILD_LEVEL_1",

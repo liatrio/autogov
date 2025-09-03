@@ -6,20 +6,18 @@ import (
 	"time"
 )
 
-// Test constants to reduce duplication
 const (
-	testImageRef = "ghcr.io/liatrio/test-image:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-	testImageRef2 = "ghcr.io/test/image:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-	testImageDigest = "sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-	testPolicyURI = "https://github.com/liatrio/liatrio-rego-policy-library/policies/test-policy"
-	testExamplePolicyURI = "https://example.com/policy"
-	testAutoGovVersion = "v1.1.0"
-	testVerifierID = "autogov-verify"
-	testGenerateVSAError = "GenerateVSAWithOptions failed: %v"
+	testImageRef          = "ghcr.io/liatrio/test-image:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	testImageRef2         = "ghcr.io/test/image:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	testPolicyURI         = "https://github.com/liatrio/liatrio-rego-policy-library/policies/test-policy"
+	testExamplePolicyURI  = "https://example.com/policy"
+	testAutoGovVersion    = "v1.1.0"
+	testVerifierID        = "autogov-verify"
+	testGenerateVSAError  = "GenerateVSAWithOptions failed: %v"
 	testGenerateVSAError2 = "GenerateVSA failed: %v"
 )
 
-// TestGenerateVSAWithOptions tests the enhanced VSA generation with v1.1 features
+// tests the enhanced VSA generation with v1.1 features
 func TestGenerateVSAWithOptions(t *testing.T) {
 	imageRef := testImageRef
 	policyURI := testPolicyURI
@@ -243,7 +241,7 @@ func TestIsSLSATrackLevel(t *testing.T) {
 	}
 }
 
-// TestResourceDescriptorValidation tests ResourceDescriptor functionality
+// tests ResourceDescriptor functionality
 func TestResourceDescriptorValidation(t *testing.T) {
 	// Test with policy ResourceDescriptor
 	policyURI := testExamplePolicyURI
@@ -275,7 +273,7 @@ func TestResourceDescriptorValidation(t *testing.T) {
 	}
 }
 
-// TestBackwardCompatibility tests that the original GenerateVSA function still works
+// tests that the original GenerateVSA function still works
 func TestBackwardCompatibility(t *testing.T) {
 	imageRef := testImageRef
 	policyURI := testExamplePolicyURI
@@ -284,13 +282,13 @@ func TestBackwardCompatibility(t *testing.T) {
 		"attestation": true,
 	}
 
-	// Test original function
+	// original function
 	vsa, err := GenerateVSA(imageRef, policyURI, verificationResults)
 	if err != nil {
 		t.Fatalf(testGenerateVSAError2, err)
 	}
 
-	// Should still generate v1.1 compliant VSA
+	// should still generate v1.1 compliant VSA
 	if vsa.Type != "https://in-toto.io/Statement/v1" {
 		t.Errorf("Expected Type to be v1, got %s", vsa.Type)
 	}
@@ -299,20 +297,20 @@ func TestBackwardCompatibility(t *testing.T) {
 		t.Errorf("Expected SlsaVersion to be 1.1, got %s", vsa.Predicate.SlsaVersion)
 	}
 
-	// Should have default verifier version
+	// should have default verifier version
 	if vsa.Predicate.Verifier.Version[testVerifierID] != "v1.0.0" {
 		t.Errorf("Expected default autogov-verify version to be v1.0.0, got %s", vsa.Predicate.Verifier.Version[testVerifierID])
 	}
 
-	// Should work with existing validation
+	// should work with existing validation
 	if !vsa.IsVerificationPassed() {
 		t.Error("Expected verification to be passed")
 	}
 }
 
-// TestVSAValidation tests the enhanced VSA validation
+// tests the enhanced VSA validation
 func TestVSAValidation(t *testing.T) {
-	// Generate a test VSA
+	// generate a test VSA
 	imageRef := testImageRef
 	policyURI := testExamplePolicyURI
 	verificationResults := map[string]bool{"test": true}
@@ -322,19 +320,19 @@ func TestVSAValidation(t *testing.T) {
 		t.Fatalf(testGenerateVSAError2, err)
 	}
 
-	// Serialize VSA
+	// serialize VSA
 	vsaBytes, err := vsa.SerializeVSA()
 	if err != nil {
 		t.Fatalf("SerializeVSA failed: %v", err)
 	}
 
-	// Validate VSA
+	// validate VSA
 	validatedVSA, err := ValidateVSA(vsaBytes)
 	if err != nil {
 		t.Fatalf("ValidateVSA failed: %v", err)
 	}
 
-	// Check that validation preserves all fields
+	// check that validation preserves all fields
 	if validatedVSA.Type != vsa.Type {
 		t.Errorf("Type mismatch after validation: expected %s, got %s", vsa.Type, validatedVSA.Type)
 	}
@@ -348,7 +346,7 @@ func TestVSAValidation(t *testing.T) {
 	}
 }
 
-// TestVSAValidationErrors tests VSA validation error cases
+// tests VSA validation error cases
 func TestVSAValidationErrors(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -387,7 +385,7 @@ func TestVSAValidationErrors(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Generate a valid VSA
+			// generate a valid VSA
 			vsa, err := GenerateVSA(
 				testImageRef2,
 				testExamplePolicyURI,
@@ -397,16 +395,16 @@ func TestVSAValidationErrors(t *testing.T) {
 				t.Fatalf(testGenerateVSAError2, err)
 			}
 
-			// Apply modification to make it invalid
+			// apply modification to make it invalid
 			tc.vsaModifier(vsa)
 
-			// Serialize modified VSA
+			// serialize modified VSA
 			vsaBytes, err := vsa.SerializeVSA()
 			if err != nil {
 				t.Fatalf("SerializeVSA failed: %v", err)
 			}
 
-			// Validation should fail
+			// validation should fail
 			_, err = ValidateVSA(vsaBytes)
 			if err == nil {
 				t.Error("Expected validation to fail but it passed")
@@ -419,7 +417,7 @@ func TestVSAValidationErrors(t *testing.T) {
 	}
 }
 
-// TestVSATimestampHandling tests optional timestamp handling
+// tests optional timestamp handling
 func TestVSATimestampHandling(t *testing.T) {
 	opts := VSAOptions{
 		AutoGovVersion: testAutoGovVersion,
@@ -435,18 +433,18 @@ func TestVSATimestampHandling(t *testing.T) {
 		t.Fatalf(testGenerateVSAError, err)
 	}
 
-	// TimeVerified should be set
+	// should be set
 	if vsa.Predicate.TimeVerified == "" {
 		t.Error("Expected TimeVerified to be set")
 	}
 
-	// Validate timestamp format (should be RFC3339)
+	// validate timestamp format (should be RFC3339)
 	if _, err := time.Parse(time.RFC3339, vsa.Predicate.TimeVerified); err != nil {
 		t.Errorf("TimeVerified should be valid RFC3339 format: %v", err)
 	}
 }
 
-// TestVSAMetadata tests VSA metadata handling
+// tests VSA metadata handling
 func TestVSAMetadata(t *testing.T) {
 	verificationResults := map[string]bool{
 		"attestation.slsa_build": true,
@@ -462,7 +460,7 @@ func TestVSAMetadata(t *testing.T) {
 		t.Fatalf(testGenerateVSAError2, err)
 	}
 
-	// Check metadata
+	// check metadata
 	if vsa.Metadata == nil {
 		t.Error("Expected metadata to be set")
 	}
