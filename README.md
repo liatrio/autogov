@@ -1,8 +1,8 @@
 # AutoGov-Verify
 
-A production-ready tool for verifying GitHub Artifact Attestations with **fully spec-compliant** SLSA v1.1 VSA (Verification Summary Attestation) support and integrated OPA policy evaluation.
+A tool for verifying GitHub Artifact Attestations using [cosign](https://docs.sigstore.dev/cosign/overview/) with SLSA v1.1 VSA (Verification Summary Attestation) support and integrated OPA policy evaluation.
 
-> **Status**: Production-ready with comprehensive attestation verification, VSA generation, and policy evaluation capabilities.
+> **Note**: This tool supports attestations for container images in the GitHub Container Registry (ghcr.io) and blob attestations with comprehensive attestation verification, VSA generation, and policy evaluation capabilities.
 
 ## Requirements
 
@@ -158,20 +158,7 @@ The tool is organized into several key packages:
 
 ### Contributing
 
-1. **Create an issue** for new features or bugs
-2. **Fork the repository** and create a feature branch
-3. **Write tests** for your changes (maintain >75% coverage)
-4. **Run `make verify`** to ensure code quality
-5. **Submit a pull request** with a clear description
-
-#### Code Standards
-
-- Follow Go best practices and idioms
-- Prefer functional programming patterns
-- Use meaningful variable and function names
-- Add comprehensive error handling with context
-- Document all public APIs with GoDoc comments
-- Ensure zero linter warnings (`golangci-lint run`)
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines on how to contribute to this project.
 
 ## Usage
 
