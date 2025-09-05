@@ -6,8 +6,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/liatrio/autogov-verify/pkg/attestations"
@@ -43,9 +47,10 @@ const (
 	// OPA policy flags
 	flagPolicyBundlePath = "policy-bundle-path"
 	// VSA generation flags
-	flagGenerateVSA = "generate-vsa"
-	flagVSAOutput   = "vsa-output"
-	flagPolicyURI   = "policy-uri"
+	flagGenerateVSA      = "generate-vsa"
+	flagVSAOutput        = "vsa-output"
+	flagPolicyURI        = "policy-uri"
+	attestationURNFormat = "urn:attestation:sha256:%s"
 )
 
 func init() {
@@ -212,8 +217,37 @@ func run(cmd *cobra.Command, args []string) error {
 		h.Write(decodedPayload)
 		attestationDigest := fmt.Sprintf("%x", h.Sum(nil))
 
-		// create meaningful URI based on attestation type
-		attestationURI := fmt.Sprintf("attestation://%s/%d", statement.PredicateType, i+1)
+		// create proper URI pointing to where attestation can be retrieved
+		var attestationURI string
+		if artifactDigest != "" {
+			// extract org from artifact digest for GitHub API endpoint
+			// format: [registry/]org/repo@digest
+			digestParts := strings.Split(artifactDigest, "@")
+			if len(digestParts) >= 2 {
+				imagePart := digestParts[0]
+				// remove registry prefix if present (e.g., ghcr.io/)
+				if strings.Contains(imagePart, "/") {
+					parts := strings.Split(imagePart, "/")
+					if len(parts) >= 2 {
+						// get org
+						org := parts[len(parts)-2]
+						// create GitHub API endpoint URI with attestation digest as identifier
+						digestValue := strings.TrimPrefix(digestParts[1], "sha256:")
+						attestationURI = fmt.Sprintf("https://api.github.com/orgs/%s/attestations/%s#%s",
+							org, digestValue, attestationDigest)
+					} else {
+						attestationURI = fmt.Sprintf(attestationURNFormat, attestationDigest)
+					}
+				} else {
+					attestationURI = fmt.Sprintf(attestationURNFormat, attestationDigest)
+				}
+			} else {
+				attestationURI = fmt.Sprintf(attestationURNFormat, attestationDigest)
+			}
+		} else {
+			// use URN format for blob attestations
+			attestationURI = fmt.Sprintf(attestationURNFormat, attestationDigest)
+		}
 
 		inputAttestations = append(inputAttestations, vsa.ResourceDescriptor{
 			URI: attestationURI,
@@ -276,14 +310,27 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 		fmt.Println("Evaluating OPA policy...")
 	}
 
-	// TEMPORARY: use local policy path - in production this would download from the policy URI
-	localPolicyPath := "/Users/ianhundere/Projects/autogov/liatrio-rego-policy-library"
+	// get policy bundle path from flag or use policy URI for download
+	policyBundlePath := viper.GetString(flagPolicyBundlePath)
+	policyURI = viper.GetString(flagPolicyURI)
+
+	// require policy source for evaluation
+	if policyBundlePath == "" && policyURI == "" {
+		return fmt.Errorf("policy evaluation requires either --policy-bundle-path or --policy-uri")
+	}
 
 	// conditional blocks for proper scoping
 	var policyResult *policy.PolicyResult
 
-	// OPA evaluator
-	evaluator, err := policy.NewOPAEvaluator(ctx, localPolicyPath)
+	// OPA evaluator, use bundle path if provided, otherwise download from URI
+	var evaluatorPath string
+	if policyBundlePath != "" {
+		evaluatorPath = policyBundlePath
+	} else {
+		evaluatorPath = policyURI
+	}
+
+	evaluator, err := policy.NewOPAEvaluator(ctx, evaluatorPath)
 	if err != nil {
 		return fmt.Errorf("failed to create OPA evaluator: %w", err)
 	}
@@ -308,12 +355,18 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 		}
 	}
 
+	// calculate policy digest from the actual policy content
+	policyDigest, err := calculatePolicyDigest(evaluatorPath)
+	if err != nil {
+		return fmt.Errorf("failed to calculate policy digest: %w", err)
+	}
+
 	// create VSA options with input attestations
 	opts := vsa.VSAOptions{
 		InputAttestations: inputAttestations,
 		AutoGovVersion:    "v1.1.0",
 		PolicyDigest: map[string]string{
-			"sha256": "policy-hash-placeholder", // real implementation, calculate from policy
+			"sha256": policyDigest,
 		},
 		AdditionalVerifiers: map[string]string{
 			"opa": "v1.8.0",
@@ -337,7 +390,7 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 			"result":           policyResult.Result,
 			"violations":       policyResult.Violations,
 			"evaluation_time":  policyResult.Timestamp,
-			"policy_bundle":    localPolicyPath,
+			"policy_bundle":    evaluatorPath,
 			"opa_version":      "v1.8.0",
 			"governance_rules": []string{"governance.allow", "governance.violations"},
 			"details":          policyResult.Details,
@@ -390,4 +443,90 @@ func main() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// computes SHA256 hash of policy bundle content
+func calculatePolicyDigest(policyPath string) (string, error) {
+	// check if it's a directory or file
+	info, err := os.Stat(policyPath)
+	if err != nil {
+		// if path doesn't exist locally, it might be a URL - download and hash content
+		if strings.HasPrefix(policyPath, "http") {
+			return calculateRemotePolicyDigest(policyPath)
+		}
+		return "", fmt.Errorf("policy path not found: %w", err)
+	}
+
+	h := sha256.New()
+
+	if info.IsDir() {
+		// hash directory contents recursively
+		err := filepath.Walk(policyPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			// skip directories, only hash files
+			if info.IsDir() {
+				return nil
+			}
+
+			// only include .rego files and metadata
+			if strings.HasSuffix(path, ".rego") || strings.HasSuffix(path, ".json") || strings.HasSuffix(path, ".yaml") {
+				file, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+
+				// include relative path in hash for uniqueness
+				relPath, _ := filepath.Rel(policyPath, path)
+				h.Write([]byte(relPath))
+
+				_, err = io.Copy(h, file)
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to hash policy directory: %w", err)
+		}
+	} else {
+		// single file - hash its contents
+		file, err := os.Open(policyPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to open policy file: %w", err)
+		}
+		defer file.Close()
+
+		_, err = io.Copy(h, file)
+		if err != nil {
+			return "", fmt.Errorf("failed to read policy file: %w", err)
+		}
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+// downloads policy content from URL and hashes it
+func calculateRemotePolicyDigest(url string) (string, error) {
+	// create HTTP request
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to download policy from %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download policy: HTTP %d", resp.StatusCode)
+	}
+
+	// hash the response body (actual policy content)
+	h := sha256.New()
+	_, err = io.Copy(h, resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read policy content: %w", err)
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
