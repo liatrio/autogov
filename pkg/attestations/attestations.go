@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -30,6 +30,16 @@ import (
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
+
+// non-fatal source ref mismatch that should be skipped (explicitly for blobs if it has not changed)
+type SourceRefMismatchError struct {
+	Found    string
+	Expected string
+}
+
+func (e *SourceRefMismatchError) Error() string {
+	return fmt.Sprintf("source repository ref %s does not match expected %s", e.Found, e.Expected)
+}
 
 // default gha oidc token issuer
 const DefaultCertIssuer = "https://token.actions.githubusercontent.com"
@@ -299,6 +309,14 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 		default:
 			sig, err := verifyAttestation(att, artifactRef.String(), trust, i, opts)
 			if err != nil {
+				// check if it's a source ref mismatch error (non-fatal)
+				var sourceRefErr *SourceRefMismatchError
+				if errors.As(err, &sourceRefErr) {
+					if !opts.Quiet {
+						fmt.Printf("⚠ Warning: %s (skipping attestation %d)\n", sourceRefErr.Error(), i+1)
+					}
+					continue // skip this attestation and continue with the next one
+				}
 				return nil, err
 			}
 			sigs = append(sigs, sig)
@@ -390,7 +408,7 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		return nil, fmt.Errorf("attestation is nil")
 	}
 
-	// use GitHub attestation bundle
+	// GitHub attestation bundle
 	bundleData, err := att.Bundle.MarshalJSON()
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal attestation bundle: %w", err)
@@ -402,13 +420,13 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		return nil, fmt.Errorf("failed to unmarshal bundle: %w", err)
 	}
 
-	// get the envelope from the bundle
+	// envelope from the bundle
 	envelope, err := b.Envelope()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get envelope from bundle: %w", err)
 	}
 
-	// get the payload from the envelope
+	// payload from the envelope
 	rawPayload := envelope.RawEnvelope().Payload
 
 	// decode base64 payload
@@ -444,31 +462,30 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		return nil, fmt.Errorf("failed to create signature: %w", err)
 	}
 
+	if !opts.Quiet {
+		fmt.Printf("Verifying attestation %d (%s)...\n", index+1, statement.PredicateType)
+	}
+
 	// verify source repository ref if expected ref is set
 	if opts.SourceRef != "" {
 		// check if build provenance attestation
 		if statement.PredicateType != "https://slsa.dev/provenance/v1" {
-			// skip non-provenance attestations
-			return sig, nil
-		}
+			// non-provenance attestations don't contain source ref information
+		} else {
+			sourceRef := statement.Predicate.BuildDefinition.ExternalParameters.Workflow.Ref
+			if sourceRef == "" {
+				return nil, fmt.Errorf("no source repository ref found in verification result")
+			}
 
-		sourceRef := statement.Predicate.BuildDefinition.ExternalParameters.Workflow.Ref
-		if sourceRef == "" {
-			return nil, fmt.Errorf("no source repository ref found in verification result")
-		}
+			// verify source repository ref matches expected ref
+			if sourceRef != opts.SourceRef {
+				return nil, &SourceRefMismatchError{Found: sourceRef, Expected: opts.SourceRef}
+			}
 
-		// verify source repository ref matches expected ref
-		if sourceRef != opts.SourceRef {
-			return nil, fmt.Errorf("source repository ref %s does not match SourceRef %s", sourceRef, opts.SourceRef)
+			if !opts.Quiet {
+				fmt.Printf("✓ Source repository ref verified: %s\n", sourceRef)
+			}
 		}
-
-		if !opts.Quiet {
-			fmt.Printf("✓ Source repository ref verified: %s\n", sourceRef)
-		}
-	}
-
-	if !opts.Quiet {
-		fmt.Printf("Verifying attestation %d (%s)...\n", index+1, statement.PredicateType)
 	}
 
 	// load trusted root
@@ -477,13 +494,13 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		return nil, fmt.Errorf("failed to load trusted root: %w", err)
 	}
 
-	// create verifier with trusted material and timestamp verification
+	// verifier with trusted material and timestamp verification
 	verifier, err := verify.NewVerifier(trustedRoot, verify.WithObserverTimestamps(1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verifier: %w", err)
 	}
 
-	// create artifact policy - for container images we verify against the digest
+	// artifact policy - for container images we verify against the digest
 	var artifactPolicy verify.ArtifactPolicyOption
 	if opts.BlobPath != "" {
 		// for blobs, read the blob content and verify against it
@@ -503,13 +520,13 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		artifactPolicy = verify.WithArtifactDigest("sha256", digestBytes)
 	}
 
-	// create certificate identity for verification
+	// certificate identity for verification
 	certIdentity, err := verify.NewShortCertificateIdentity(opts.CertIssuer, "", opts.CertIdentity, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create certificate identity: %w", err)
 	}
 
-	// create policy using the pure sigstore-go v1.0.0 API with certificate identity verification
+	// policy using the pure sigstore-go v1.0.0 API with certificate identity verification
 	policy := verify.NewPolicy(artifactPolicy, verify.WithCertificateIdentity(certIdentity))
 
 	// verify the bundle using the pure sigstore-go v1.0.0 API
@@ -578,6 +595,14 @@ func handleBlobVerification(ctx context.Context, artifactRef *Digest, org string
 		default:
 			sig, err := verifyAttestation(att, opts.BlobPath, trust, i, opts)
 			if err != nil {
+				// check if it's a source ref mismatch error (non-fatal)
+				var sourceRefErr *SourceRefMismatchError
+				if errors.As(err, &sourceRefErr) {
+					if !opts.Quiet {
+						fmt.Printf("⚠ Warning: %s (skipping attestation %d)\n", sourceRefErr.Error(), i+1)
+					}
+					continue // skip this attestation and continue with the next one
+				}
 				return nil, err
 			}
 			sigs = append(sigs, sig)

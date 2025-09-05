@@ -2,15 +2,24 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/liatrio/autogov-verify/pkg/attestations"
 	"github.com/liatrio/autogov-verify/pkg/certid"
-	"github.com/liatrio/autogov-verify/pkg/github"
+	ghclient "github.com/liatrio/autogov-verify/pkg/github"
+	"github.com/liatrio/autogov-verify/pkg/policy"
+	"github.com/liatrio/autogov-verify/pkg/vsa"
+	"github.com/sigstore/cosign/v2/pkg/oci"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -27,14 +36,28 @@ certificate identity and issuer.`,
 )
 
 const (
-	flagArtifactDigest   = "artifact-digest"
-	flagBlobPath         = "blob-path"
-	flagCertIdentity     = "cert-identity"
-	flagCertIssuer       = "cert-issuer"
-	flagSourceRef        = "source-ref"
-	flagQuiet            = "quiet"
+	// core verification flags
+	flagArtifactDigest = "artifact-digest"
+	flagBlobPath       = "blob-path"
+	flagCertIdentity   = "cert-identity"
+	flagCertIssuer     = "cert-issuer"
+	flagSourceRef      = "source-ref"
+	// certificate identity validation flags
 	flagCertIdentityList = "cert-identity-list"
 	flagNoCache          = "no-cache"
+	// general flags
+	flagQuiet = "quiet"
+	// OPA policy flags
+	flagPolicyBundlePath = "policy-bundle-path"
+	// VSA generation flags
+	flagGenerateVSA = "generate-vsa"
+	flagVSAOutput   = "vsa-output"
+	flagPolicyURI   = "policy-uri"
+	// format constants
+	attestationURNFormat = "urn:attestation:sha256:%s"
+	// version constants
+	autogovVersion = "v1.1.0"
+	opaVersion     = "v1.8.0"
 )
 
 func init() {
@@ -50,6 +73,14 @@ func init() {
 	rootCmd.Flags().String(flagCertIdentityList, "", "URL or file path to the certificate identity list. If provided, enables cert-identity validation against this source (optional)")
 	rootCmd.Flags().Bool(flagNoCache, false, "Disable caching of the certificate identity list")
 
+	// OPA policy flags
+	rootCmd.Flags().String(flagPolicyBundlePath, "", "Path to OPA policy bundle directory or .tar.gz file for policy evaluation")
+
+	// VSA generation flags
+	rootCmd.Flags().Bool(flagGenerateVSA, false, "Generate Verification Summary Attestation after successful verification")
+	rootCmd.Flags().String(flagVSAOutput, "", "Output path for generated VSA (required if --generate-vsa is used)")
+	rootCmd.Flags().String(flagPolicyURI, "", "Policy URI for VSA generation (required if --generate-vsa is used)")
+
 	rootCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		blobPath := viper.GetString(flagBlobPath)
 		artifactDigest := viper.GetString(flagArtifactDigest)
@@ -58,7 +89,7 @@ func init() {
 		}
 
 		// token validation is handled by github.GetToken() and github.NewClient()
-		if github.GetToken() == "" {
+		if token := ghclient.GetToken(); token == "" {
 			return fmt.Errorf("GH_TOKEN, GITHUB_TOKEN or GITHUB_AUTH_TOKEN environment variable is required")
 		}
 
@@ -77,6 +108,7 @@ func init() {
 		flagSourceRef:        "SOURCE_REF",
 		flagCertIdentityList: "CERT_IDENTITY_LIST",
 		flagNoCache:          "NO_CACHE",
+		flagPolicyBundlePath: "POLICY_BUNDLE_PATH",
 	}
 
 	for key, env := range envBinds {
@@ -98,7 +130,7 @@ func run(cmd *cobra.Command, args []string) error {
 	certIssuer := viper.GetString(flagCertIssuer)
 	sourceRef := viper.GetString(flagSourceRef)
 	blobPath := viper.GetString(flagBlobPath)
-	client := github.NewClient()
+	client := ghclient.NewClient()
 
 	// set up certificate identity validation options if cert-identity-list is provided
 	var certIdentityOpts *certid.Options
@@ -137,11 +169,29 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("error getting attestations: %w", err)
 	}
 
+	// use correct digest format based on verification type
+	vsaArtifactRef := artifactDigest
+	if blobPath != "" {
+		// blob verification, calculates the sha256 digest
+		blobData, err := os.ReadFile(blobPath)
+		if err != nil {
+			return fmt.Errorf("failed to read blob file for VSA: %w", err)
+		}
+		h := sha256.New()
+		h.Write(blobData)
+		// pass direct digest format
+		vsaArtifactRef = fmt.Sprintf("sha256:%x", h.Sum(nil))
+	}
+
 	if !quiet {
 		fmt.Println("\nSummary:")
 		fmt.Printf("✓ Successfully verified %d attestations\n", len(sigs))
 		fmt.Println("\nAttestation Types:")
 	}
+
+	// collect attestation types / prepare for VSA generation
+	var attestationTypes []string
+	var inputAttestations []vsa.ResourceDescriptor
 
 	for i, sig := range sigs {
 		payload, err := sig.Payload()
@@ -165,7 +215,232 @@ func run(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
+		attestationTypes = append(attestationTypes, statement.PredicateType)
 		fmt.Printf("%d. %s\n", i+1, statement.PredicateType)
+
+		// prep input attestation for VSA generation
+		// calculate actual SHA256 digest of the attestation payload
+		h := sha256.New()
+		h.Write(decodedPayload)
+		attestationDigest := fmt.Sprintf("%x", h.Sum(nil))
+
+		// create proper URI pointing to where attestation can be retrieved
+		var attestationURI string
+		if artifactDigest != "" {
+			// extract org from artifact digest for GitHub API endpoint
+			// format: [registry/]org/repo@digest
+			digestParts := strings.Split(artifactDigest, "@")
+			if len(digestParts) >= 2 {
+				imagePart := digestParts[0]
+				// remove registry prefix if present (e.g., ghcr.io/)
+				if strings.Contains(imagePart, "/") {
+					parts := strings.Split(imagePart, "/")
+					if len(parts) >= 2 {
+						// get org
+						org := parts[len(parts)-2]
+						// create GitHub API endpoint URI with attestation digest as identifier
+						digestValue := strings.TrimPrefix(digestParts[1], "sha256:")
+						attestationURI = fmt.Sprintf("https://api.github.com/orgs/%s/attestations/%s#%s",
+							org, digestValue, attestationDigest)
+					} else {
+						attestationURI = fmt.Sprintf(attestationURNFormat, attestationDigest)
+					}
+				} else {
+					attestationURI = fmt.Sprintf(attestationURNFormat, attestationDigest)
+				}
+			} else {
+				attestationURI = fmt.Sprintf(attestationURNFormat, attestationDigest)
+			}
+		} else {
+			// use URN format for blob attestations
+			attestationURI = fmt.Sprintf(attestationURNFormat, attestationDigest)
+		}
+
+		inputAttestations = append(inputAttestations, vsa.ResourceDescriptor{
+			URI: attestationURI,
+			Digest: map[string]string{
+				"sha256": attestationDigest,
+			},
+		})
+	}
+
+	// generate VSA if requested
+	if viper.GetBool(flagGenerateVSA) {
+		if err := generateVSA(context.Background(), vsaArtifactRef, inputAttestations, attestationTypes, sigs, quiet); err != nil {
+			return fmt.Errorf("failed to generate VSA: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// creates a VSA after successful attestation verification
+func generateVSA(ctx context.Context, artifactDigest string, inputAttestations []vsa.ResourceDescriptor, attestationTypes []string, sigs []oci.Signature, quiet bool) error {
+	policyURI := viper.GetString(flagPolicyURI)
+	vsaOutput := viper.GetString(flagVSAOutput)
+
+	if policyURI == "" {
+		return fmt.Errorf("policy URI is required for VSA generation (use --%s)", flagPolicyURI)
+	}
+
+	if vsaOutput == "" {
+		return fmt.Errorf("VSA output path is required (use --%s)", flagVSAOutput)
+	}
+
+	if !quiet {
+		fmt.Println("\n---")
+		fmt.Println("Generating Verification Summary Attestation...")
+	}
+
+	// verification results based on successful attestation verification
+	verificationResults := map[string]bool{
+		"attestation.verification": true,
+		"attestation.signature":    true,
+	}
+
+	// specific results for each attestation type
+	for _, attType := range attestationTypes {
+		switch attType {
+		case "https://slsa.dev/provenance/v1":
+			verificationResults["attestation.slsa_provenance"] = true
+		case "https://cyclonedx.org/bom":
+			verificationResults["attestation.sbom"] = true
+		case "https://in-toto.io/attestation/vuln/v0.1":
+			verificationResults["attestation.vulnerability"] = true
+		default:
+			verificationResults["attestation."+attType] = true
+		}
+	}
+
+	// OPA policy evaluation
+	if !quiet {
+		fmt.Println("Evaluating OPA policy...")
+	}
+
+	// get policy bundle path from flag or use policy URI for download
+	policyBundlePath := viper.GetString(flagPolicyBundlePath)
+	policyURI = viper.GetString(flagPolicyURI)
+
+	// require policy source for evaluation
+	if policyBundlePath == "" && policyURI == "" {
+		return fmt.Errorf("policy evaluation requires either --policy-bundle-path or --policy-uri")
+	}
+
+	// conditional blocks for proper scoping
+	var policyResult *policy.PolicyResult
+
+	// OPA evaluator, use bundle path if provided, otherwise download from URI
+	var evaluatorPath string
+	if policyBundlePath != "" {
+		evaluatorPath = policyBundlePath
+	} else {
+		evaluatorPath = policyURI
+	}
+
+	evaluator, err := policy.NewOPAEvaluator(ctx, evaluatorPath)
+	if err != nil {
+		return fmt.Errorf("failed to create OPA evaluator: %w", err)
+	}
+	defer evaluator.Stop(ctx)
+
+	// eval policy against attestations
+	policyResult, err = evaluator.EvaluatePolicy(ctx, sigs)
+	if err != nil {
+		return fmt.Errorf("failed to evaluate OPA policy: %w", err)
+	}
+
+	// policy evaluation results
+	verificationResults["policy.compliance"] = (policyResult.Result == "PASSED")
+
+	if !quiet {
+		fmt.Printf("✓ Policy evaluation completed: %s\n", policyResult.Result)
+		if len(policyResult.Violations) > 0 {
+			fmt.Printf("  Policy violations: %d\n", len(policyResult.Violations))
+			for _, violation := range policyResult.Violations {
+				fmt.Printf("    - %s: %s\n", violation.Policy, violation.Message)
+			}
+		}
+	}
+
+	// calculate policy digest from the actual policy content
+	policyDigest, err := calculatePolicyDigest(evaluatorPath)
+	if err != nil {
+		return fmt.Errorf("failed to calculate policy digest: %w", err)
+	}
+
+	// create VSA options with input attestations
+	opts := vsa.VSAOptions{
+		InputAttestations: inputAttestations,
+		AutoGovVersion:    autogovVersion,
+		PolicyDigest: map[string]string{
+			"sha256": policyDigest,
+		},
+		AdditionalVerifiers: map[string]string{
+			"opa": opaVersion,
+		},
+	}
+
+	// generate VSA
+	generatedVSA, err := vsa.GenerateVSAWithOptions(artifactDigest, policyURI, verificationResults, opts)
+	if err != nil {
+		return fmt.Errorf("failed to generate VSA: %w", err)
+	}
+
+	// VSA metadata
+	if policyResult != nil {
+		if generatedVSA.Metadata == nil {
+			generatedVSA.Metadata = make(map[string]interface{})
+		}
+
+		// policy evaluation metadata
+		generatedVSA.Metadata["autogov.policy.evaluation"] = map[string]interface{}{
+			"result":           policyResult.Result,
+			"violations":       policyResult.Violations,
+			"evaluation_time":  policyResult.Timestamp,
+			"policy_bundle":    evaluatorPath,
+			"opa_version":      opaVersion,
+			"governance_rules": []string{"governance.allow", "governance.violations"},
+			"details":          policyResult.Details,
+		}
+
+		// violation summary
+		if len(policyResult.Violations) > 0 {
+			violationSummary := make(map[string][]string)
+			for _, violation := range policyResult.Violations {
+				violationSummary[violation.Policy] = append(violationSummary[violation.Policy], violation.Message)
+			}
+			generatedVSA.Metadata["autogov.policy.violation_summary"] = violationSummary
+		}
+
+		// policy compliance metrics
+		generatedVSA.Metadata["autogov.policy.metrics"] = map[string]interface{}{
+			"total_violations":    len(policyResult.Violations),
+			"compliance_status":   policyResult.Result,
+			"input_attestations":  len(sigs),
+			"evaluation_duration": time.Since(policyResult.Timestamp).Milliseconds(),
+		}
+	}
+
+	// serializes VSA
+	vsaBytes, err := generatedVSA.SerializeVSA()
+	if err != nil {
+		return fmt.Errorf("failed to serialize VSA: %w", err)
+	}
+
+	// write VSA to file
+	if err := os.WriteFile(vsaOutput, vsaBytes, 0644); err != nil {
+		return fmt.Errorf("failed to write VSA to file: %w", err)
+	}
+
+	if !quiet {
+		fmt.Printf("✓ VSA generated successfully: %s\n", vsaOutput)
+		fmt.Printf("  SLSA Version: %s\n", generatedVSA.Predicate.SlsaVersion)
+		fmt.Printf("  Verification Result: %s\n", generatedVSA.Predicate.VerificationResult)
+		fmt.Printf("  Input Attestations: %d\n", len(generatedVSA.Predicate.InputAttestations))
+		fmt.Printf("  Verified Levels: %v\n", generatedVSA.Predicate.VerifiedLevels)
+		if policyResult != nil {
+			fmt.Printf("  Policy Evaluation: %s\n", policyResult.Result)
+		}
 	}
 
 	return nil
@@ -175,4 +450,102 @@ func main() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// computes SHA256 hash of policy bundle content
+func calculatePolicyDigest(policyPath string) (string, error) {
+	// check if it's a directory or file
+	info, err := os.Stat(policyPath)
+	if err != nil {
+		// if path doesn't exist locally, it might be a URL - download and hash content
+		if strings.HasPrefix(policyPath, "http") {
+			return calculateRemotePolicyDigest(policyPath)
+		}
+		return "", fmt.Errorf("policy path not found: %w", err)
+	}
+
+	h := sha256.New()
+
+	if info.IsDir() {
+		// hash directory contents recursively
+		err := filepath.Walk(policyPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			// skip directories, only hash files
+			if info.IsDir() {
+				return nil
+			}
+
+			// only include .rego files and metadata
+			if strings.HasSuffix(path, ".rego") || strings.HasSuffix(path, ".json") || strings.HasSuffix(path, ".yaml") {
+				file, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+				defer func() {
+					if closeErr := file.Close(); closeErr != nil {
+						fmt.Printf("Warning: failed to close file %s: %v\n", path, closeErr)
+					}
+				}()
+
+				// include relative path in hash for uniqueness
+				relPath, _ := filepath.Rel(policyPath, path)
+				h.Write([]byte(relPath))
+
+				_, err = io.Copy(h, file)
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to hash policy directory: %w", err)
+		}
+	} else {
+		// single file - hash its contents
+		file, err := os.Open(policyPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to open policy file: %w", err)
+		}
+		defer func() {
+			if closeErr := file.Close(); closeErr != nil {
+				fmt.Printf("Warning: failed to close policy file: %v\n", closeErr)
+			}
+		}()
+
+		_, err = io.Copy(h, file)
+		if err != nil {
+			return "", fmt.Errorf("failed to read policy file: %w", err)
+		}
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+// downloads policy content from URL and hashes it
+func calculateRemotePolicyDigest(url string) (string, error) {
+	// create HTTP request
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to download policy from %s: %w", url, err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Printf("Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download policy: HTTP %d", resp.StatusCode)
+	}
+
+	// hash the response body (actual policy content)
+	h := sha256.New()
+	_, err = io.Copy(h, resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read policy content: %w", err)
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }

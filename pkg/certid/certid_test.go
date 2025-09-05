@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestValidator_IsValidIdentity(t *testing.T) {
+func TestValidatorIsValidIdentity(t *testing.T) {
 	// create a temp file
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test-identities.json")
@@ -153,7 +153,7 @@ func TestValidator_IsValidIdentity(t *testing.T) {
 	}
 }
 
-func TestValidator_GetValidIdentities(t *testing.T) {
+func TestValidatorGetValidIdentities(t *testing.T) {
 	// create a temp file
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test-identities.json")
@@ -255,7 +255,7 @@ func TestValidator_GetValidIdentities(t *testing.T) {
 			t.Fatalf("Failed to get valid identities: %v", err)
 		}
 
-		// Should return all latest and non-expired approved identities (2 latest + 2 non-expired approved = 4)
+		// should return all latest and non-expired approved identities (2 latest + 2 non-expired approved = 4)
 		expectedCount := 4
 		if len(identities) != expectedCount {
 			t.Errorf("GetValidIdentities() returned %d identities, expected %d", len(identities), expectedCount)
@@ -309,7 +309,7 @@ func TestCaching(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Test caching
+	// test caching
 	t.Run("Cache Enabled", func(t *testing.T) {
 		opts := Options{
 			URL:          server.URL,
@@ -317,7 +317,7 @@ func TestCaching(t *testing.T) {
 			CacheDir:     cacheDir,
 		}
 
-		// First request should hit server
+		// request should hit server
 		v, err := NewValidator(opts)
 		if err != nil {
 			t.Fatalf("Failed to create validator: %v", err)
@@ -328,7 +328,7 @@ func TestCaching(t *testing.T) {
 
 		initialHits := serverHits
 
-		// Second request should use cache
+		// second request should use cache
 		v, err = NewValidator(opts)
 		if err != nil {
 			t.Fatalf("Failed to create validator: %v", err)
@@ -342,7 +342,7 @@ func TestCaching(t *testing.T) {
 		}
 	})
 
-	// Test cache disabled
+	// test cache disabled
 	t.Run("Cache Disabled", func(t *testing.T) {
 		opts := Options{
 			URL:          server.URL,
@@ -352,7 +352,7 @@ func TestCaching(t *testing.T) {
 
 		initialHits := serverHits
 
-		// With cache disabled, should hit server
+		// with cache disabled, should hit server
 		v, err := NewValidator(opts)
 		if err != nil {
 			t.Fatalf("Failed to create validator: %v", err)
