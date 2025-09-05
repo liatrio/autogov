@@ -36,21 +36,28 @@ certificate identity and issuer.`,
 )
 
 const (
-	flagArtifactDigest   = "artifact-digest"
-	flagBlobPath         = "blob-path"
-	flagCertIdentity     = "cert-identity"
-	flagCertIssuer       = "cert-issuer"
-	flagSourceRef        = "source-ref"
-	flagQuiet            = "quiet"
+	// core verification flags
+	flagArtifactDigest = "artifact-digest"
+	flagBlobPath       = "blob-path"
+	flagCertIdentity   = "cert-identity"
+	flagCertIssuer     = "cert-issuer"
+	flagSourceRef      = "source-ref"
+	// certificate identity validation flags
 	flagCertIdentityList = "cert-identity-list"
 	flagNoCache          = "no-cache"
+	// general flags
+	flagQuiet = "quiet"
 	// OPA policy flags
 	flagPolicyBundlePath = "policy-bundle-path"
 	// VSA generation flags
-	flagGenerateVSA      = "generate-vsa"
-	flagVSAOutput        = "vsa-output"
-	flagPolicyURI        = "policy-uri"
+	flagGenerateVSA = "generate-vsa"
+	flagVSAOutput   = "vsa-output"
+	flagPolicyURI   = "policy-uri"
+	// format constants
 	attestationURNFormat = "urn:attestation:sha256:%s"
+	// version constants
+	autogovVersion = "v1.1.0"
+	opaVersion     = "v1.8.0"
 )
 
 func init() {
@@ -364,12 +371,12 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 	// create VSA options with input attestations
 	opts := vsa.VSAOptions{
 		InputAttestations: inputAttestations,
-		AutoGovVersion:    "v1.1.0",
+		AutoGovVersion:    autogovVersion,
 		PolicyDigest: map[string]string{
 			"sha256": policyDigest,
 		},
 		AdditionalVerifiers: map[string]string{
-			"opa": "v1.8.0",
+			"opa": opaVersion,
 		},
 	}
 
@@ -391,7 +398,7 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 			"violations":       policyResult.Violations,
 			"evaluation_time":  policyResult.Timestamp,
 			"policy_bundle":    evaluatorPath,
-			"opa_version":      "v1.8.0",
+			"opa_version":      opaVersion,
 			"governance_rules": []string{"governance.allow", "governance.violations"},
 			"details":          policyResult.Details,
 		}

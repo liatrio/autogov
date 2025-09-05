@@ -342,6 +342,6 @@ func (e *OPAEvaluator) createSigstoreBundle(signatures []oci.Signature) (interfa
 func (e *OPAEvaluator) GetPolicyDetails() map[string]interface{} {
 	return map[string]interface{}{
 		"policy_path": e.policyPath,
-		"opa_version": "v1.8.0", // Could be made dynamic
+		"opa_version": "v1.8.0", // version managed in main.go constants
 	}
 }
