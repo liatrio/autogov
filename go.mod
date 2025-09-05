@@ -4,7 +4,7 @@ go 1.24.6
 
 require (
 	github.com/cli/go-gh/v2 v2.12.1
-	github.com/google/go-github/v73 v73.0.0
+	github.com/google/go-github/v74 v74.0.0
 	github.com/open-policy-agent/opa v1.8.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
