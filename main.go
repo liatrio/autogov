@@ -484,7 +484,11 @@ func calculatePolicyDigest(policyPath string) (string, error) {
 				if err != nil {
 					return err
 				}
-				defer file.Close()
+				defer func() {
+					if closeErr := file.Close(); closeErr != nil {
+						fmt.Printf("Warning: failed to close file %s: %v\n", path, closeErr)
+					}
+				}()
 
 				// include relative path in hash for uniqueness
 				relPath, _ := filepath.Rel(policyPath, path)
@@ -504,7 +508,11 @@ func calculatePolicyDigest(policyPath string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to open policy file: %w", err)
 		}
-		defer file.Close()
+		defer func() {
+			if closeErr := file.Close(); closeErr != nil {
+				fmt.Printf("Warning: failed to close policy file: %v\n", closeErr)
+			}
+		}()
 
 		_, err = io.Copy(h, file)
 		if err != nil {
@@ -522,7 +530,11 @@ func calculateRemotePolicyDigest(url string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to download policy from %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Printf("Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("failed to download policy: HTTP %d", resp.StatusCode)
