@@ -10,33 +10,33 @@ import (
 	"path/filepath"
 	"strings"
 
-	ghclient "github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/google/go-github/v73/github"
+	ghclient "github.com/liatrio/autogov-verify/pkg/github"
 )
 
-// DownloadOptions contains options for downloading attestations
+// options for downloading attestations
 type DownloadOptions struct {
-	// Target artifact
-	ArtifactPath   string // Path to local artifact file
+	// target artifact
+	ArtifactPath   string // path to local artifact file
 	ArtifactDigest string // SHA256 digest of artifact (alternative to path)
-	
-	// Repository information (for fetching from specific repo/release)
-	Repository string // Format: owner/repo
-	Tag        string // Release tag (optional)
-	
-	// Output options
-	OutputPath     string // Path to save bundle file
-	OutputFormat   string // "jsonl" or "json" (default: jsonl)
-	
-	// Authentication
-	GitHubToken    string // GitHub token for API access
-	
-	// Filtering options
-	AttestationTypes []string // Filter by attestation types
-	MaxAttestations  int      // Limit number of attestations (0 = no limit)
+
+	// repository information (for fetching from specific repo/release)
+	Repository string // format: owner/repo
+	Tag        string // release tag (optional)
+
+	// output options
+	OutputPath   string // path to save bundle file
+	OutputFormat string // "jsonl" or "json" (default: jsonl)
+
+	// authentication
+	GitHubToken string // GitHub token for API access
+
+	// filtering options
+	AttestationTypes []string // filter by attestation types
+	MaxAttestations  int      // limit number of attestations (0 = no limit)
 }
 
-// AttestationDownloader handles downloading attestations from GitHub
+// handles downloading attestations from GitHub
 type AttestationDownloader struct {
 	client *github.Client
 	opts   DownloadOptions
@@ -51,7 +51,7 @@ func NewAttestationDownloader(opts DownloadOptions) (*AttestationDownloader, err
 		client = ghclient.NewClient()
 	}
 
-	// Set defaults
+	// defaults
 	if opts.OutputFormat == "" {
 		opts.OutputFormat = "jsonl"
 	}
@@ -62,9 +62,9 @@ func NewAttestationDownloader(opts DownloadOptions) (*AttestationDownloader, err
 	}, nil
 }
 
-// Download downloads attestations and saves them as bundles
+// downloads attestations and saves them as bundles
 func (ad *AttestationDownloader) Download(ctx context.Context) error {
-	// Determine target digest
+	// determine target digest
 	var targetDigest string
 	var err error
 
@@ -79,14 +79,14 @@ func (ad *AttestationDownloader) Download(ctx context.Context) error {
 		return fmt.Errorf("must specify either artifact path or digest")
 	}
 
-	// Clean digest format (ensure it has sha256: prefix)
+	// clean digest format (ensure it has sha256: prefix)
 	if !strings.HasPrefix(targetDigest, "sha256:") {
 		targetDigest = "sha256:" + targetDigest
 	}
 
 	fmt.Printf("Downloading attestations for digest: %s\n", targetDigest)
 
-	// Fetch attestations from GitHub
+	// fetch attestations from GitHub
 	attestations, err := ad.fetchAttestations(ctx, targetDigest)
 	if err != nil {
 		return fmt.Errorf("failed to fetch attestations: %w", err)
@@ -98,25 +98,25 @@ func (ad *AttestationDownloader) Download(ctx context.Context) error {
 
 	fmt.Printf("Found %d attestations\n", len(attestations))
 
-	// Convert to bundles
+	// convert to bundles
 	bundles, err := ad.convertToBundles(attestations)
 	if err != nil {
 		return fmt.Errorf("failed to convert attestations to bundles: %w", err)
 	}
 
-	// Filter bundles if requested
+	// filter bundles if requested
 	if len(ad.opts.AttestationTypes) > 0 {
 		bundles = ad.filterBundles(bundles)
 	}
 
-	// Limit number of bundles if requested
+	// limit number of bundles if requested
 	if ad.opts.MaxAttestations > 0 && len(bundles) > ad.opts.MaxAttestations {
 		bundles = bundles[:ad.opts.MaxAttestations]
 	}
 
 	fmt.Printf("Saving %d bundles to %s\n", len(bundles), ad.opts.OutputPath)
 
-	// Save bundles to file
+	// save bundles to file
 	if err := ad.saveBundles(bundles); err != nil {
 		return fmt.Errorf("failed to save bundles: %w", err)
 	}
@@ -125,14 +125,14 @@ func (ad *AttestationDownloader) Download(ctx context.Context) error {
 	return nil
 }
 
-// fetchAttestations fetches attestations from GitHub API
+// fetch attestations fetches attestations from GitHub API
 func (ad *AttestationDownloader) fetchAttestations(ctx context.Context, digest string) ([]*github.Attestation, error) {
-	// For now, return a simple implementation that would need to be integrated
+	// TEMPORARY: return a simple implementation that would need to be integrated
 	// with the existing attestation fetching logic from the attestations package
 	return nil, fmt.Errorf("GitHub API attestation fetching not implemented yet - use existing attestations package")
 }
 
-// convertToBundles converts GitHub attestations to Sigstore bundles
+// converts GitHub attestations to Sigstore bundles
 func (ad *AttestationDownloader) convertToBundles(attestations []*github.Attestation) ([]Bundle, error) {
 	bundles := make([]Bundle, 0, len(attestations))
 
@@ -149,31 +149,31 @@ func (ad *AttestationDownloader) convertToBundles(attestations []*github.Attesta
 	return bundles, nil
 }
 
-// convertAttestationToBundle converts a single GitHub attestation to a Sigstore bundle
+// converts a single GitHub attestation to a Sigstore bundle
 func (ad *AttestationDownloader) convertAttestationToBundle(attestation *github.Attestation) (Bundle, error) {
-	// This is a simplified implementation - in practice would need to properly
+	// simplified implementation - in practice would need to properly
 	// convert from the github.Attestation type to our Bundle format
-	// For now, return an empty bundle with basic structure
+	// TEMPORARY: return an empty bundle with basic structure
 	bundle := Bundle{
 		MediaType: "application/vnd.dev.sigstore.bundle+json;version=0.1",
 	}
 
 	// TODO: Implement proper conversion from github.Attestation to Bundle
-	// This would require parsing the JSON RawMessage and extracting the fields
+	// would require parsing the JSON RawMessage and extracting the fields
 	return bundle, nil
 }
 
-// filterBundles filters bundles by attestation type
+// filter bundles by attestation type
 func (ad *AttestationDownloader) filterBundles(bundles []Bundle) []Bundle {
 	if len(ad.opts.AttestationTypes) == 0 {
 		return bundles
 	}
 
 	filtered := make([]Bundle, 0)
-	
+
 	for _, bundle := range bundles {
 		attestationType := ad.detectBundleType(bundle)
-		
+
 		for _, allowedType := range ad.opts.AttestationTypes {
 			if strings.Contains(attestationType, allowedType) {
 				filtered = append(filtered, bundle)
@@ -185,13 +185,13 @@ func (ad *AttestationDownloader) filterBundles(bundles []Bundle) []Bundle {
 	return filtered
 }
 
-// detectBundleType detects the attestation type from a bundle
+// detects the attestation type from a bundle
 func (ad *AttestationDownloader) detectBundleType(bundle Bundle) string {
 	if bundle.DsseEnvelope == nil {
 		return "unknown"
 	}
 
-	// Parse DSSE payload to extract predicate type
+	// parse DSSE payload to extract predicate type
 	var envelope struct {
 		PredicateType string `json:"predicateType"`
 	}
@@ -203,9 +203,9 @@ func (ad *AttestationDownloader) detectBundleType(bundle Bundle) string {
 	return envelope.PredicateType
 }
 
-// saveBundles saves bundles to the output file
+// save bundles saves bundles to the output file
 func (ad *AttestationDownloader) saveBundles(bundles []Bundle) error {
-	// Ensure output directory exists
+	// ensure output directory exists
 	if err := os.MkdirAll(filepath.Dir(ad.opts.OutputPath), 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
@@ -220,7 +220,7 @@ func (ad *AttestationDownloader) saveBundles(bundles []Bundle) error {
 	}
 }
 
-// saveBundlesAsJSON saves bundles as a single JSON array
+// save bundles as JSON saves bundles as a single JSON array
 func (ad *AttestationDownloader) saveBundlesAsJSON(bundles []Bundle) error {
 	file, err := os.Create(ad.opts.OutputPath)
 	if err != nil {
@@ -230,14 +230,18 @@ func (ad *AttestationDownloader) saveBundlesAsJSON(bundles []Bundle) error {
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
-	
+
 	return encoder.Encode(bundles)
 }
 
-// ValidateDownloadOptions validates download options
+// validate download options validates download options
 func ValidateDownloadOptions(opts DownloadOptions) error {
 	if opts.ArtifactPath == "" && opts.ArtifactDigest == "" {
 		return fmt.Errorf("must specify either artifact-path or artifact-digest")
+	}
+
+	if opts.Repository == "" {
+		return fmt.Errorf("repository is required")
 	}
 
 	if opts.OutputPath == "" {

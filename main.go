@@ -592,17 +592,17 @@ func runDownload(cmd *cobra.Command, args []string) error {
 // handles the verify-offline command execution
 func runVerifyOffline(cmd *cobra.Command, args []string) error {
 	// gets config values
-	artifactPath := viper.GetString("artifact-path")
-	attestationsPath := viper.GetString("attestations-path")
+	artifactPath := viper.GetString("blob-path")
+	attestationsPath := viper.GetString("attestations")
 	trustedRootPath := viper.GetString("trusted-root")
 	certIdentity := viper.GetString("cert-identity")
 	quiet := viper.GetBool("quiet")
 
 	if artifactPath == "" {
-		return fmt.Errorf("artifact-path is required")
+		return fmt.Errorf("blob-path is required")
 	}
 	if attestationsPath == "" {
-		return fmt.Errorf("attestations-path is required")
+		return fmt.Errorf("attestations is required")
 	}
 
 	// verification options

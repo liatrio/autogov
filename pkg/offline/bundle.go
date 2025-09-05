@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 )
 
 // sigstore bundle containing verification material
@@ -23,7 +24,8 @@ type Bundle struct {
 
 // cryptographic material for verification
 type VerificationMaterial struct {
-	Certificate               *Certificate               `json:"x509CertificateChain,omitempty"`
+	Certificate               *Certificate               `json:"certificate,omitempty"`          // real sigstore format
+	X509CertificateChain      *Certificate               `json:"x509CertificateChain,omitempty"` // alternative format
 	PublicKey                 *PublicKey                 `json:"publicKey,omitempty"`
 	TimestampVerificationData *TimestampVerificationData `json:"timestampVerificationData,omitempty"`
 	TlogEntries               []TlogEntry                `json:"tlogEntries,omitempty"`
@@ -31,7 +33,8 @@ type VerificationMaterial struct {
 
 // certificate chain
 type Certificate struct {
-	Certificates []CertificateBytes `json:"certificates"`
+	Certificates []CertificateBytes `json:"certificates"` // test format
+	RawBytes     string             `json:"rawBytes"`     // real sigstore format
 }
 
 // certificate bytes
@@ -48,8 +51,50 @@ type PublicKey struct {
 
 // ValidityPeriod represents the validity period of a key
 type ValidityPeriod struct {
-	Start *int64 `json:"start,omitempty"`
-	End   *int64 `json:"end,omitempty"`
+	Start *int64 `json:"-"` // will be populated by custom unmarshaling
+	End   *int64 `json:"-"` // will be populated by custom unmarshaling
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for ValidityPeriod
+// to handle both GitHub format (ISO 8601 strings) and test format (int64)
+func (vp *ValidityPeriod) UnmarshalJSON(data []byte) error {
+	// try GitHub format first (ISO 8601 strings)
+	var githubFormat struct {
+		Start string `json:"start,omitempty"`
+		End   string `json:"end,omitempty"`
+	}
+	if err := json.Unmarshal(data, &githubFormat); err == nil && (githubFormat.Start != "" || githubFormat.End != "") {
+		if githubFormat.Start != "" {
+			startTime, err := time.Parse(time.RFC3339, githubFormat.Start)
+			if err != nil {
+				return fmt.Errorf("failed to parse start time: %w", err)
+			}
+			startUnix := startTime.Unix()
+			vp.Start = &startUnix
+		}
+		if githubFormat.End != "" {
+			endTime, err := time.Parse(time.RFC3339, githubFormat.End)
+			if err != nil {
+				return fmt.Errorf("failed to parse end time: %w", err)
+			}
+			endUnix := endTime.Unix()
+			vp.End = &endUnix
+		}
+		return nil
+	}
+
+	// try test format (int64)
+	var testFormat struct {
+		Start *int64 `json:"start,omitempty"`
+		End   *int64 `json:"end,omitempty"`
+	}
+	if err := json.Unmarshal(data, &testFormat); err == nil {
+		vp.Start = testFormat.Start
+		vp.End = testFormat.End
+		return nil
+	}
+
+	return fmt.Errorf("unable to parse validity period in either format")
 }
 
 // timestamp verification information
@@ -163,6 +208,9 @@ func ParseBundles(reader io.Reader) ([]Bundle, error) {
 
 	// parse as JSONL (newline-delimited JSON)
 	scanner := bufio.NewScanner(bytes.NewReader(data))
+	// increase buffer size to handle large attestation bundles
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 10*1024*1024) // 10MB max token size
 	lineNum := 0
 
 	for scanner.Scan() {
@@ -216,22 +264,20 @@ func GetSubjectFromBundle(bundle Bundle) (*Subject, error) {
 		return nil, fmt.Errorf("bundle does not contain DSSE envelope")
 	}
 
-	// Parse the DSSE payload to extract subject information
-	var envelope struct {
-		Predicate struct {
-			Subject []Subject `json:"subject"`
-		} `json:"predicate"`
+	// Parse the DSSE payload to extract subject information (in-toto statement format)
+	var statement struct {
+		Subject []Subject `json:"subject"`
 	}
 
-	if err := json.Unmarshal(bundle.DsseEnvelope.Payload, &envelope); err != nil {
+	if err := json.Unmarshal(bundle.DsseEnvelope.Payload, &statement); err != nil {
 		return nil, fmt.Errorf("failed to parse DSSE payload: %w", err)
 	}
 
-	if len(envelope.Predicate.Subject) == 0 {
+	if len(statement.Subject) == 0 {
 		return nil, fmt.Errorf("no subjects found in attestation")
 	}
 
-	return &envelope.Predicate.Subject[0], nil
+	return &statement.Subject[0], nil
 }
 
 // calculates the SHA256 digest of a file
@@ -256,11 +302,40 @@ func ValidateBundle(bundle Bundle) error {
 		return fmt.Errorf("bundle missing mediaType")
 	}
 
-	if bundle.VerificationMaterial.Certificate == nil && bundle.VerificationMaterial.PublicKey == nil {
+	// check for verification material (certificate or public key)
+	hasVerificationMaterial := false
+
+	// check certificate field (real sigstore format)
+	if bundle.VerificationMaterial.Certificate != nil {
+		if bundle.VerificationMaterial.Certificate.RawBytes != "" {
+			hasVerificationMaterial = true
+		} else if len(bundle.VerificationMaterial.Certificate.Certificates) > 0 {
+			hasVerificationMaterial = true
+		}
+	}
+
+	// check x509CertificateChain field (alternative format)
+	if bundle.VerificationMaterial.X509CertificateChain != nil {
+		if bundle.VerificationMaterial.X509CertificateChain.RawBytes != "" {
+			hasVerificationMaterial = true
+		} else if len(bundle.VerificationMaterial.X509CertificateChain.Certificates) > 0 {
+			hasVerificationMaterial = true
+		}
+	}
+
+	// check public key
+	if bundle.VerificationMaterial.PublicKey != nil {
+		hasVerificationMaterial = true
+	}
+
+	if !hasVerificationMaterial {
 		return fmt.Errorf("bundle missing both certificate and public key")
 	}
 
-	if bundle.MessageSignature == nil && bundle.DsseEnvelope == nil {
+	// check for signature material (message signature or DSSE envelope)
+	hasSignatureMaterial := bundle.MessageSignature != nil || bundle.DsseEnvelope != nil
+
+	if !hasSignatureMaterial {
 		return fmt.Errorf("bundle missing both message signature and DSSE envelope")
 	}
 
