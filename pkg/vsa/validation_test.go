@@ -1,6 +1,7 @@
 package vsa
 
 import (
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -556,5 +557,155 @@ func TestValidateSubjectDigests(t *testing.T) {
 				t.Errorf("validateSubjectDigests() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// VSAError Tests (merged from errors_test.go)
+const (
+	testCause     = "test cause"
+	typeFormat    = "Type = %q, want %q"
+	fieldFormat   = "Field = %q, want %q"
+	messageFormat = "Message = %q, want %q"
+	causeFormat   = "Cause = %v, want %v"
+)
+
+func TestVSAError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      *VSAError
+		expected string
+	}{
+		{
+			name: "error without cause",
+			err: &VSAError{
+				Type:    "validation",
+				Field:   "digest",
+				Message: "invalid format",
+			},
+			expected: "VSA validation error in digest: invalid format",
+		},
+		{
+			name: "error with cause",
+			err: &VSAError{
+				Type:    "parsing",
+				Field:   "json",
+				Message: "failed to unmarshal",
+				Cause:   errors.New("syntax error"),
+			},
+			expected: "VSA parsing error in json: failed to unmarshal: syntax error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.err.Error()
+			if result != tt.expected {
+				t.Errorf("Error() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestVSAErrorUnwrap(t *testing.T) {
+	cause := errors.New("root cause")
+	err := &VSAError{
+		Type:    "validation",
+		Field:   "test",
+		Message: "test message",
+		Cause:   cause,
+	}
+
+	if unwrapped := err.Unwrap(); unwrapped != cause {
+		t.Errorf("Unwrap() = %v, want %v", unwrapped, cause)
+	}
+
+	// test without cause
+	errNoCause := &VSAError{
+		Type:    "validation",
+		Field:   "test",
+		Message: "test message",
+	}
+
+	if unwrapped := errNoCause.Unwrap(); unwrapped != nil {
+		t.Errorf("Unwrap() = %v, want nil", unwrapped)
+	}
+}
+
+func TestNewVSAError(t *testing.T) {
+	cause := errors.New(testCause)
+	err := NewVSAError("validation", "field", "message", cause)
+
+	if err.Type != "validation" {
+		t.Errorf(typeFormat, err.Type, "validation")
+	}
+	if err.Field != "field" {
+		t.Errorf(fieldFormat, err.Field, "field")
+	}
+	if err.Message != "message" {
+		t.Errorf(messageFormat, err.Message, "message")
+	}
+	if err.Cause != cause {
+		t.Errorf(causeFormat, err.Cause, cause)
+	}
+}
+
+func TestNewValidationError(t *testing.T) {
+	cause := errors.New(testCause)
+	err := NewValidationError("field", "message", cause)
+
+	if err.Type != "validation" {
+		t.Errorf(typeFormat, err.Type, "validation")
+	}
+	if err.Field != "field" {
+		t.Errorf(fieldFormat, err.Field, "field")
+	}
+	if err.Message != "message" {
+		t.Errorf(messageFormat, err.Message, "message")
+	}
+	if err.Cause != cause {
+		t.Errorf(causeFormat, err.Cause, cause)
+	}
+}
+
+func TestNewParsingError(t *testing.T) {
+	cause := errors.New(testCause)
+	err := NewParsingError("field", "message", cause)
+
+	if err.Type != "parsing" {
+		t.Errorf(typeFormat, err.Type, "parsing")
+	}
+	if err.Field != "field" {
+		t.Errorf(fieldFormat, err.Field, "field")
+	}
+	if err.Message != "message" {
+		t.Errorf(messageFormat, err.Message, "message")
+	}
+	if err.Cause != cause {
+		t.Errorf(causeFormat, err.Cause, cause)
+	}
+}
+
+func TestPredefinedErrors(t *testing.T) {
+	predefinedErrors := []*VSAError{
+		ErrInvalidDigest,
+		ErrMismatchVerifier,
+		ErrInvalidSLSALevel,
+		ErrMissingRequiredField,
+		ErrInvalidVerificationResult,
+		ErrInvalidResourceURI,
+		ErrInvalidPredicateType,
+		ErrInvalidStatementType,
+	}
+
+	for _, err := range predefinedErrors {
+		if err.Type == "" {
+			t.Errorf("Predefined error has empty Type: %+v", err)
+		}
+		if err.Field == "" {
+			t.Errorf("Predefined error has empty Field: %+v", err)
+		}
+		if err.Message == "" {
+			t.Errorf("Predefined error has empty Message: %+v", err)
+		}
 	}
 }
