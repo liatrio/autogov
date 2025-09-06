@@ -127,9 +127,29 @@ func (ad *AttestationDownloader) Download(ctx context.Context) error {
 
 // fetch attestations fetches attestations from GitHub API
 func (ad *AttestationDownloader) fetchAttestations(ctx context.Context, digest string) ([]*github.Attestation, error) {
-	// TEMPORARY: return a simple implementation that would need to be integrated
-	// with the existing attestation fetching logic from the attestations package
-	return nil, fmt.Errorf("GitHub API attestation fetching not implemented yet - use existing attestations package")
+	if ad.opts.Repository == "" {
+		// extract org and repo from the artifact path (if it's a cert-identity URL)
+		return nil, fmt.Errorf("repository must be specified (format: owner/repo)")
+	}
+
+	// parse repository to get owner and repo
+	parts := strings.Split(ad.opts.Repository, "/")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid repository format, expected owner/repo")
+	}
+	owner := parts[0]
+
+	// list attestations for the organization and digest
+	attestations, _, err := ad.client.Organizations.ListAttestations(ctx, owner, digest, &github.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list attestations: %w", err)
+	}
+
+	if attestations == nil || attestations.Attestations == nil {
+		return []*github.Attestation{}, nil
+	}
+
+	return attestations.Attestations, nil
 }
 
 // converts GitHub attestations to Sigstore bundles
@@ -151,15 +171,21 @@ func (ad *AttestationDownloader) convertToBundles(attestations []*github.Attesta
 
 // converts a single GitHub attestation to a Sigstore bundle
 func (ad *AttestationDownloader) convertAttestationToBundle(attestation *github.Attestation) (Bundle, error) {
-	// simplified implementation - in practice would need to properly
-	// convert from the github.Attestation type to our Bundle format
-	// TEMPORARY: return an empty bundle with basic structure
-	bundle := Bundle{
-		MediaType: "application/vnd.dev.sigstore.bundle+json;version=0.1",
+	if attestation == nil || attestation.Bundle == nil {
+		return Bundle{}, fmt.Errorf("attestation or bundle is nil")
 	}
 
-	// TODO: Implement proper conversion from github.Attestation to Bundle
-	// would require parsing the JSON RawMessage and extracting the fields
+	// Parse the JSON bundle directly
+	var bundle Bundle
+	if err := json.Unmarshal(attestation.Bundle, &bundle); err != nil {
+		return Bundle{}, fmt.Errorf("failed to unmarshal bundle: %w", err)
+	}
+
+	// Ensure the bundle has the correct media type
+	if bundle.MediaType == "" {
+		bundle.MediaType = "application/vnd.dev.sigstore.bundle+json;version=0.1"
+	}
+
 	return bundle, nil
 }
 

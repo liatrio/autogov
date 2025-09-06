@@ -15,34 +15,46 @@ Offline verification allows verification of GitHub attestations without network 
 ✅ **IMPLEMENTED**: Silent certificate expiry handling for offline mode
 ✅ **IMPLEMENTED**: GitHub trusted root format support
 ✅ **IMPLEMENTED**: Optional blob verification (attestations can be verified without artifact)
-✅ **IMPLEMENTED**: Download command for fetching attestations
+✅ **IMPLEMENTED**: Download command with full GitHub API integration
 ✅ **IMPLEMENTED**: Automatic tlog skip in offline mode
+✅ **IMPLEMENTED**: Renamed `verify-offline` to `offline` for better UX
 
 ## Implementation Status
 
 ### ✅ Successfully Implemented Features
 
+#### Download Command
+
+- **Command**: `download` with flags for blob path, output, and repository
+- **Working Example**:
+
+```bash
+# Download attestations from GitHub API
+./autogov-verify download \
+  --blob-path bundle.tar.gz \
+  --output attestations.jsonl \
+  --repo liatrio/liatrio-gh-autogov-workflows
+```
+
 #### Offline Attestation Verification
 
-- **Command**: `verify-offline` with flags for attestations, cert identity, and trusted root
+- **Command**: `offline` (renamed from `verify-offline`) with flags for attestations, cert identity, and trusted root
 - **Working Examples**:
 
-  ```bash
-  # Without blob file (verifies attestations only)
-  ./autogov-verify verify-offline \
-    --attestations sha256:17ebf82cbd8e2e941f559e44601093e1a258456ae527553852d9129a50d05040.jsonl \
-    --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-attest-blob.yaml@82f5947f7892f9a10ca272ac0136ac777f49e3d1" \
-    --trusted-root github-trusted-root.json \
-    --skip-tlog
-  
-  # With blob file (verifies attestations and matches digest)
-  ./autogov-verify verify-offline \
-    --attestations sha256:17ebf82cbd8e2e941f559e44601093e1a258456ae527553852d9129a50d05040.jsonl \
-    --blob-path bundle.tar.gz \
-    --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-attest-blob.yaml@82f5947f7892f9a10ca272ac0136ac777f49e3d1" \
-    --trusted-root github-trusted-root.json \
-    --skip-tlog
-  ```
+```bash
+# Without blob (attestation-only verification)
+./autogov-verify offline \
+  --attestations attestations.jsonl \
+  --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-attest-blob.yaml@82f5947f7892f9a10ca272ac0136ac777f49e3d1" \
+  --trusted-root github-trusted-root.json
+
+# With blob (includes digest matching)
+./autogov-verify offline \
+  --attestations attestations.jsonl \
+  --blob-path bundle.tar.gz \
+  --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-attest-blob.yaml@82f5947f7892f9a10ca272ac0136ac777f49e3d1" \
+  --trusted-root github-trusted-root.json
+```
 
 - **Status**: ✅ Working - Successfully verifies 16 attestations with real GitHub data
 - **NEW**: Blob file is now optional - attestations can be verified independently
@@ -107,6 +119,7 @@ Offline verification allows verification of GitHub attestations without network 
 ### Current Status Summary
 
 ✅ **Offline verification is fully functional** - Successfully verifies real GitHub attestations with:
+
 - **Blob-optional verification**: Attestations can be verified without requiring the artifact file
 - **Proper certificate identity matching**: Requires full commit SHA for accurate identity verification
 - **Dual-format certificate parsing**: Supports both PEM and DER certificate formats
