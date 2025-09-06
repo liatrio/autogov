@@ -266,18 +266,27 @@ func GetSubjectFromBundle(bundle Bundle) (*Subject, error) {
 
 	// Parse the DSSE payload to extract subject information (in-toto statement format)
 	var statement struct {
-		Subject []Subject `json:"subject"`
+		Subject   []Subject `json:"subject"`
+		Predicate *struct {
+			Subject []Subject `json:"subject"`
+		} `json:"predicate,omitempty"`
 	}
 
 	if err := json.Unmarshal(bundle.DsseEnvelope.Payload, &statement); err != nil {
 		return nil, fmt.Errorf("failed to parse DSSE payload: %w", err)
 	}
 
-	if len(statement.Subject) == 0 {
-		return nil, fmt.Errorf("no subjects found in attestation")
+	// Check for subjects in predicate first (attestation format)
+	if statement.Predicate != nil && len(statement.Predicate.Subject) > 0 {
+		return &statement.Predicate.Subject[0], nil
 	}
 
-	return &statement.Subject[0], nil
+	// Fall back to direct subject field (statement format)
+	if len(statement.Subject) > 0 {
+		return &statement.Subject[0], nil
+	}
+
+	return nil, fmt.Errorf("no subjects found in attestation")
 }
 
 // calculates the SHA256 digest of a file

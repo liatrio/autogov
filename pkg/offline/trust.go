@@ -159,13 +159,11 @@ func LoadTrustedRootFromFile(filepath string) (*TrustedRootLoader, error) {
 
 // validate certificate validates a certificate against trusted CAs
 func (trl *TrustedRootLoader) ValidateCertificate(certBytes []byte) error {
+	// parse certificate (handle both PEM and DER formats)
 	var cert *x509.Certificate
 	var err error
-
-	// try PEM format first
-	block, _ := pem.Decode(certBytes)
-	if block != nil {
-		// PEM format
+	if block, _ := pem.Decode(certBytes); block != nil {
+		// PEM format certificate
 		cert, err = x509.ParseCertificate(block.Bytes)
 		if err != nil {
 			return fmt.Errorf("failed to parse PEM certificate: %w", err)
@@ -174,7 +172,7 @@ func (trl *TrustedRootLoader) ValidateCertificate(certBytes []byte) error {
 		// try DER format (raw binary certificate)
 		cert, err = x509.ParseCertificate(certBytes)
 		if err != nil {
-			return fmt.Errorf("failed to parse DER certificate: %w", err)
+			return fmt.Errorf("failed to decode PEM certificate: %w", err)
 		}
 	}
 
@@ -182,9 +180,9 @@ func (trl *TrustedRootLoader) ValidateCertificate(certBytes []byte) error {
 	if now.Before(cert.NotBefore) {
 		return fmt.Errorf("certificate is not yet valid (NotBefore: %v)", cert.NotBefore)
 	}
-	// NOTE: We're being lenient about expired certificates for offline verification
-	// since test data and archived attestations may have expired certificates
-	// Expired certificates are expected in offline mode - skip expiry check
+	if now.After(cert.NotAfter) {
+		return fmt.Errorf("certificate is not valid at current time: expired on %v", cert.NotAfter)
+	}
 
 	// validate against CA
 	for _, ca := range trl.trustedRoot.CertificateAuthorities {
