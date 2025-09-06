@@ -162,11 +162,13 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for deta
 
 ## Usage
 
+### Online Verification
+
 ```bash
 autogov-verify -cert-identity <identity> [options]
 ```
 
-### Required Flags
+#### Required Flags
 
 - `--cert-identity, -i`: Certificate identity to verify against (GitHub Actions workflow URL)
   - For blob verification, the organization and repository are extracted from this URL
@@ -178,6 +180,38 @@ And one of the following:
   - The registry is optional and defaults to ghcr.io
   - The tag is optional and doesn't affect verification
 - `--blob-path`: Path to a blob file to verify attestations against (e.g., `--blob-path /path/to/file.txt`)
+
+### Offline Verification
+
+The tool supports offline verification for air-gapped environments or archived attestations:
+
+```bash
+# Download attestations for offline use
+autogov-verify download --blob-path artifact.tar.gz -o attestations.jsonl
+
+# Verify offline without the artifact (attestations only)
+autogov-verify verify-offline \
+  --attestations attestations.jsonl \
+  --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@sha" \
+  --trusted-root github-trusted-root.json
+
+# Verify offline with the artifact (includes digest matching)
+autogov-verify verify-offline \
+  --attestations attestations.jsonl \
+  --blob-path artifact.tar.gz \
+  --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@sha" \
+  --trusted-root github-trusted-root.json
+```
+
+#### Offline Verification Flags
+
+- `--attestations`: Path to pre-downloaded attestation bundles file (required)
+- `--blob-path`: Path to artifact file to verify (optional - if not provided, verifies attestations only)
+- `--cert-identity`: Expected certificate identity (required)
+- `--trusted-root`: Path to trusted root file (optional - uses embedded GitHub root if not provided)
+- `-q, --quiet`: Only show errors and final results
+
+**Note**: Transparency log verification is automatically skipped in offline mode as it requires network access. Certificate expiry and CA validation failures are handled gracefully for archived attestations.
 
 ### Optional Flags
 

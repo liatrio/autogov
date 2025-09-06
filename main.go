@@ -55,30 +55,23 @@ requiring GitHub API access or online Sigstore infrastructure.`,
 )
 
 const (
-	// core verification flags
-	flagArtifactDigest   = "artifact-digest"
-	flagBlobPath         = "blob-path"
-	flagCertIdentity     = "cert-identity"
-	flagCertIssuer       = "cert-issuer"
-	flagSourceRef        = "source-ref"
-	flagAttestationsPath = "attestations-path"
-	// certificate identity validation flags
-	flagCertIdentityList = "cert-identity-list"
-	flagNoCache          = "no-cache"
-	// general flags
-	flagQuiet = "quiet"
-	// OPA policy flags
-	flagPolicyBundlePath = "policy-bundle-path"
-	// VSA generation flags
-	flagGenerateVSA = "generate-vsa"
-	flagVSAOutput   = "vsa-output"
-	flagPolicyURI   = "policy-uri"
-	// offline flags
+	flagArtifactDigest      = "artifact-digest"
+	flagCertIdentity        = "cert-identity"
+	flagCertIssuer          = "cert-issuer"
+	flagSourceRef           = "source-ref"
+	flagBlobPath            = "blob-path"
+	flagAttestationsPath    = "attestations-path"
+	flagCertIdentityList    = "cert-identity-list"
+	flagNoCache             = "no-cache"
+	flagQuiet               = "quiet"
+	flagGenerateVSA         = "generate-vsa"
+	flagVSAOutput           = "vsa-output"
+	flagPolicyURI           = "policy-uri"
+	flagPolicyBundlePath    = "policy-bundle-path"
 	flagDownloadOutput      = "output"
 	flagDownloadFormat      = "format"
 	flagOfflineAttestations = "attestations"
 	flagOfflineTrustedRoot  = "trusted-root"
-	flagOfflineSkipTLog     = "skip-tlog"
 	// format constants
 	attestationURNFormat = "urn:attestation:sha256:%s"
 	// version constants
@@ -130,17 +123,16 @@ func init() {
 	downloadCmd.Flags().String(flagDownloadFormat, "jsonl", "Output format: json or jsonl")
 
 	// Verify offline command flags
-	verifyOfflineCmd.Flags().String(flagBlobPath, "", "Path to artifact file to verify (required)")
+	verifyOfflineCmd.Flags().String(flagBlobPath, "", "Path to artifact file to verify (optional - if not provided, verifies attestations only)")
 	verifyOfflineCmd.Flags().String(flagOfflineAttestations, "", "Path to attestation bundles file (required)")
-	verifyOfflineCmd.Flags().String(flagOfflineTrustedRoot, "", "Path to trusted root file (optional)")
 	verifyOfflineCmd.Flags().String(flagCertIdentity, "", "Expected certificate identity (required)")
 	verifyOfflineCmd.Flags().String(flagCertIssuer, "https://token.actions.githubusercontent.com", "Expected certificate issuer")
-	verifyOfflineCmd.Flags().Bool(flagOfflineSkipTLog, false, "Skip transparency log verification")
 	verifyOfflineCmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final results")
+	verifyOfflineCmd.Flags().String(flagOfflineTrustedRoot, "", "Path to trusted root file (optional)")
 
-	// subcommands
-	rootCmd.AddCommand(downloadCmd, verifyOfflineCmd)
-
+	if err := verifyOfflineCmd.MarkFlagRequired(flagOfflineAttestations); err != nil {
+		panic(fmt.Sprintf("failed to bind download flags: %v", err))
+	}
 	if err := viper.BindPFlags(rootCmd.Flags()); err != nil {
 		panic(fmt.Sprintf("failed to bind flags: %v", err))
 	}
@@ -168,6 +160,10 @@ func init() {
 			panic(fmt.Sprintf("failed to bind environment variables: %v", err))
 		}
 	}
+
+	// add subcommands
+	rootCmd.AddCommand(downloadCmd)
+	rootCmd.AddCommand(verifyOfflineCmd)
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -200,7 +196,7 @@ func run(cmd *cobra.Command, args []string) error {
 		// offline verification
 		verifyOpts := offline.VerifyOptions{
 			CertIdentity:   certIdentity,
-			SkipTLogVerify: viper.GetBool("skip-tlog"),
+			SkipTLogVerify: true, // Always skip tlog verification in offline mode
 		}
 
 		verifier, err := offline.NewOfflineVerifier("", verifyOpts)
@@ -223,9 +219,6 @@ func run(cmd *cobra.Command, args []string) error {
 
 		// converts offline results to oci.Signature format for VSA generation
 		sigs = []oci.Signature{}
-		if err != nil {
-			return fmt.Errorf("offline verification failed: %w", err)
-		}
 	} else {
 		// online verification mode using GitHub API
 		if !quiet {
@@ -598,9 +591,6 @@ func runVerifyOffline(cmd *cobra.Command, args []string) error {
 	certIdentity := viper.GetString("cert-identity")
 	quiet := viper.GetBool("quiet")
 
-	if artifactPath == "" {
-		return fmt.Errorf("blob-path is required")
-	}
 	if attestationsPath == "" {
 		return fmt.Errorf("attestations is required")
 	}
@@ -608,11 +598,15 @@ func runVerifyOffline(cmd *cobra.Command, args []string) error {
 	// verification options
 	verifyOpts := offline.VerifyOptions{
 		CertIdentity:   certIdentity,
-		SkipTLogVerify: viper.GetBool("skip-tlog"),
+		SkipTLogVerify: true, // skip tlog verification in offline mode
 	}
 
 	if !quiet {
-		fmt.Printf("Verifying artifact: %s\n", artifactPath)
+		if artifactPath != "" {
+			fmt.Printf("Verifying artifact: %s\n", artifactPath)
+		} else {
+			fmt.Println("No artifact provided - verifying attestations only")
+		}
 		fmt.Printf("Using attestations from: %s\n", attestationsPath)
 		fmt.Println("Performing offline verification...")
 		fmt.Println()

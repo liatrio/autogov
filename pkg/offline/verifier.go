@@ -93,10 +93,14 @@ func (ov *OfflineVerifier) VerifyArtifact(artifactPath string) (*VerificationRes
 		return nil, fmt.Errorf("no bundles loaded for verification")
 	}
 
-	// calculate artifact digest
-	expectedDigest, err := CalculateDigest(artifactPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to calculate artifact digest: %w", err)
+	// calculate artifact digest if artifact path provided
+	var expectedDigest string
+	if artifactPath != "" {
+		digest, err := CalculateDigest(artifactPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate artifact digest: %w", err)
+		}
+		expectedDigest = digest
 	}
 
 	result := &VerificationResult{
@@ -159,8 +163,8 @@ func (ov *OfflineVerifier) verifyBundle(bundle Bundle, expectedDigest string) At
 	}
 	result.Subject = subject
 
-	// check if subject digest matches expected artifact digest
-	if !ov.digestMatches(subject, expectedDigest) {
+	// check if subject digest matches expected artifact digest (only if artifact provided)
+	if expectedDigest != "" && !ov.digestMatches(subject, expectedDigest) {
 		result.Error = "subject digest does not match artifact digest"
 		return result
 	}

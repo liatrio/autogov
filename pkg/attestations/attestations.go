@@ -511,7 +511,7 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		artifactPolicy = verify.WithArtifact(bytes.NewReader(blobData))
 	} else {
 		// for container images, verify against the digest
-		// Remove "sha256:" prefix if present
+		// remove "sha256:" prefix if present
 		digestValue := strings.TrimPrefix(artifactDigest, "sha256:")
 		digestBytes, err := hex.DecodeString(digestValue)
 		if err != nil {
