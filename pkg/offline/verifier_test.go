@@ -8,7 +8,6 @@ import (
 	"encoding/pem"
 	"math/big"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -358,68 +357,4 @@ func TestOfflineVerifierWithRealData(t *testing.T) {
 // TestVerifyArtifactWithRealBundles tests artifact verification using real attestation bundles
 func TestVerifyArtifactWithRealBundles(t *testing.T) {
 	t.Skip("Skipping test that depends on real attestation files in old format")
-	return
-	
-	realAttestationFile := "../../testdata/attestations/single-slsa-provenance.json"
-	if _, err := os.Stat(realAttestationFile); os.IsNotExist(err) {
-		t.Skip("Real attestation file not available for testing")
-	}
-
-	// create temp artifact file for testing
-	tempDir := t.TempDir()
-	artifactPath := filepath.Join(tempDir, "test-artifact")
-	artifactContent := []byte("test artifact content for verification")
-	if err := os.WriteFile(artifactPath, artifactContent, 0644); err != nil {
-		t.Fatalf("Failed to create test artifact: %v", err)
-	}
-
-	// create temp trusted root file for testing
-	tmpRoot, err := os.CreateTemp("", "root_*.json")
-	if err != nil {
-		t.Fatalf("failed to create temp root file: %v", err)
-	}
-	defer func() { _ = os.Remove(tmpRoot.Name()) }()
-
-	trustedRootJSON := `{
-		"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1",
-		"tlogs": [], "certificateAuthorities": [], "ctlogs": [], "timestampAuthorities": []
-	}`
-	if _, err := tmpRoot.WriteString(trustedRootJSON); err != nil {
-		t.Fatalf("failed to write root data: %v", err)
-	}
-	_ = tmpRoot.Close()
-
-	// create offline verifier with expected cert identity and mock trusted root
-	verifier, err := NewOfflineVerifier(tmpRoot.Name(), VerifyOptions{
-		CertIdentity: "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@refs/heads/main",
-	})
-	if err != nil {
-		t.Fatalf("NewOfflineVerifier() unexpected error: %v", err)
-	}
-
-	// load real bundles from file
-	err = verifier.LoadBundlesFromFile(realAttestationFile)
-	if err != nil {
-		t.Fatalf("LoadBundlesFromFile() unexpected error: %v", err)
-	}
-
-	// calculate artifact digest
-	digest, err := calculateFileDigest(artifactPath)
-	if err != nil {
-		t.Fatalf("Failed to calculate artifact digest: %v", err)
-	}
-
-	// test artifact verification (will likely fail due to digest mismatch, but should not error)
-	// note: we expect this to fail because our test artifact doesn't match the real attestation
-	result, err := verifier.VerifyArtifact(artifactPath)
-
-	// this verification will fail because the test artifact doesn't match the real attestation digest
-	// but we're testing that the verification process runs without panicking
-	if err != nil {
-		t.Logf("Expected verification failure with test artifact: %v", err)
-	} else if result != nil {
-		t.Logf("Verification result: verified=%v, attestations=%d", result.Verified, len(result.Attestations))
-	}
-
-	t.Logf("Successfully tested artifact verification process with real bundles (digest: %s)", digest)
 }

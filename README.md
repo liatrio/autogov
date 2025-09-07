@@ -17,7 +17,7 @@ A tool for verifying GitHub Artifact Attestations using [cosign](https://docs.si
 - **SLSA v1.1 VSA Generation**: Creates comprehensive Verification Summary Attestations
 - **OPA Policy Integration**: Evaluates Rego policies with results included in VSA metadata
 - **Certificate Identity Validation**: Validates against approved certificate identity lists
-- **Offline Verification**: Complete offline verification using sigstore-go APIs with download capability
+- **Offline Verification**: Complete offline verification using sigstore-go APIs with separate download command
 - **Container Image Support**: Verify container images by digest without pulling the image
 - **Dynamic Trusted Root**: Automatically fetches latest GitHub trusted roots
 - **VSA Validation**: Comprehensive field validation, structured error handling, and multi-format digest support
@@ -188,16 +188,16 @@ The tool supports offline verification for air-gapped environments or archived a
 
 #### Download Attestations
 
-First, download attestations while online:
+First, download attestations while online (requires GitHub token):
 
 ```bash
-# Download attestations for a blob file
+# Download attestations for a blob artifact
 autogov-verify download \
-  --repo owner/repo \
   --blob-path artifact.tar.gz \
+  --repo owner/repo \
   --output attestations.jsonl
 
-# Download by digest (useful for container images)
+# Download attestations by digest (for container images)
 autogov-verify download \
   --repo owner/repo \
   --output attestations.jsonl \
@@ -228,16 +228,15 @@ autogov-verify offline \
   --attestations attestations.jsonl \
   --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@sha" \
   --cert-issuer "https://token.actions.githubusercontent.com"
-```
 
 #### Offline Verification Flags
 
 - `--attestations`: Path to pre-downloaded attestation bundles file (required)
-- `--blob-path`: Path to artifact file to verify (optional)
-- `--artifact-digest`: Artifact digest to verify, e.g., for container images (optional)
-- `--cert-identity`: Expected certificate identity (required)
-- `--cert-issuer`: Expected certificate issuer (default: "https://token.actions.githubusercontent.com")
-- `--trusted-root`: Path to trusted root file (optional - uses embedded GitHub root if not provided)
+- `--blob-path`: Path to artifact file to verify (optional, calculates SHA256 digest)
+- `--artifact-digest`: SHA256 digest of artifact for verification (optional, alternative to blob-path)
+- `--cert-identity`: Certificate identity (workflow URL with commit SHA) (required)
+- `--cert-issuer`: Certificate issuer (defaults to GitHub Actions)
+- `--trusted-root`: Path to trusted root JSON file (defaults to embedded GitHub trusted root) if not provided)
 - `-q, --quiet`: Only show errors and final results
 
 **Implementation Notes**:

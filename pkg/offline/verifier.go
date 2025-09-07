@@ -3,8 +3,10 @@
 package offline
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -110,11 +112,11 @@ func (ov *OfflineVerifier) VerifyArtifact(artifactPath string) (*VerificationRes
 	// Calculate artifact digest if provided
 	var expectedDigest string
 	if artifactPath != "" {
-		digest, err := calculateFileDigest(artifactPath)
+		var err error
+		expectedDigest, err = calculateDigest(artifactPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate artifact digest: %w", err)
 		}
-		expectedDigest = digest
 	}
 
 	return ov.verifyWithDigest(expectedDigest)
@@ -177,6 +179,22 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 	}
 
 	return result, nil
+}
+
+// calculateDigest calculates the SHA256 digest of a file
+func calculateDigest(filepath string) (string, error) {
+	file, err := os.Open(filepath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, file); err != nil {
+		return "", fmt.Errorf("failed to calculate digest: %w", err)
+	}
+
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // verifyBundle verifies a single bundle using sigstore-go
