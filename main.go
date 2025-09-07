@@ -55,28 +55,27 @@ requiring GitHub API access or online Sigstore infrastructure.`,
 )
 
 const (
-	flagArtifactDigest      = "artifact-digest"
 	flagCertIdentity        = "cert-identity"
 	flagCertIssuer          = "cert-issuer"
 	flagSourceRef           = "source-ref"
+	flagQuiet               = "quiet"
+	flagToken               = "token"
+	flagArtifactDigest      = "artifact-digest"
 	flagBlobPath            = "blob-path"
 	flagAttestationsPath    = "attestations-path"
 	flagCertIdentityList    = "cert-identity-list"
-	flagNoCache             = "no-cache"
-	flagQuiet               = "quiet"
 	flagGenerateVSA         = "generate-vsa"
 	flagVSAOutput           = "vsa-output"
-	flagPolicyURI           = "policy-uri"
 	flagPolicyBundlePath    = "policy-bundle-path"
-	flagDownloadOutput      = "output"
-	flagDownloadFormat      = "format"
+	flagPolicyURI           = "policy-uri"
+	flagNoCache             = "no-cache"
 	flagOfflineAttestations = "attestations"
 	flagOfflineTrustedRoot  = "trusted-root"
-	// format constants
-	attestationURNFormat = "urn:attestation:sha256:%s"
-	// version constants
-	autogovVersion = "v1.1.0"
-	opaVersion     = "v1.8.0"
+	flagDownloadOutput      = "output"
+	flagDownloadFormat      = "format"
+	attestationURNFormat    = "urn:attestation:sha256:%s"
+	autogovVersion          = "v1.1.0"
+	opaVersion              = "v1.8.0"
 )
 
 func init() {
@@ -125,6 +124,7 @@ func init() {
 
 	// Offline command flags
 	offlineCmd.Flags().String(flagBlobPath, "", "Path to artifact file to verify (optional - if not provided, verifies attestations only)")
+	offlineCmd.Flags().String(flagArtifactDigest, "", "Artifact digest to verify (e.g., sha256:abc123... for container images)")
 	offlineCmd.Flags().String(flagOfflineAttestations, "", "Path to attestation bundles file (required)")
 	offlineCmd.Flags().String(flagCertIdentity, "", "Expected certificate identity (required)")
 	offlineCmd.Flags().String(flagCertIssuer, "https://token.actions.githubusercontent.com", "Expected certificate issuer")
@@ -200,6 +200,7 @@ func run(cmd *cobra.Command, args []string) error {
 		// offline verification
 		verifyOpts := offline.VerifyOptions{
 			CertIdentity:   certIdentity,
+			CertOIDCIssuer: certIssuer,
 			SkipTLogVerify: true, // skip tlog verification in offline mode
 		}
 
@@ -548,14 +549,14 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 // handles the download command execution
 func runDownload(cmd *cobra.Command, args []string) error {
 	// get config values directly from the command flags
-	artifactPath, _ := cmd.Flags().GetString("blob-path")
+	artifactPath, _ := cmd.Flags().GetString(flagBlobPath)
 	outputPath, _ := cmd.Flags().GetString("output")
 	format, _ := cmd.Flags().GetString("format")
 	repo, _ := cmd.Flags().GetString("repo")
 	quiet, _ := cmd.Flags().GetBool("quiet")
 
 	if artifactPath == "" && len(args) == 0 {
-		return fmt.Errorf("blob-path is required or provide artifact digest as argument")
+		return fmt.Errorf("%s is required or provide artifact digest as argument", flagBlobPath)
 	}
 
 	if outputPath == "" {
@@ -572,6 +573,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		OutputPath:   outputPath,
 		OutputFormat: format,
 		Repository:   repo,
+		GitHubToken:  ghclient.GetToken(),
 	}
 
 	// if argument provided, use it as digest
@@ -607,10 +609,12 @@ func runDownload(cmd *cobra.Command, args []string) error {
 // handles the offline command execution
 func runOffline(cmd *cobra.Command, args []string) error {
 	// gets config values
-	artifactPath := viper.GetString("blob-path")
+	artifactPath := viper.GetString(flagBlobPath)
+	artifactDigest := viper.GetString("artifact-digest")
 	attestationsPath := viper.GetString("attestations")
 	trustedRootPath := viper.GetString("trusted-root")
 	certIdentity := viper.GetString("cert-identity")
+	certIssuer := viper.GetString("cert-issuer")
 	quiet := viper.GetBool("quiet")
 
 	if attestationsPath == "" {
@@ -620,12 +624,15 @@ func runOffline(cmd *cobra.Command, args []string) error {
 	// verification options
 	verifyOpts := offline.VerifyOptions{
 		CertIdentity:   certIdentity,
+		CertOIDCIssuer: certIssuer,
 		SkipTLogVerify: true, // skip tlog verification in offline mode
 	}
 
 	if !quiet {
 		if artifactPath != "" {
 			fmt.Printf("Verifying artifact: %s\n", artifactPath)
+		} else if artifactDigest != "" {
+			fmt.Printf("Verifying artifact digest: %s\n", artifactDigest)
 		} else {
 			fmt.Println("No artifact provided - verifying attestations only")
 		}
@@ -649,8 +656,15 @@ func runOffline(cmd *cobra.Command, args []string) error {
 		fmt.Println("Loaded attestation bundles successfully")
 	}
 
-	// verifies artifact
-	result, err := verifier.VerifyArtifact(artifactPath)
+	// verifies artifact - pass either path or digest
+	var result *offline.VerificationResult
+	if artifactPath != "" {
+		result, err = verifier.VerifyArtifact(artifactPath)
+	} else if artifactDigest != "" {
+		result, err = verifier.VerifyArtifactDigest(artifactDigest)
+	} else {
+		result, err = verifier.VerifyArtifact("")
+	}
 	if err != nil {
 		return fmt.Errorf("verification failed: %w", err)
 	}

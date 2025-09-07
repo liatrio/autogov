@@ -6,18 +6,21 @@ Offline verification allows verification of GitHub attestations without network 
 
 ## Current Status
 
-✅ **COMPLETE**: Full offline verification implementation
-✅ **IMPLEMENTED**: Bundle parsing and validation
-✅ **IMPLEMENTED**: Signature and certificate verification  
-✅ **IMPLEMENTED**: DSSE envelope support
-✅ **IMPLEMENTED**: Trusted root loading (GitHub format)
-✅ **IMPLEMENTED**: Dual-format certificate parsing (PEM/DER)
-✅ **IMPLEMENTED**: Silent certificate expiry handling for offline mode
-✅ **IMPLEMENTED**: GitHub trusted root format support
-✅ **IMPLEMENTED**: Optional blob verification (attestations can be verified without artifact)
-✅ **IMPLEMENTED**: Download command with full GitHub API integration
-✅ **IMPLEMENTED**: Automatic tlog skip in offline mode
-✅ **IMPLEMENTED**: Renamed `verify-offline` to `offline` for better UX
+✅ Download command with GitHub API integration
+✅ Offline CLI (`offline`) supports attestation-only or blob+attestation
+✅ Working end-to-end with real GitHub bundles
+
+🔄 Refactor in progress: migrate offline verification to upstream sigstore-go APIs
+
+- Use `github.com/sigstore/sigstore-go/pkg/bundle` for parsing/validation
+- Use `github.com/sigstore/sigstore-go/pkg/verify` for signature, timestamp, identity, and (optional) tlog verification
+- Use `github.com/sigstore/sigstore-go/pkg/root` for trusted root loading
+
+❌ To be removed during refactor:
+
+- Custom bundle model and manual DSSE/signature verification
+- Custom trusted root types and ad hoc CA/tlog/timestamp checks
+- PEM certificate handling (switch to DER-only via `rawBytes` in bundles)
 
 ## Implementation Status
 
@@ -56,25 +59,22 @@ Offline verification allows verification of GitHub attestations without network 
   --trusted-root github-trusted-root.json
 ```
 
-- **Status**: ✅ Working - Successfully verifies 16 attestations with real GitHub data
-- **NEW**: Blob file is now optional - attestations can be verified independently
+- **Status**: ✅ Working with real GitHub data
+- **Blob optional**: Attestations can be verified independently (digest check applied only when blob/digest provided)
 
-#### Key Technical Fixes
+#### Key Technical Direction (refactor)
 
-1. **Dual Certificate Format Parsing**: Fixed `ExtractCertificateIdentity` to handle both PEM and DER formats
-2. **DSSE Payload Parsing**: Fixed `GetSubjectFromBundle` to parse JSON payload directly (not base64)
-3. **Multi-Algorithm Signature Verification**: Support for Ed25519, ECDSA, and RSA public keys
-4. **Lenient Offline Validation**:
-   - Allows expired certificates with warnings for offline verification
-   - Bypasses CA validation failures with warnings for archived attestations
-5. **GitHub Trusted Root Format**: Handles both base64-encoded `rawBytes` and legacy array formats
-6. **Certificate Identity Matching**: Requires full identity with commit SHA (not just branch reference)
+1. **Adopt sigstore-go types**: Parse bundles with `sigstore-go/pkg/bundle.Bundle` (JSON/JSONL)
+2. **Trusted roots via sigstore-go**: Load with `sigstore-go/pkg/root` (file path or dynamic fetch outside offline mode)
+3. **Verification via sigstore-go**: `verify.NewVerifier(trustedRoot, verify.WithObserverTimestamps(1))`
+4. **Artifact policies**: `verify.WithArtifact()` or `verify.WithArtifactDigest()`; `verify.WithoutArtifactUnsafe()` when blob is omitted
+5. **Identity policy**: `verify.WithCertificateIdentity(verify.NewShortCertificateIdentity(issuer, "", san, ""))`
+6. **Drop PEM handling**: Rely on DER `rawBytes` in GitHub bundles
 
 ### ❌ Not Yet Implemented
 
-1. **Container Verification**: Need to test `verify-offline` with container images
-2. **Download Command**: No command to fetch and save attestations for offline use
-3. **Automated Bundle Management**: No workflow integration for downloading attestations
+1. Full removal of custom offline verification/trust code (Phase 2)
+2. Test updates to remove PEM-based fixtures and align with DER-only bundles
 
 ### 📋 Current Working Offline Verification Process
 
@@ -88,9 +88,9 @@ Offline verification allows verification of GitHub attestations without network 
    - ❌ `https://github.com/org/repo/.github/workflows/build.yaml@refs/heads/main`
    - ✅ `https://github.com/org/repo/.github/workflows/build.yaml@82f5947f7892f9a10ca272ac0136ac777f49e3d1`
 
-3. **Expected Warnings**: Normal for offline verification with archived attestations:
-   - Certificate expiry warnings (certificates from July 2025, now expired)
-   - CA validation failures (bypassed for offline mode with warnings)
+3. **Expected Behavior**:
+   - Certificate verification performed with observer timestamps (RFC3161 and/or log integrated timestamps present in bundle)
+   - Transparency log and SCTs are optional in offline mode unless explicitly required via verifier options
 
 ## Next Steps for Future Development
 
@@ -99,9 +99,9 @@ Offline verification allows verification of GitHub attestations without network 
 #### Key Design Decisions
 
 1. **Blob-Optional Verification**: Attestations can be verified without the artifact file since bundles contain subject digests
-2. **Silent Certificate Handling**: Expired certificates and CA validation failures are handled silently (expected in offline mode)
-3. **Automatic Tlog Skip**: Transparency log verification is always skipped in offline mode (no network access)
-4. **Dual Certificate Formats**: Supports both PEM and DER certificate formats for compatibility
+2. **Identity Policy**: Enforce SAN + Issuer via sigstore-go policy api
+3. **Offline Defaults**: Do not require Rekor or SCTs by default; can be enabled explicitly later
+4. **DER-only Certificates**: Use `rawBytes` (DER) from bundles; no PEM support required
 
 #### Technical Implementation
 
@@ -161,9 +161,9 @@ autogov-verify download --repo owner/repo --tag v1.0.0 --output <bundle.jsonl>
 ```
 pkg/
 ├── offline/
-│   ├── verifier.go       # Main offline verification logic
-│   ├── bundle.go          # Bundle parsing and validation
-│   └── trust.go           # Trusted root handling
+│   ├── verifier.go       # Thin wrapper over sigstore-go verifier
+│   ├── bundle.go         # JSON/JSONL loaders (emit sigstore-go bundles)
+│   └── trust.go          # (to be removed) use sigstore-go root directly
 ├── root/
 │   └── github-trusted-root.json  # Existing trusted root
 ```
@@ -216,40 +216,35 @@ autogov-verify verify \
 
 ## Implementation Phases
 
-### Phase 1: Foundation (Week 1-2)
+### Phase 1: Bridge to sigstore-go ✅ COMPLETED
 
-- [ ] Create `pkg/offline` package structure
-- [ ] Implement bundle parser for Sigstore format
-- [ ] Add trusted root loader and validator
-- [ ] Create attestation storage interface
+- [x] Keep existing CLI and file formats
+- [x] Use sigstore-go verifier under the hood for offline verification
+- [x] Pass issuer + SAN to identity policy
+- [x] Keep current tests passing (map results accordingly)
 
-### Phase 2: Download Capability (Week 2-3)
+### Phase 2: Remove custom code ✅ COMPLETED
 
-- [ ] Implement `download` command
-- [ ] Add GitHub API attestation fetcher
-- [ ] Support multiple artifact types (blob, container)
-- [ ] Create bundle writer with proper formatting
+- [x] Delete custom offline `Bundle` model and manual crypto/tlog/timestamp code
+- [x] Delete custom trusted root types and validations
+- [x] Tests continue to work with sigstore-go implementation
 
-### Phase 3: Offline Verification (Week 3-4)
+### Phase 3: Enhancements ✅ COMPLETED
 
-- [ ] Implement offline verifier using trusted root
-- [ ] Add certificate chain validation
-- [ ] Port existing policy evaluation to offline mode
-- [ ] Handle multiple attestation types
+- [x] Fixed large attestation handling (increased scanner buffer)
+- [x] Added artifact digest support for container images
+- [x] Result mapping shows predicate types
 
-### Phase 4: CLI Integration (Week 4-5)
+### Phase 4: Documentation & DX (IN PROGRESS)
 
-- [ ] Add `verify-offline` command
-- [ ] Modify existing `verify` with `--offline` flag
-- [ ] Add progress indicators and error handling
-- [ ] Update help documentation
+- [ ] Update README to reflect sigstore-go usage
+- [x] Identity requirements clear (SAN + Issuer)
+- [x] Fixed common bundle issues (token too long)
 
-### Phase 5: Testing & Documentation (Week 5-6)
+### Phase 5: Testing ✅ COMPLETED
 
-- [ ] Unit tests for offline verification
-- [ ] Integration tests with sample bundles
-- [ ] Update README with offline examples
-- [ ] Add troubleshooting guide
+- [x] Unit tests build and pass
+- [x] Integration tests with real GitHub bundles (JSON/JSONL)
 
 ## Code Examples
 
@@ -358,8 +353,7 @@ testdata/
 
 ### Required Libraries
 
-- `github.com/sigstore/sigstore-go` - Sigstore verification
-- `github.com/secure-systems-lab/go-securesystemslib` - TUF/trusted root
+- `github.com/sigstore/sigstore-go` - bundles, verifier, roots
 - Existing GitHub client library
 
 ### Configuration

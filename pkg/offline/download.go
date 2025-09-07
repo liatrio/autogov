@@ -4,14 +4,16 @@ package offline
 
 import (
 	"context"
-	"encoding/json"
+	"crypto/sha256"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/google/go-github/v73/github"
 	ghclient "github.com/liatrio/autogov-verify/pkg/github"
+	"github.com/sigstore/sigstore-go/pkg/bundle"
 )
 
 // options for downloading attestations
@@ -71,7 +73,7 @@ func (ad *AttestationDownloader) Download(ctx context.Context) error {
 	if ad.opts.ArtifactDigest != "" {
 		targetDigest = ad.opts.ArtifactDigest
 	} else if ad.opts.ArtifactPath != "" {
-		targetDigest, err = CalculateDigest(ad.opts.ArtifactPath)
+		targetDigest, err = calculateFileDigest(ad.opts.ArtifactPath)
 		if err != nil {
 			return fmt.Errorf("failed to calculate artifact digest: %w", err)
 		}
@@ -153,49 +155,44 @@ func (ad *AttestationDownloader) fetchAttestations(ctx context.Context, digest s
 }
 
 // converts GitHub attestations to Sigstore bundles
-func (ad *AttestationDownloader) convertToBundles(attestations []*github.Attestation) ([]Bundle, error) {
-	bundles := make([]Bundle, 0, len(attestations))
+func (ad *AttestationDownloader) convertToBundles(attestations []*github.Attestation) ([]*bundle.Bundle, error) {
+	bundles := make([]*bundle.Bundle, 0, len(attestations))
 
 	for _, attestation := range attestations {
-		bundle, err := ad.convertAttestationToBundle(attestation)
+		b, err := ad.convertAttestationToBundle(attestation)
 		if err != nil {
 			// Log warning but continue with other attestations
 			fmt.Printf("Warning: failed to convert attestation to bundle: %v\n", err)
 			continue
 		}
-		bundles = append(bundles, bundle)
+		bundles = append(bundles, b)
 	}
 
 	return bundles, nil
 }
 
 // converts a single GitHub attestation to a Sigstore bundle
-func (ad *AttestationDownloader) convertAttestationToBundle(attestation *github.Attestation) (Bundle, error) {
+func (ad *AttestationDownloader) convertAttestationToBundle(attestation *github.Attestation) (*bundle.Bundle, error) {
 	if attestation == nil || attestation.Bundle == nil {
-		return Bundle{}, fmt.Errorf("attestation or bundle is nil")
+		return nil, fmt.Errorf("attestation or bundle is nil")
 	}
 
 	// Parse the JSON bundle directly
-	var bundle Bundle
-	if err := json.Unmarshal(attestation.Bundle, &bundle); err != nil {
-		return Bundle{}, fmt.Errorf("failed to unmarshal bundle: %w", err)
+	b := &bundle.Bundle{}
+	if err := b.UnmarshalJSON(attestation.Bundle); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal bundle: %w", err)
 	}
 
-	// Ensure the bundle has the correct media type
-	if bundle.MediaType == "" {
-		bundle.MediaType = "application/vnd.dev.sigstore.bundle+json;version=0.1"
-	}
-
-	return bundle, nil
+	return b, nil
 }
 
 // filter bundles by attestation type
-func (ad *AttestationDownloader) filterBundles(bundles []Bundle) []Bundle {
+func (ad *AttestationDownloader) filterBundles(bundles []*bundle.Bundle) []*bundle.Bundle {
 	if len(ad.opts.AttestationTypes) == 0 {
 		return bundles
 	}
 
-	filtered := make([]Bundle, 0)
+	filtered := make([]*bundle.Bundle, 0)
 
 	for _, bundle := range bundles {
 		attestationType := ad.detectBundleType(bundle)
@@ -211,53 +208,42 @@ func (ad *AttestationDownloader) filterBundles(bundles []Bundle) []Bundle {
 	return filtered
 }
 
-// detects the attestation type from a bundle
-func (ad *AttestationDownloader) detectBundleType(bundle Bundle) string {
-	if bundle.DsseEnvelope == nil {
-		return "unknown"
+// detect bundle type detects the attestation type from a bundle
+func (ad *AttestationDownloader) detectBundleType(b *bundle.Bundle) string {
+	if env, err := b.Envelope(); err == nil {
+		if stmt, err := env.Statement(); err == nil {
+			return stmt.PredicateType
+		}
 	}
-
-	// parse DSSE payload to extract predicate type
-	var envelope struct {
-		PredicateType string `json:"predicateType"`
-	}
-
-	if err := json.Unmarshal(bundle.DsseEnvelope.Payload, &envelope); err != nil {
-		return "unknown"
-	}
-
-	return envelope.PredicateType
+	return "unknown"
 }
 
 // save bundles saves bundles to the output file
-func (ad *AttestationDownloader) saveBundles(bundles []Bundle) error {
+func (ad *AttestationDownloader) saveBundles(bundles []*bundle.Bundle) error {
 	// ensure output directory exists
-	if err := os.MkdirAll(filepath.Dir(ad.opts.OutputPath), 0755); err != nil {
+	outputDir := filepath.Dir(ad.opts.OutputPath)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	switch ad.opts.OutputFormat {
-	case "jsonl":
-		return WriteBundles(ad.opts.OutputPath, bundles)
-	case "json":
-		return ad.saveBundlesAsJSON(bundles)
-	default:
-		return fmt.Errorf("unsupported output format: %s", ad.opts.OutputFormat)
-	}
+	// write bundles to file
+	return WriteBundles(bundles, ad.opts.OutputPath, ad.opts.OutputFormat)
 }
 
-// save bundles as JSON saves bundles as a single JSON array
-func (ad *AttestationDownloader) saveBundlesAsJSON(bundles []Bundle) error {
-	file, err := os.Create(ad.opts.OutputPath)
+// calculateFileDigest calculates SHA256 digest of a file
+func calculateFileDigest(filepath string) (string, error) {
+	file, err := os.Open(filepath)
 	if err != nil {
-		return fmt.Errorf("failed to create output file: %w", err)
+		return "", fmt.Errorf("failed to open file: %w", err)
 	}
-	defer func() { _ = file.Close() }()
+	defer file.Close()
 
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
+	h := sha256.New()
+	if _, err := io.Copy(h, file); err != nil {
+		return "", fmt.Errorf("failed to calculate digest: %w", err)
+	}
 
-	return encoder.Encode(bundles)
+	return fmt.Sprintf("sha256:%x", h.Sum(nil)), nil
 }
 
 // validate download options validates download options

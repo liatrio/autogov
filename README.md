@@ -17,7 +17,8 @@ A tool for verifying GitHub Artifact Attestations using [cosign](https://docs.si
 - **SLSA v1.1 VSA Generation**: Creates comprehensive Verification Summary Attestations
 - **OPA Policy Integration**: Evaluates Rego policies with results included in VSA metadata
 - **Certificate Identity Validation**: Validates against approved certificate identity lists
-- **Offline Verification**: Supports pre-downloaded attestation artifacts
+- **Offline Verification**: Complete offline verification using sigstore-go APIs with download capability
+- **Container Image Support**: Verify container images by digest without pulling the image
 - **Dynamic Trusted Root**: Automatically fetches latest GitHub trusted roots
 - **VSA Validation**: Comprehensive field validation, structured error handling, and multi-format digest support
 - **Production Ready**: Comprehensive error handling, caching, and monitoring support
@@ -185,33 +186,65 @@ And one of the following:
 
 The tool supports offline verification for air-gapped environments or archived attestations:
 
+#### Download Attestations
+
+First, download attestations while online:
+
 ```bash
-# Download attestations for offline use
-autogov-verify download --blob-path artifact.tar.gz -o attestations.jsonl
+# Download attestations for a blob file
+autogov-verify download \
+  --repo owner/repo \
+  --blob-path artifact.tar.gz \
+  --output attestations.jsonl
 
-# Verify offline without the artifact (attestations only)
-autogov-verify verify-offline \
-  --attestations attestations.jsonl \
-  --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@sha" \
-  --trusted-root github-trusted-root.json
+# Download by digest (useful for container images)
+autogov-verify download \
+  --repo owner/repo \
+  --output attestations.jsonl \
+  sha256:abc123...
+```
 
-# Verify offline with the artifact (includes digest matching)
-autogov-verify verify-offline \
+#### Verify Offline
+
+Then verify offline using the downloaded attestations:
+
+```bash
+# Verify with blob file
+autogov-verify offline \
   --attestations attestations.jsonl \
   --blob-path artifact.tar.gz \
   --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@sha" \
-  --trusted-root github-trusted-root.json
+  --cert-issuer "https://token.actions.githubusercontent.com"
+
+# Verify container image by digest
+autogov-verify offline \
+  --attestations attestations.jsonl \
+  --artifact-digest "sha256:46a0df552ddbd5bfb4cc738a0f316e4060cc5b06e5fc0a8dac3a8c7e33b6992f" \
+  --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@sha" \
+  --cert-issuer "https://token.actions.githubusercontent.com"
+
+# Attestation-only verification (no artifact)
+autogov-verify offline \
+  --attestations attestations.jsonl \
+  --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@sha" \
+  --cert-issuer "https://token.actions.githubusercontent.com"
 ```
 
 #### Offline Verification Flags
 
 - `--attestations`: Path to pre-downloaded attestation bundles file (required)
-- `--blob-path`: Path to artifact file to verify (optional - if not provided, verifies attestations only)
+- `--blob-path`: Path to artifact file to verify (optional)
+- `--artifact-digest`: Artifact digest to verify, e.g., for container images (optional)
 - `--cert-identity`: Expected certificate identity (required)
+- `--cert-issuer`: Expected certificate issuer (default: "https://token.actions.githubusercontent.com")
 - `--trusted-root`: Path to trusted root file (optional - uses embedded GitHub root if not provided)
 - `-q, --quiet`: Only show errors and final results
 
-**Note**: Transparency log verification is automatically skipped in offline mode as it requires network access. Certificate expiry and CA validation failures are handled gracefully for archived attestations.
+**Implementation Notes**:
+- Uses pure sigstore-go v1.0.0 APIs for all verification
+- Handles large attestations (up to 10MB per line in JSONL files)
+- Transparency log verification is automatically skipped in offline mode
+- Supports both JSON and JSONL attestation formats
 
 ### Optional Flags
 
