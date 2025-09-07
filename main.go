@@ -16,6 +16,7 @@ import (
 
 	"github.com/liatrio/autogov-verify/pkg/attestations"
 	"github.com/liatrio/autogov-verify/pkg/certid"
+	"github.com/liatrio/autogov-verify/pkg/download"
 	ghclient "github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/liatrio/autogov-verify/pkg/offline"
 	"github.com/liatrio/autogov-verify/pkg/policy"
@@ -568,7 +569,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 	}
 
 	// attestation downloader with options
-	downloadOpts := offline.DownloadOptions{
+	downloadOpts := download.DownloadOptions{
 		ArtifactPath: artifactPath,
 		OutputPath:   outputPath,
 		OutputFormat: format,
@@ -589,7 +590,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	downloader, err := offline.NewAttestationDownloader(downloadOpts)
+	downloader, err := download.NewAttestationDownloader(downloadOpts)
 	if err != nil {
 		return fmt.Errorf("failed to create downloader: %w", err)
 	}

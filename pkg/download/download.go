@@ -1,6 +1,6 @@
 // Package offline - download.go
 // Handles downloading attestations from GitHub API for offline verification
-package offline
+package download
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v73/github"
-	ghclient "github.com/liatrio/autogov-verify/pkg/github"
+	"github.com/liatrio/autogov-verify/pkg/offline"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 )
 
@@ -48,9 +48,9 @@ type AttestationDownloader struct {
 func NewAttestationDownloader(opts DownloadOptions) (*AttestationDownloader, error) {
 	var client *github.Client
 	if opts.GitHubToken != "" {
-		client = ghclient.NewClientWithToken(opts.GitHubToken)
+		client = github.NewClient(nil).WithAuthToken(opts.GitHubToken)
 	} else {
-		client = ghclient.NewClient()
+		client = github.NewClient(nil)
 	}
 
 	// defaults
@@ -226,8 +226,8 @@ func (ad *AttestationDownloader) saveBundles(bundles []*bundle.Bundle) error {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// write bundles to file
-	return WriteBundles(bundles, ad.opts.OutputPath, ad.opts.OutputFormat)
+	// write to output file
+	return offline.WriteBundles(bundles, ad.opts.OutputPath, ad.opts.OutputFormat)
 }
 
 // calculateFileDigest calculates SHA256 digest of a file
