@@ -15,27 +15,27 @@ import (
 	"github.com/sigstore/sigstore-go/pkg/verify"
 )
 
-// OfflineVerifier handles offline attestation verification
+// offline attestation verification
 type OfflineVerifier struct {
 	trustedRoot *root.TrustedRoot
 	bundles     []*bundle.Bundle
 	options     VerifyOptions
 }
 
-// VerifyOptions contains options for offline verification
+// options for offline verification
 type VerifyOptions struct {
 	CertIdentity   string // expected certificate identity (workflow URL)
 	CertOIDCIssuer string // expected OIDC issuer
 	SkipTLogVerify bool   // skip transparency log verification (for compatibility)
 }
 
-// Subject represents an attestation subject
+// attestation subject
 type Subject struct {
 	Name   string            `json:"name"`
 	Digest map[string]string `json:"digest"`
 }
 
-// VerificationResult represents the result of offline verification
+// result of offline verification
 type VerificationResult struct {
 	Verified            bool                `json:"verified"`
 	Attestations        []AttestationResult `json:"attestations"`
@@ -45,13 +45,13 @@ type VerificationResult struct {
 	Warnings            []string            `json:"warnings,omitempty"`
 }
 
-// CertificateIdentity represents certificate identity information
+// certificate identity information
 type CertificateIdentity struct {
 	SubjectAlternativeName string `json:"subjectAlternativeName"`
 	Issuer                 string `json:"issuer"`
 }
 
-// AttestationResult represents the result of verifying a single attestation
+// result of verifying a single attestation
 type AttestationResult struct {
 	Type             string   `json:"type"`
 	Subject          *Subject `json:"subject,omitempty"`
@@ -63,7 +63,7 @@ type AttestationResult struct {
 	Warnings         []string `json:"warnings,omitempty"`
 }
 
-// NewOfflineVerifier creates a new offline verifier with trusted root
+// offline verifier with trusted root
 func NewOfflineVerifier(trustedRootPath string, options VerifyOptions) (*OfflineVerifier, error) {
 	var tr *root.TrustedRoot
 	var err error
@@ -71,10 +71,11 @@ func NewOfflineVerifier(trustedRootPath string, options VerifyOptions) (*Offline
 	if trustedRootPath != "" {
 		tr, err = root.NewTrustedRootFromPath(trustedRootPath)
 	} else {
-		// Use embedded trusted root
-		data, err := os.ReadFile("pkg/root/github-trusted-root.json")
+		// embedded trusted root
+		var data []byte
+		data, err = os.ReadFile("pkg/root/github-trusted-root.json")
 		if err != nil {
-			// Try alternate path
+			// alternate path
 			data, err = os.ReadFile("github-trusted-root.json")
 			if err != nil {
 				return nil, fmt.Errorf("failed to read embedded trusted root: %w", err)
@@ -93,7 +94,7 @@ func NewOfflineVerifier(trustedRootPath string, options VerifyOptions) (*Offline
 	}, nil
 }
 
-// LoadBundlesFromFile loads bundles from a file
+// loads bundles from a file
 func (ov *OfflineVerifier) LoadBundlesFromFile(bundlePath string) error {
 	bundles, err := LoadBundles(bundlePath)
 	if err != nil {
@@ -103,13 +104,13 @@ func (ov *OfflineVerifier) LoadBundlesFromFile(bundlePath string) error {
 	return nil
 }
 
-// VerifyArtifact verifies an artifact file against loaded bundles
+// verifies an artifact file against loaded bundles
 func (ov *OfflineVerifier) VerifyArtifact(artifactPath string) (*VerificationResult, error) {
 	if len(ov.bundles) == 0 {
 		return nil, fmt.Errorf("no bundles loaded for verification")
 	}
 
-	// Calculate artifact digest if provided
+	// calculates artifact digest if provided
 	var expectedDigest string
 	if artifactPath != "" {
 		var err error
@@ -122,7 +123,7 @@ func (ov *OfflineVerifier) VerifyArtifact(artifactPath string) (*VerificationRes
 	return ov.verifyWithDigest(expectedDigest)
 }
 
-// VerifyArtifactDigest verifies an artifact by its digest (useful for container images)
+// verifies an artifact by its digest (useful for container images)
 func (ov *OfflineVerifier) VerifyArtifactDigest(digest string) (*VerificationResult, error) {
 	if len(ov.bundles) == 0 {
 		return nil, fmt.Errorf("no bundles loaded for verification")
@@ -131,7 +132,7 @@ func (ov *OfflineVerifier) VerifyArtifactDigest(digest string) (*VerificationRes
 	return ov.verifyWithDigest(digest)
 }
 
-// verifyWithDigest performs verification with the given digest
+// performs verification with the given digest
 func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*VerificationResult, error) {
 
 	result := &VerificationResult{
@@ -141,12 +142,12 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 		Warnings:         make([]string, 0),
 	}
 
-	// Create verifier
+	// verifier
 	verifierOpts := []verify.VerifierOption{
 		verify.WithObserverTimestamps(1),
 	}
 
-	// Skip tlog verification if requested
+	// skip tlog verification if requested
 	if !ov.options.SkipTLogVerify {
 		verifierOpts = append(verifierOpts, verify.WithTransparencyLog(1))
 	}
@@ -156,7 +157,7 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 		return nil, fmt.Errorf("failed to create verifier: %w", err)
 	}
 
-	// Verify each bundle
+	// verify each bundle
 	validAttestations := 0
 	for _, b := range ov.bundles {
 		attestationResult := ov.verifyBundle(v, b, expectedDigest)
@@ -167,13 +168,13 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 		}
 	}
 
-	// Set overall verification status
+	// overall verification status
 	result.Verified = validAttestations > 0
 
-	// Extract certificate identity from first valid attestation
+	// certificate identity from first valid attestation
 	for _, att := range result.Attestations {
 		if att.Verified && result.CertificateIdentity == nil {
-			// Identity will be set during verification
+			// identity will be set during verification
 			break
 		}
 	}
@@ -181,13 +182,13 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 	return result, nil
 }
 
-// calculateDigest calculates the SHA256 digest of a file
+// calculates the SHA256 digest of a file
 func calculateDigest(filepath string) (string, error) {
 	file, err := os.Open(filepath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, file); err != nil {
@@ -197,7 +198,7 @@ func calculateDigest(filepath string) (string, error) {
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// verifyBundle verifies a single bundle using sigstore-go
+// verifies a single bundle using sigstore-go
 func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, expectedDigest string) AttestationResult {
 	res := AttestationResult{
 		Type:             "unknown",
@@ -207,11 +208,11 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 		Verified:         false,
 	}
 
-	// Extract attestation type from envelope if available
+	// attestation type from envelope if available
 	if env, err := b.Envelope(); err == nil {
 		if stmt, err := env.Statement(); err == nil {
 			res.Type = stmt.PredicateType
-			// Extract subject
+			// subject
 			if len(stmt.Subject) > 0 {
 				res.Subject = &Subject{
 					Name:   stmt.Subject[0].Name,
@@ -221,12 +222,12 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 		}
 	}
 
-	// Build artifact policy
+	// artifact policy
 	var artifactOpt verify.ArtifactPolicyOption
 	if expectedDigest == "" {
 		artifactOpt = verify.WithoutArtifactUnsafe()
 	} else {
-		// Parse digest
+		// digest
 		parts := strings.SplitN(expectedDigest, ":", 2)
 		alg := "sha256"
 		hexDigest := expectedDigest
@@ -242,10 +243,10 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 		artifactOpt = verify.WithArtifactDigest(alg, digestBytes)
 	}
 
-	// Build policy options
+	// policy options
 	policyOpts := []verify.PolicyOption{}
 
-	// Add certificate identity if specified
+	// certificate identity if specified
 	if ov.options.CertIdentity != "" && ov.options.CertOIDCIssuer != "" {
 		certID, err := verify.NewShortCertificateIdentity(ov.options.CertOIDCIssuer, "", ov.options.CertIdentity, "")
 		if err == nil {
@@ -255,22 +256,21 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 		}
 	}
 
-	// Create policy
 	policy := verify.NewPolicy(artifactOpt, policyOpts...)
 
-	// Verify bundle
+	// verify bundle
 	verificationResult, err := v.Verify(b, policy)
 	if err != nil {
 		res.Error = fmt.Sprintf("verification failed: %v", err)
 		return res
 	}
 
-	// Success
+	// success
 	res.SignatureValid = true
 	res.CertificateValid = true
 	res.Verified = true
 
-	// Extract verified identity if available
+	// verified identity if available
 	if verificationResult.VerifiedIdentity != nil {
 		res.CertificateValid = true
 	}
@@ -278,7 +278,7 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 	return res
 }
 
-// detectAttestationType extracts the attestation type from a bundle
+// extracts the attestation type from a bundle
 func detectAttestationType(b *bundle.Bundle) string {
 	if env, err := b.Envelope(); err == nil {
 		if stmt, err := env.Statement(); err == nil {

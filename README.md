@@ -17,8 +17,7 @@ A tool for verifying GitHub Artifact Attestations using [cosign](https://docs.si
 - **SLSA v1.1 VSA Generation**: Creates comprehensive Verification Summary Attestations
 - **OPA Policy Integration**: Evaluates Rego policies with results included in VSA metadata
 - **Certificate Identity Validation**: Validates against approved certificate identity lists
-- **Offline Verification**: Complete offline verification using sigstore-go APIs with separate download command
-- **Container Image Support**: Verify container images by digest without pulling the image
+- **Offline Verification**: Supports pre-downloaded attestation artifacts (verify container images by digest without pulling the image)
 - **Dynamic Trusted Root**: Automatically fetches latest GitHub trusted roots
 - **VSA Validation**: Comprehensive field validation, structured error handling, and multi-format digest support
 - **Production Ready**: Comprehensive error handling, caching, and monitoring support

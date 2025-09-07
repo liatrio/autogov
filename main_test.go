@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+const errMissingArtifact = "either --artifact-digest or --blob-path must be provided"
+
 func TestRun(t *testing.T) {
 	// save current env
 	savedEnv := make(map[string]string)
@@ -43,7 +45,7 @@ func TestRun(t *testing.T) {
 				"GH_TOKEN":     "",
 			},
 			wantErr: true,
-			errMsg:  "either --artifact-digest or --blob-path must be provided",
+			errMsg:  errMissingArtifact,
 		},
 		{
 			name: "missing token",
@@ -56,7 +58,7 @@ func TestRun(t *testing.T) {
 				"GH_TOKEN":     "",
 			},
 			wantErr: true,
-			errMsg:  "either --artifact-digest or --blob-path must be provided",
+			errMsg:  errMissingArtifact,
 		},
 		{
 			name: "missing artifact digest and blob path",
@@ -67,7 +69,7 @@ func TestRun(t *testing.T) {
 				"GITHUB_TOKEN": "mock-token",
 			},
 			wantErr: true,
-			errMsg:  "either --artifact-digest or --blob-path must be provided",
+			errMsg:  errMissingArtifact,
 		},
 		{
 			name: "invalid artifact digest",
@@ -79,7 +81,7 @@ func TestRun(t *testing.T) {
 				"GITHUB_TOKEN": "mock-token",
 			},
 			wantErr: true,
-			errMsg:  "either --artifact-digest or --blob-path must be provided",
+			errMsg:  errMissingArtifact,
 		},
 		{
 			name: "invalid blob path",
@@ -91,7 +93,7 @@ func TestRun(t *testing.T) {
 				"GITHUB_TOKEN": "mock-token",
 			},
 			wantErr: true,
-			errMsg:  "either --artifact-digest or --blob-path must be provided",
+			errMsg:  errMissingArtifact,
 		},
 	}
 

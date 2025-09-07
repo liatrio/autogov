@@ -12,14 +12,14 @@ import (
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 )
 
-// LoadBundles loads sigstore bundles from a JSON/JSONL file
+// loads sigstore bundles from a JSON/JSONL file
 func LoadBundles(bundlePath string) ([]*bundle.Bundle, error) {
 	data, err := os.ReadFile(bundlePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read bundle file: %w", err)
 	}
 
-	// Try to parse as JSON array first
+	// parse as JSON array first
 	var jsonBundles []json.RawMessage
 	if err := json.Unmarshal(data, &jsonBundles); err == nil {
 		bundles := make([]*bundle.Bundle, 0, len(jsonBundles))
@@ -33,11 +33,11 @@ func LoadBundles(bundlePath string) ([]*bundle.Bundle, error) {
 		return bundles, nil
 	}
 
-	// Try to parse as JSONL
+	// parse as JSONL
 	bundles := make([]*bundle.Bundle, 0)
 	scanner := bufio.NewScanner(bytes.NewReader(data))
-	// Increase buffer size to handle large attestations (up to 10MB per line)
-	const maxScanTokenSize = 10 * 1024 * 1024 // 10MB
+	// buffer size to handle large attestations (up to 10MB per line)
+	const maxScanTokenSize = 10 * 1024 * 1024
 	buf := make([]byte, maxScanTokenSize)
 	scanner.Buffer(buf, maxScanTokenSize)
 
@@ -47,14 +47,14 @@ func LoadBundles(bundlePath string) ([]*bundle.Bundle, error) {
 			continue
 		}
 
-		// Try single bundle
+		// single bundle
 		b := &bundle.Bundle{}
 		if err := b.UnmarshalJSON(line); err == nil {
 			bundles = append(bundles, b)
 			continue
 		}
 
-		// Try array of bundles (some files have arrays on each line)
+		// array of bundles (some files have arrays on each line)
 		var arrayBundles []json.RawMessage
 		if err := json.Unmarshal(line, &arrayBundles); err == nil {
 			for _, raw := range arrayBundles {
@@ -81,17 +81,17 @@ func LoadBundles(bundlePath string) ([]*bundle.Bundle, error) {
 	return bundles, nil
 }
 
-// WriteBundles writes sigstore bundles to a file in the specified format
+// writes sigstore bundles to a file in the specified format
 func WriteBundles(bundles []*bundle.Bundle, path, format string) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	switch format {
 	case "json":
-		// Write as JSON array
+		// JSON array
 		jsonBundles := make([]json.RawMessage, 0, len(bundles))
 		for _, b := range bundles {
 			data, err := b.MarshalJSON()
@@ -106,7 +106,7 @@ func WriteBundles(bundles []*bundle.Bundle, path, format string) error {
 			return fmt.Errorf("failed to write bundles as JSON: %w", err)
 		}
 	case "jsonl":
-		// Write as JSONL (one bundle per line)
+		// JSONL (one bundle per line)
 		for _, b := range bundles {
 			data, err := b.MarshalJSON()
 			if err != nil {

@@ -1,15 +1,8 @@
 package offline
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
-	"math/big"
 	"os"
 	"testing"
-	"time"
 )
 
 func TestNewOfflineVerifier(t *testing.T) {
@@ -221,13 +214,6 @@ func TestVerifyArtifact(t *testing.T) {
 			artifactPath: tmpArtifact.Name(),
 			wantErr:      true,
 		},
-		// Skip this test - needs real bundles which requires more setup
-		// {
-		// 	name:         "valid artifact with bundles",
-		// 	setupBundles: true,
-		// 	artifactPath: tmpArtifact.Name(),
-		// 	wantErr:      false,
-		// },
 		{
 			name:         "invalid artifact path",
 			setupBundles: true,
@@ -238,11 +224,6 @@ func TestVerifyArtifact(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.setupBundles {
-				// TODO: Add test bundles using sigstore-go bundle types
-				// This needs to be rewritten to use *bundle.Bundle
-			}
-
 			result, err := verifier.VerifyArtifact(tt.artifactPath)
 
 			if tt.wantErr {
@@ -269,41 +250,8 @@ func TestVerifyArtifact(t *testing.T) {
 	}
 }
 
-// Helper function to generate test certificate bytes
-func generateTestCertificateBytes(t *testing.T) []byte {
-	t.Helper()
 
-	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{
-			Organization: []string{"Test Org"},
-			CommonName:   "test.example.com",
-		},
-		EmailAddresses: []string{"test@example.com"},
-		NotBefore:      time.Now().Add(-time.Hour),
-		NotAfter:       time.Now().Add(time.Hour),
-		KeyUsage:       x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-	}
-
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("failed to generate key: %v", err)
-	}
-
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
-	if err != nil {
-		t.Fatalf("failed to create certificate: %v", err)
-	}
-
-	certPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: certDER,
-	})
-
-	return certPEM
-}
-
-// TestOfflineVerifierWithRealData tests offline verification with real attestation data
+// tests offline verification with real attestation data
 func TestOfflineVerifierWithRealData(t *testing.T) {
 	realAttestationFile := "../../testdata/attestations/multi-type-attestations.jsonl"
 	if _, err := os.Stat(realAttestationFile); os.IsNotExist(err) {
@@ -354,7 +302,7 @@ func TestOfflineVerifierWithRealData(t *testing.T) {
 	t.Logf("Successfully tested offline verifier with %d real attestation bundles", len(verifier.bundles))
 }
 
-// TestVerifyArtifactWithRealBundles tests artifact verification using real attestation bundles
+// tests artifact verification using real attestation bundles
 func TestVerifyArtifactWithRealBundles(t *testing.T) {
 	t.Skip("Skipping test that depends on real attestation files in old format")
 }

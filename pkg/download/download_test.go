@@ -208,14 +208,6 @@ func TestDownload(t *testing.T) {
 	})
 }
 
-// TestSaveBundlesAsJSON is disabled during refactor to sigstore-go
-// TODO: Rewrite this test to work with *bundle.Bundle types
-/*
-func TestSaveBundlesAsJSON(t *testing.T) {
-	// This test needs to be rewritten to use sigstore-go bundle types
-}
-*/
-
 func TestValidateDownloadOptions(t *testing.T) {
 	tests := []struct {
 		name    string

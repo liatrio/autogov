@@ -44,7 +44,7 @@ type AttestationDownloader struct {
 	opts   DownloadOptions
 }
 
-// NewAttestationDownloader creates a new attestation downloader
+// creates a new attestation downloader
 func NewAttestationDownloader(opts DownloadOptions) (*AttestationDownloader, error) {
 	var client *github.Client
 	if opts.GitHubToken != "" {
@@ -230,13 +230,13 @@ func (ad *AttestationDownloader) saveBundles(bundles []*bundle.Bundle) error {
 	return offline.WriteBundles(bundles, ad.opts.OutputPath, ad.opts.OutputFormat)
 }
 
-// calculateFileDigest calculates SHA256 digest of a file
+// calculates SHA256 digest of a file
 func calculateFileDigest(filepath string) (string, error) {
 	file, err := os.Open(filepath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, file); err != nil {
