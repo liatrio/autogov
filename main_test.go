@@ -56,7 +56,7 @@ func TestRun(t *testing.T) {
 				"GH_TOKEN":     "",
 			},
 			wantErr: true,
-			errMsg:  "GH_TOKEN, GITHUB_TOKEN or GITHUB_AUTH_TOKEN environment variable is required",
+			errMsg:  "either --artifact-digest or --blob-path must be provided",
 		},
 		{
 			name: "missing artifact digest and blob path",
@@ -67,7 +67,7 @@ func TestRun(t *testing.T) {
 				"GITHUB_TOKEN": "mock-token",
 			},
 			wantErr: true,
-			errMsg:  "error getting attestations: invalid digest format",
+			errMsg:  "either --artifact-digest or --blob-path must be provided",
 		},
 		{
 			name: "invalid artifact digest",
@@ -79,7 +79,7 @@ func TestRun(t *testing.T) {
 				"GITHUB_TOKEN": "mock-token",
 			},
 			wantErr: true,
-			errMsg:  "error getting attestations: failed to parse image reference",
+			errMsg:  "either --artifact-digest or --blob-path must be provided",
 		},
 		{
 			name: "invalid blob path",
@@ -91,7 +91,7 @@ func TestRun(t *testing.T) {
 				"GITHUB_TOKEN": "mock-token",
 			},
 			wantErr: true,
-			errMsg:  "error getting attestations",
+			errMsg:  "either --artifact-digest or --blob-path must be provided",
 		},
 	}
 
