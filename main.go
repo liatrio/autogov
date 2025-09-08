@@ -16,7 +16,9 @@ import (
 
 	"github.com/liatrio/autogov-verify/pkg/attestations"
 	"github.com/liatrio/autogov-verify/pkg/certid"
+	"github.com/liatrio/autogov-verify/pkg/download"
 	ghclient "github.com/liatrio/autogov-verify/pkg/github"
+	"github.com/liatrio/autogov-verify/pkg/offline"
 	"github.com/liatrio/autogov-verify/pkg/policy"
 	"github.com/liatrio/autogov-verify/pkg/vsa"
 	"github.com/sigstore/cosign/v2/pkg/oci"
@@ -33,31 +35,48 @@ It supports verifying attestations from GitHub Actions workflows with configurab
 certificate identity and issuer.`,
 		RunE: run,
 	}
+
+	downloadCmd = &cobra.Command{
+		Use:   "download",
+		Short: "Download attestations for offline verification",
+		Long: `Download GitHub artifact attestations and save them as Sigstore bundles
+for later offline verification. This allows verification in air-gapped environments
+or when GitHub API access is unavailable.`,
+		RunE: runDownload,
+	}
+
+	offlineCmd = &cobra.Command{
+		Use:   "offline",
+		Short: "Verify attestations offline using pre-downloaded bundles",
+		Long: `Verify GitHub artifact attestations using pre-downloaded Sigstore bundles
+and trusted roots. This enables verification in air-gapped environments without
+requiring GitHub API access or online Sigstore infrastructure.`,
+		RunE: runOffline,
+	}
 )
 
 const (
-	// core verification flags
-	flagArtifactDigest = "artifact-digest"
-	flagBlobPath       = "blob-path"
-	flagCertIdentity   = "cert-identity"
-	flagCertIssuer     = "cert-issuer"
-	flagSourceRef      = "source-ref"
-	// certificate identity validation flags
-	flagCertIdentityList = "cert-identity-list"
-	flagNoCache          = "no-cache"
-	// general flags
-	flagQuiet = "quiet"
-	// OPA policy flags
-	flagPolicyBundlePath = "policy-bundle-path"
-	// VSA generation flags
-	flagGenerateVSA = "generate-vsa"
-	flagVSAOutput   = "vsa-output"
-	flagPolicyURI   = "policy-uri"
-	// format constants
-	attestationURNFormat = "urn:attestation:sha256:%s"
-	// version constants
-	autogovVersion = "v1.1.0"
-	opaVersion     = "v1.8.0"
+	flagCertIdentity        = "cert-identity"
+	flagCertIssuer          = "cert-issuer"
+	flagSourceRef           = "source-ref"
+	flagQuiet               = "quiet"
+	flagToken               = "token"
+	flagArtifactDigest      = "artifact-digest"
+	flagBlobPath            = "blob-path"
+	flagAttestationsPath    = "attestations-path"
+	flagCertIdentityList    = "cert-identity-list"
+	flagGenerateVSA         = "generate-vsa"
+	flagVSAOutput           = "vsa-output"
+	flagPolicyBundlePath    = "policy-bundle-path"
+	flagPolicyURI           = "policy-uri"
+	flagNoCache             = "no-cache"
+	flagOfflineAttestations = "attestations"
+	flagOfflineTrustedRoot  = "trusted-root"
+	flagDownloadOutput      = "output"
+	flagDownloadFormat      = "format"
+	attestationURNFormat    = "urn:attestation:sha256:%s"
+	autogovVersion          = "v1.1.0"
+	opaVersion              = "v1.8.0"
 )
 
 func init() {
@@ -67,6 +86,7 @@ func init() {
 	rootCmd.Flags().StringP(flagCertIdentity, "i", "", "Certificate identity to verify against (required)")
 	rootCmd.Flags().StringP(flagCertIssuer, "s", "https://token.actions.githubusercontent.com", "Certificate issuer to verify against")
 	rootCmd.Flags().StringP(flagSourceRef, "r", "", "Source repository ref to verify against (e.g., refs/heads/main)")
+	rootCmd.Flags().String(flagAttestationsPath, "", "Path to directory containing attestation files for offline verification")
 	rootCmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final results")
 
 	// certificate identity validation flags
@@ -84,6 +104,7 @@ func init() {
 	rootCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		blobPath := viper.GetString(flagBlobPath)
 		artifactDigest := viper.GetString(flagArtifactDigest)
+
 		if blobPath == "" && artifactDigest == "" {
 			return fmt.Errorf("either --%s or --%s must be provided", flagArtifactDigest, flagBlobPath)
 		}
@@ -96,8 +117,35 @@ func init() {
 		return nil
 	}
 
+	// download flags
+	downloadCmd.Flags().String(flagBlobPath, "", "Path to artifact file to download attestations for")
+	downloadCmd.Flags().StringP(flagDownloadOutput, "o", "", "Output file path for attestation bundles (required)")
+	downloadCmd.Flags().String(flagDownloadFormat, "jsonl", "Output format: json or jsonl")
+	downloadCmd.Flags().StringP("repo", "R", "", "Repository to download attestations from (format: owner/repo)")
+
+	// Offline command flags
+	offlineCmd.Flags().String(flagBlobPath, "", "Path to artifact file to verify (optional - if not provided, verifies attestations only)")
+	offlineCmd.Flags().String(flagArtifactDigest, "", "Artifact digest to verify (e.g., sha256:abc123... for container images)")
+	offlineCmd.Flags().String(flagOfflineAttestations, "", "Path to attestation bundles file (required)")
+	offlineCmd.Flags().String(flagCertIdentity, "", "Expected certificate identity (required)")
+	offlineCmd.Flags().String(flagCertIssuer, "https://token.actions.githubusercontent.com", "Expected certificate issuer")
+	offlineCmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final results")
+	offlineCmd.Flags().String(flagOfflineTrustedRoot, "", "Path to trusted root file (optional)")
+
+	if err := offlineCmd.MarkFlagRequired(flagOfflineAttestations); err != nil {
+		panic(fmt.Sprintf("failed to bind download flags: %v", err))
+	}
+	if err := downloadCmd.MarkFlagRequired(flagDownloadOutput); err != nil {
+		panic(fmt.Sprintf("failed to mark download output flag as required: %v", err))
+	}
 	if err := viper.BindPFlags(rootCmd.Flags()); err != nil {
 		panic(fmt.Sprintf("failed to bind flags: %v", err))
+	}
+	if err := viper.BindPFlags(downloadCmd.Flags()); err != nil {
+		panic(fmt.Sprintf("failed to bind download flags: %v", err))
+	}
+	if err := viper.BindPFlags(offlineCmd.Flags()); err != nil {
+		panic(fmt.Sprintf("failed to bind offline flags: %v", err))
 	}
 
 	// bind env vars
@@ -106,6 +154,7 @@ func init() {
 		flagCertIssuer:       "CERT_ISSUER",
 		flagQuiet:            "QUIET",
 		flagSourceRef:        "SOURCE_REF",
+		flagAttestationsPath: "ATTESTATIONS_PATH",
 		flagCertIdentityList: "CERT_IDENTITY_LIST",
 		flagNoCache:          "NO_CACHE",
 		flagPolicyBundlePath: "POLICY_BUNDLE_PATH",
@@ -116,6 +165,10 @@ func init() {
 			panic(fmt.Sprintf("failed to bind environment variables: %v", err))
 		}
 	}
+
+	// add subcommands
+	rootCmd.AddCommand(downloadCmd)
+	rootCmd.AddCommand(offlineCmd)
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -130,43 +183,90 @@ func run(cmd *cobra.Command, args []string) error {
 	certIssuer := viper.GetString(flagCertIssuer)
 	sourceRef := viper.GetString(flagSourceRef)
 	blobPath := viper.GetString(flagBlobPath)
+	attestationsPath := viper.GetString(flagAttestationsPath)
 	client := ghclient.NewClient()
 
-	// set up certificate identity validation options if cert-identity-list is provided
-	var certIdentityOpts *certid.Options
-	if certIdentityListURL := viper.GetString(flagCertIdentityList); certIdentityListURL != "" {
-		opts := certid.DefaultOptions()
-		opts.DisableCache = viper.GetBool(flagNoCache)
+	// check for offline vs online verification
+	var sigs []oci.Signature
+	var err error
 
-		opts.URL = certIdentityListURL
-
-		certIdentityOpts = &opts
-
+	if attestationsPath != "" && blobPath != "" {
+		// offline verification mode using pre-downloaded attestations
 		if !quiet {
-			fmt.Println("Certificate identity validation enabled")
-			fmt.Printf("Using identity list: %s\n", opts.URL)
-			if opts.DisableCache {
-				fmt.Println("Cache disabled")
-			}
-			fmt.Println("---")
+			fmt.Println("Using offline verification mode")
+			fmt.Printf("Attestations path: %s\n", attestationsPath)
+			fmt.Printf("Blob path: %s\n", blobPath)
 		}
-	}
 
-	sigs, err := attestations.GetFromGitHub(
-		context.Background(),
-		artifactDigest,
-		client,
-		attestations.Options{
-			CertIdentity:           certIdentity,
-			CertIssuer:             certIssuer,
-			BlobPath:               blobPath,
-			SourceRef:              sourceRef,
-			Quiet:                  quiet,
-			CertIdentityValidation: certIdentityOpts,
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("error getting attestations: %w", err)
+		// offline verification
+		verifyOpts := offline.VerifyOptions{
+			CertIdentity:   certIdentity,
+			CertOIDCIssuer: certIssuer,
+			SkipTLogVerify: true, // skip tlog verification in offline mode
+		}
+
+		verifier, err := offline.NewOfflineVerifier("", verifyOpts)
+		if err != nil {
+			return fmt.Errorf("failed to create offline verifier: %w", err)
+		}
+
+		if err := verifier.LoadBundlesFromFile(attestationsPath); err != nil {
+			return fmt.Errorf("failed to load attestation bundles: %w", err)
+		}
+
+		result, err := verifier.VerifyArtifact(blobPath)
+		if err != nil {
+			return fmt.Errorf("offline verification failed: %w", err)
+		}
+
+		if !result.Verified {
+			return fmt.Errorf("offline verification failed: attestations could not be verified")
+		}
+
+		// converts offline results to oci.Signature format for VSA generation
+		sigs = []oci.Signature{}
+	} else {
+		// online verification mode using GitHub API
+		if !quiet {
+			fmt.Println("Using online verification mode")
+		}
+
+		// set up certificate identity validation options if cert-identity-list is provided
+		var certIdentityOpts *certid.Options
+		if certIdentityListURL := viper.GetString(flagCertIdentityList); certIdentityListURL != "" {
+			opts := certid.DefaultOptions()
+			opts.DisableCache = viper.GetBool(flagNoCache)
+
+			opts.URL = certIdentityListURL
+
+			certIdentityOpts = &opts
+
+			if !quiet {
+				fmt.Println("Certificate identity validation enabled")
+				fmt.Printf("Using identity list: %s\n", opts.URL)
+				if opts.DisableCache {
+					fmt.Println("Cache disabled")
+				}
+				fmt.Println("---")
+			}
+		}
+
+		sigs, err = attestations.GetFromGitHub(
+			context.Background(),
+			artifactDigest,
+			client,
+			attestations.Options{
+				CertIdentity:           certIdentity,
+				CertIssuer:             certIssuer,
+				BlobPath:               blobPath,
+				SourceRef:              sourceRef,
+				Quiet:                  quiet,
+				CertIdentityValidation: certIdentityOpts,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error getting attestations: %w", err)
+		}
 	}
 
 	// use correct digest format based on verification type
@@ -441,6 +541,155 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 		if policyResult != nil {
 			fmt.Printf("  Policy Evaluation: %s\n", policyResult.Result)
 		}
+		fmt.Println()
+	}
+
+	return nil
+}
+
+// handles the download command execution
+func runDownload(cmd *cobra.Command, args []string) error {
+	// get config values directly from the command flags
+	artifactPath, _ := cmd.Flags().GetString(flagBlobPath)
+	outputPath, _ := cmd.Flags().GetString("output")
+	format, _ := cmd.Flags().GetString("format")
+	repo, _ := cmd.Flags().GetString("repo")
+	quiet, _ := cmd.Flags().GetBool("quiet")
+
+	if artifactPath == "" && len(args) == 0 {
+		return fmt.Errorf("%s is required or provide artifact digest as argument", flagBlobPath)
+	}
+
+	if outputPath == "" {
+		return fmt.Errorf("output path is required")
+	}
+
+	if repo == "" {
+		return fmt.Errorf("repository is required (format: owner/repo)")
+	}
+
+	// attestation downloader with options
+	downloadOpts := download.DownloadOptions{
+		ArtifactPath: artifactPath,
+		OutputPath:   outputPath,
+		OutputFormat: format,
+		Repository:   repo,
+		GitHubToken:  ghclient.GetToken(),
+	}
+
+	// if argument provided, use it as digest
+	if len(args) > 0 {
+		downloadOpts.ArtifactDigest = args[0]
+	}
+
+	if !quiet {
+		if downloadOpts.ArtifactDigest != "" {
+			fmt.Printf("Downloading attestations for digest: %s\n", downloadOpts.ArtifactDigest)
+		} else {
+			fmt.Printf("Downloading attestations for artifact: %s\n", artifactPath)
+		}
+	}
+
+	downloader, err := download.NewAttestationDownloader(downloadOpts)
+	if err != nil {
+		return fmt.Errorf("failed to create downloader: %w", err)
+	}
+
+	// downloads attestations
+	if err := downloader.Download(context.Background()); err != nil {
+		return fmt.Errorf("failed to download attestations: %w", err)
+	}
+
+	if !quiet {
+		fmt.Printf("✓ Attestations saved to: %s\n", outputPath)
+	}
+
+	return nil
+}
+
+// handles the offline command execution
+func runOffline(cmd *cobra.Command, args []string) error {
+	// gets config values
+	artifactPath := viper.GetString(flagBlobPath)
+	artifactDigest := viper.GetString("artifact-digest")
+	attestationsPath := viper.GetString("attestations")
+	trustedRootPath := viper.GetString("trusted-root")
+	certIdentity := viper.GetString("cert-identity")
+	certIssuer := viper.GetString("cert-issuer")
+	quiet := viper.GetBool("quiet")
+
+	if attestationsPath == "" {
+		return fmt.Errorf("attestations is required")
+	}
+
+	// verification options
+	verifyOpts := offline.VerifyOptions{
+		CertIdentity:   certIdentity,
+		CertOIDCIssuer: certIssuer,
+		SkipTLogVerify: true, // skip tlog verification in offline mode
+	}
+
+	if !quiet {
+		if artifactPath != "" {
+			fmt.Printf("Verifying artifact: %s\n", artifactPath)
+		} else if artifactDigest != "" {
+			fmt.Printf("Verifying artifact digest: %s\n", artifactDigest)
+		} else {
+			fmt.Println("No artifact provided - verifying attestations only")
+		}
+		fmt.Printf("Using attestations from: %s\n", attestationsPath)
+		fmt.Println("Performing offline verification...")
+		fmt.Println()
+	}
+
+	// creates offline verifier
+	verifier, err := offline.NewOfflineVerifier(trustedRootPath, verifyOpts)
+	if err != nil {
+		return fmt.Errorf("failed to create offline verifier: %w", err)
+	}
+
+	// loads attestation bundles
+	if err := verifier.LoadBundlesFromFile(attestationsPath); err != nil {
+		return fmt.Errorf("failed to load attestation bundles: %w", err)
+	}
+
+	if !quiet {
+		fmt.Println("Loaded attestation bundles successfully")
+	}
+
+	// verifies artifact - pass either path or digest
+	var result *offline.VerificationResult
+	if artifactPath != "" {
+		result, err = verifier.VerifyArtifact(artifactPath)
+	} else if artifactDigest != "" {
+		result, err = verifier.VerifyArtifactDigest(artifactDigest)
+	} else {
+		result, err = verifier.VerifyArtifact("")
+	}
+	if err != nil {
+		return fmt.Errorf("verification failed: %w", err)
+	}
+
+	// outputs results
+	if result.Verified {
+		if !quiet {
+			fmt.Println("✓ VERIFICATION SUCCESSFUL")
+			fmt.Printf("Verified %d attestations\n", len(result.Attestations))
+		} else {
+			fmt.Println("VERIFICATION_SUCCESSFUL")
+		}
+	} else {
+		if !quiet {
+			fmt.Println("✗ VERIFICATION FAILED")
+			for _, attestation := range result.Attestations {
+				if !attestation.Verified {
+					fmt.Printf("  - %s: %s\n", attestation.Type, attestation.Error)
+				}
+			}
+		} else {
+			fmt.Println("VERIFICATION_FAILED")
+		}
+		return fmt.Errorf("offline verification failed")
 	}
 
 	return nil
@@ -448,7 +697,7 @@ func generateVSA(ctx context.Context, artifactDigest string, inputAttestations [
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+		log.Fatal(err)
 	}
 }
 
