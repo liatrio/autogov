@@ -177,6 +177,11 @@ func GenerateVSAWithOptions(imageRef string, policyURI string, verificationResul
 		},
 	}
 
+	// validate the generated VSA before returning
+	if err := vsa.ValidateComprehensive(); err != nil {
+		return nil, fmt.Errorf("generated VSA failed validation: %w", err)
+	}
+
 	return vsa, nil
 }
 
