@@ -60,7 +60,6 @@ const (
 	flagCertIssuer          = "cert-issuer"
 	flagSourceRef           = "source-ref"
 	flagQuiet               = "quiet"
-	flagToken               = "token"
 	flagArtifactDigest      = "artifact-digest"
 	flagBlobPath            = "blob-path"
 	flagAttestationsPath    = "attestations-path"
@@ -102,8 +101,8 @@ func init() {
 	rootCmd.Flags().String(flagPolicyURI, "", "Policy URI for VSA generation (required if --generate-vsa is used)")
 
 	rootCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
-		blobPath := viper.GetString(flagBlobPath)
-		artifactDigest := viper.GetString(flagArtifactDigest)
+		blobPath, _ := cmd.Flags().GetString(flagBlobPath)
+		artifactDigest, _ := cmd.Flags().GetString(flagArtifactDigest)
 
 		if blobPath == "" && artifactDigest == "" {
 			return fmt.Errorf("either --%s or --%s must be provided", flagArtifactDigest, flagBlobPath)
@@ -150,6 +149,8 @@ func init() {
 
 	// bind env vars
 	envBinds := map[string]string{
+		flagArtifactDigest:   "ARTIFACT_DIGEST",
+		flagBlobPath:         "BLOB_PATH",
 		flagCertIdentity:     "CERT_IDENTITY",
 		flagCertIssuer:       "CERT_ISSUER",
 		flagQuiet:            "QUIET",
@@ -178,11 +179,11 @@ func run(cmd *cobra.Command, args []string) error {
 		fmt.Println("---")
 	}
 
-	artifactDigest := viper.GetString(flagArtifactDigest)
-	certIdentity := viper.GetString(flagCertIdentity)
-	certIssuer := viper.GetString(flagCertIssuer)
-	sourceRef := viper.GetString(flagSourceRef)
-	blobPath := viper.GetString(flagBlobPath)
+	artifactDigest, _ := cmd.Flags().GetString(flagArtifactDigest)
+	certIdentity, _ := cmd.Flags().GetString(flagCertIdentity)
+	certIssuer, _ := cmd.Flags().GetString(flagCertIssuer)
+	sourceRef, _ := cmd.Flags().GetString(flagSourceRef)
+	blobPath, _ := cmd.Flags().GetString(flagBlobPath)
 	attestationsPath := viper.GetString(flagAttestationsPath)
 	client := ghclient.NewClient()
 
