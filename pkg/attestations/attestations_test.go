@@ -110,7 +110,7 @@ func TestGetFromGitHub(t *testing.T) {
 				BlobPath: blobPath,
 			},
 			wantErr: true,
-			errMsg:  "failed to extract org/repo from certificate identity",
+			errMsg:  "for blob verification, provide --repo, --cert-identity, or use offline mode with --attestations-path",
 		},
 		{
 			name:     "invalid cert identity format with blob",

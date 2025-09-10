@@ -14,7 +14,6 @@ const (
 	flagPolicyURI        = "policy-uri"
 	flagVSAOutput        = "vsa-output"
 	flagPolicyBundlePath = "policy-bundle-path"
-	opaVersion           = "1.8.0"
 )
 
 // GenerateOptions contains options for VSA generation
@@ -29,6 +28,7 @@ type GenerateOptions struct {
 	PolicyBundlePath  string
 	Quiet             bool
 	Version           string
+	OpaVersion        string
 }
 
 // Generate creates a VSA after successful attestation verification
@@ -132,7 +132,7 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 			"sha256": policyDigest,
 		},
 		AdditionalVerifiers: map[string]string{
-			"opa": opaVersion,
+			"opa": opts.OpaVersion,
 		},
 	}
 
@@ -197,8 +197,8 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 		fmt.Println("\n=== Verification Summary ===")
 		fmt.Printf("Artifact: %s\n", opts.ArtifactDigest)
 		fmt.Printf("Attestations Verified: %d\n", len(opts.AttestationTypes))
-		fmt.Printf("Policy Compliance: %s\n", policyResult.Result)
 		if policyResult != nil {
+			fmt.Printf("Policy Compliance: %s\n", policyResult.Result)
 			fmt.Printf("  Evaluation Time: %s\n", policyResult.Timestamp.Format(time.RFC3339))
 			fmt.Printf("  Policy Violations: %d\n", len(policyResult.Violations))
 			fmt.Printf("  Policy Evaluation: %s\n", policyResult.Result)

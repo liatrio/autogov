@@ -23,10 +23,11 @@ import (
 
 // build-time variables set via ldflags
 var (
-	version    = "dev"
-	commit     = "none"
-	date       = "unknown"
-	opaVersion = "v1.8.0" // can be overridden at build time
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+	// OpaVersion can be overridden at build time
+	OpaVersion = "v1.8.0"
 )
 
 var (
@@ -469,6 +470,7 @@ func generateVSA(ctx context.Context, artifactDigest string, vsaSubjects []vsa.V
 		Signatures:        sigs,
 		Quiet:             quiet,
 		Version:           version,
+		OpaVersion:        OpaVersion,
 	})
 }
 
