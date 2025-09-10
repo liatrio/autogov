@@ -159,6 +159,14 @@ func init() {
 	offlineCmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final results")
 	offlineCmd.Flags().String(flagOfflineTrustedRoot, "", "Path to trusted root file (optional)")
 
+	// VSA generation flags for offline mode
+	offlineCmd.Flags().Bool(flagGenerateVSA, false, "Generate Verification Summary Attestation after successful verification")
+	offlineCmd.Flags().String(flagVSAOutput, "", "Output path for generated VSA (required if --generate-vsa is used)")
+	offlineCmd.Flags().String(flagPolicyURI, "", "Policy URI for VSA generation (required if --generate-vsa is used)")
+	offlineCmd.Flags().String(flagPolicyBundlePath, "", "Path to OPA policy bundle directory or .tar.gz file for policy evaluation")
+	offlineCmd.Flags().String(flagPolicySchemasPath, "", "Path to directory containing JSON schemas for OPA policy validation")
+	offlineCmd.Flags().String(flagSourceRef, "", "Source repository ref to verify against (e.g., refs/heads/main)")
+
 	if err := offlineCmd.MarkFlagRequired(flagOfflineAttestations); err != nil {
 		panic(fmt.Sprintf("failed to bind download flags: %v", err))
 	}

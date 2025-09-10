@@ -1,8 +1,11 @@
 package offline
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/liatrio/autogov-verify/pkg/vsa"
+	"github.com/sigstore/cosign/v2/pkg/oci"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -16,7 +19,15 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 	trustedRootPath := viper.GetString("trusted-root")
 	certIdentity := viper.GetString("cert-identity")
 	certIssuer := viper.GetString("cert-issuer")
+	sourceRef := viper.GetString("source-ref")
 	quiet := viper.GetBool("quiet")
+
+	// VSA generation flags
+	generateVSA := viper.GetBool("generate-vsa")
+	vsaOutput := viper.GetString("vsa-output")
+	policyURI := viper.GetString("policy-uri")
+	policyBundlePath := viper.GetString("policy-bundle-path")
+	policySchemasPath := viper.GetString("policy-schemas-path")
 
 	if attestationsPath == "" {
 		return fmt.Errorf("attestations is required")
@@ -90,6 +101,83 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 			fmt.Println("VERIFICATION_FAILED")
 		}
 		return fmt.Errorf("offline verification failed")
+	}
+
+	// VSA generation if requested
+	if generateVSA {
+		if vsaOutput == "" {
+			return fmt.Errorf("VSA output path is required when --generate-vsa is used")
+		}
+		if policyURI == "" {
+			return fmt.Errorf("policy URI is required when --generate-vsa is used")
+		}
+
+		// Extract attestation types and create VSA subjects
+		var attestationTypes []string
+		var vsaSubjects []vsa.VSASubject
+		var signatures []oci.Signature
+
+		// Build VSA subjects from verified attestations
+		subjectsMap := make(map[string]vsa.VSASubject)
+		for _, attestation := range result.Attestations {
+			if attestation.Verified && attestation.Subject != nil {
+				attestationTypes = append(attestationTypes, attestation.Type)
+
+				// Create VSA subject from attestation subject
+				subjectKey := attestation.Subject.Name
+				if existing, ok := subjectsMap[subjectKey]; ok {
+					// Merge digests if subject already exists
+					for alg, digest := range attestation.Subject.Digest {
+						existing.Digest[alg] = digest
+					}
+					subjectsMap[subjectKey] = existing
+				} else {
+					subjectsMap[subjectKey] = vsa.VSASubject{
+						URI:    attestation.Subject.Name,
+						Digest: attestation.Subject.Digest,
+					}
+				}
+			}
+		}
+
+		// Convert map to slice
+		for _, subject := range subjectsMap {
+			vsaSubjects = append(vsaSubjects, subject)
+		}
+
+		// If no subjects from attestations, create from artifact
+		if len(vsaSubjects) == 0 && artifactPath != "" {
+			vsaSubjects = append(vsaSubjects, vsa.VSASubject{
+				URI: artifactPath,
+			})
+		}
+
+		// Generate VSA
+		ctx := context.Background()
+		vsaOpts := vsa.GenerateOptions{
+			ArtifactDigest:   artifactDigest,
+			VSASubjects:      vsaSubjects,
+			AttestationTypes: attestationTypes,
+			Signatures:       signatures,
+			PolicyURI:        policyURI,
+			VSAOutput:        vsaOutput,
+			PolicyBundlePath: policyBundlePath,
+			Quiet:            quiet,
+		}
+
+		// Set schemas path in viper for VSA generation to use
+		if policySchemasPath != "" {
+			viper.Set("policy-schemas-path", policySchemasPath)
+		}
+		_ = sourceRef // Source ref is not used in VSA generation yet
+
+		if err := vsa.Generate(ctx, vsaOpts); err != nil {
+			return fmt.Errorf("failed to generate VSA: %w", err)
+		}
+
+		if !quiet {
+			fmt.Printf("\n✓ VSA generated successfully: %s\n", vsaOutput)
+		}
 	}
 
 	return nil
