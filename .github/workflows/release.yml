@@ -35,7 +35,11 @@ jobs:
         run: |
           mkdir -p bin
           VERSION="v${{ steps.go-semantic-release.outputs.version }}"
-          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o bin/autogov-verify .
+          COMMIT="${{ github.sha }}"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # Extract OPA version from go.mod
+          OPA_VERSION=$(go list -m github.com/open-policy-agent/opa | awk '{print $2}')
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE} -X main.opaVersion=${OPA_VERSION}" -o bin/autogov-verify .
       - name: Upload binary as release asset
         if: steps.go-semantic-release.outputs.version != ''
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1

@@ -91,7 +91,6 @@ type VSAVerifier struct {
 // provides config
 type VSAOptions struct {
 	InputAttestations   []ResourceDescriptor `json:"inputAttestations,omitempty"`
-	AutoGovVersion      string               `json:"autogovVersion,omitempty"`
 	PolicyDigest        map[string]string    `json:"policyDigest,omitempty"`
 	Dependencies        []Dependency         `json:"dependencies,omitempty"`
 	AdditionalVerifiers map[string]string    `json:"additionalVerifiers,omitempty"`
@@ -125,16 +124,8 @@ func GenerateVSAWithOptions(imageRef string, policyURI string, verificationResul
 	// timestamp pointer for v1.1 compliance
 	now := time.Now().UTC()
 
-	// version to use
-	version := "v1.0.0"
-	if opts.AutoGovVersion != "" {
-		version = opts.AutoGovVersion
-	}
-
-	// verifier versions map
-	verifierVersions := map[string]string{
-		"autogov-verify": version,
-	}
+	// verifier versions map - only include additional verifiers
+	verifierVersions := make(map[string]string)
 	for tool, ver := range opts.AdditionalVerifiers {
 		verifierVersions[tool] = ver
 	}
@@ -189,6 +180,71 @@ func GenerateVSAWithOptions(imageRef string, policyURI string, verificationResul
 // calls GenerateVSAWithOptions w/ default options
 func GenerateVSA(imageRef string, policyURI string, verificationResults map[string]bool) (*VSA, error) {
 	return GenerateVSAWithOptions(imageRef, policyURI, verificationResults, VSAOptions{})
+}
+
+// creates a VSA with multiple subjects
+func GenerateVSAWithSubjects(imageRef string, subjects []VSASubject, policyURI string, verificationResults map[string]bool, opts VSAOptions) (*VSA, error) {
+	// overall result
+	result := "PASSED"
+	for _, passed := range verificationResults {
+		if !passed {
+			result = "FAILED"
+			break
+		}
+	}
+
+	// timestamp pointer for v1.1 compliance
+	now := time.Now().UTC()
+
+	// verifier versions map - only include additional verifiers
+	verifierVersions := make(map[string]string)
+	for tool, ver := range opts.AdditionalVerifiers {
+		verifierVersions[tool] = ver
+	}
+
+	dependencyLevels := make(map[string]uint64) // empty map for backward compatibility
+
+	// Use provided subjects if available, otherwise fall back to single subject
+	var vsaSubjects []VSASubject
+	if len(subjects) > 0 {
+		vsaSubjects = subjects
+	} else {
+		// Fall back to extracting from imageRef for backward compatibility
+		digest, err := extractDigestFromImageRef(imageRef)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract digest: %w", err)
+		}
+		vsaSubjects = []VSASubject{
+			{
+				URI: imageRef,
+				Digest: map[string]string{
+					"sha256": digest,
+				},
+			},
+		}
+	}
+
+	vsa := &VSA{
+		Type:          "https://in-toto.io/Statement/v1",
+		PredicateType: "https://slsa.dev/verification_summary/v1",
+		Subject:       vsaSubjects,
+		Predicate: VSAPredicate{
+			Verifier: VSAVerifier{
+				ID:      "https://github.com/liatrio/autogov-verify",
+				Version: verifierVersions,
+			},
+			TimeVerified:       now.Format(time.RFC3339),
+			ResourceURI:        imageRef,
+			Policy:             VSAPolicy{URI: policyURI, Digest: opts.PolicyDigest},
+			InputAttestations:  opts.InputAttestations,
+			VerificationResult: result,
+			VerifiedLevels:     []string{"SLSA_BUILD_LEVEL_3"},
+			DependencyLevels:   dependencyLevels,
+			SlsaVersion:        "v1.1",
+		},
+	}
+
+	return vsa, nil
 }
 
 // extracts SHA256 digest from image ref / direct digest

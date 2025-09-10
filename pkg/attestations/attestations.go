@@ -76,6 +76,9 @@ type Options struct {
 	// if given, verification performed against blob instead of image
 	// example: "/path/to/my/file.txt"
 	BlobPath string
+	// repository to fetch attestations from (format: owner/repo)
+	// required for blob verification, optional for image verification
+	Repository string
 	// expected repository ref (e.g., refs/heads/main)
 	// verifies that the source repo ref in the build provenance attestation matches this value (e.g., ${{ github.ref }})
 	SourceRef string
@@ -180,10 +183,25 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 	}
 
 	if opts.BlobPath != "" {
-		org, repo, err = parseOrgRepoFromWorkflowURL(opts.CertIdentity)
-		// if blob, extract org/repo from cert-identity
-		if err != nil {
-			return nil, fmt.Errorf("failed to extract org/repo from certificate identity: %w", err)
+		// For blobs, we need to know which repo to fetch attestations from
+		// This can come from --repo flag or cert-identity
+		if opts.Repository != "" {
+			// Parse org/repo from repository flag
+			parts := strings.Split(opts.Repository, "/")
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("invalid repository format, expected owner/repo")
+			}
+			org = parts[0]
+			repo = parts[1]
+		} else if opts.CertIdentity != "" {
+			// Fall back to extracting from cert-identity if repo not specified
+			org, repo, err = parseOrgRepoFromWorkflowURL(opts.CertIdentity)
+			if err != nil {
+				return nil, fmt.Errorf("failed to extract org/repo from certificate identity: %w", err)
+			}
+		} else {
+			// Without repo or cert-identity, we can't determine where to fetch attestations
+			return nil, fmt.Errorf("for blob verification, provide --repo, --cert-identity, or use offline mode with --attestations-path")
 		}
 		// if empty digest for blob, calculated later
 		artifactRef, _ = NewDigest("")
@@ -520,15 +538,20 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		artifactPolicy = verify.WithArtifactDigest("sha256", digestBytes)
 	}
 
-	// certificate identity for verification
-	certIdentity, err := verify.NewShortCertificateIdentity(opts.CertIssuer, "", opts.CertIdentity, "")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create certificate identity: %w", err)
+	// policy using the pure sigstore-go v1.0.0 API
+	var policy verify.PolicyBuilder
+	if opts.CertIdentity != "" {
+		// certificate identity for verification (only if specified)
+		certIdentity, err := verify.NewShortCertificateIdentity(opts.CertIssuer, "", opts.CertIdentity, "")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create certificate identity: %w", err)
+		}
+		policy = verify.NewPolicy(artifactPolicy, verify.WithCertificateIdentity(certIdentity))
+	} else {
+		// No certificate identity verification - accept any valid signature
+		policy = verify.NewPolicy(artifactPolicy, verify.WithoutIdentitiesUnsafe())
 	}
-
-	// policy using the pure sigstore-go v1.0.0 API with certificate identity verification
-	policy := verify.NewPolicy(artifactPolicy, verify.WithCertificateIdentity(certIdentity))
-
+	
 	// verify the bundle using the pure sigstore-go v1.0.0 API
 	_, err = verifier.Verify(b, policy)
 	if err != nil {

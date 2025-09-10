@@ -250,7 +250,6 @@ func TestVerifyArtifact(t *testing.T) {
 	}
 }
 
-
 // tests offline verification with real attestation data
 func TestOfflineVerifierWithRealData(t *testing.T) {
 	realAttestationFile := "../../testdata/attestations/multi-type-attestations.jsonl"
