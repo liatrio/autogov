@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-
 func TestVerifyBlobs(t *testing.T) {
 	ctx := context.Background()
 	client := github.NewClient(nil)
@@ -123,37 +122,65 @@ func TestSetupCertIdentityValidation(t *testing.T) {
 	}
 }
 
-func TestVerifyBlobs_MultipleBlobs(t *testing.T) {
-	// This test covers the case where multiple blobs are verified successfully
-	// We can't easily test the success case without mocking the attestations package
-	// but we can ensure the error handling works correctly
-	
+func TestVerifyBlobsMultipleBlobs(t *testing.T) {
 	ctx := context.Background()
 	client := github.NewClient(nil)
-	
+
 	opts := Options{
 		Repository:   "test/repo",
 		CertIdentity: "test-identity",
 		CertIssuer:   "test-issuer",
-		BlobPaths:    []string{"/path/to/blob1", "/path/to/blob2", "/path/to/blob3"},
+		BlobPaths:    []string{"blob1", "blob2", "blob3"},
 		Quiet:        false,
 	}
-	
-	// This will fail because the files don't exist, but it tests the iteration logic
+
+	// This will fail but we're testing the multi-blob flow
 	_, err := VerifyBlobs(ctx, client, opts)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "error getting attestations")
 }
 
-func TestVerifyBlobs_WithCertIdentityValidation(t *testing.T) {
+func TestVerifyBlobsQuietMode(t *testing.T) {
 	ctx := context.Background()
 	client := github.NewClient(nil)
-	
+
+	opts := Options{
+		Repository:   "test/repo",
+		CertIdentity: "test-identity",
+		CertIssuer:   "test-issuer",
+		BlobPaths:    []string{"test.txt"},
+		Quiet:        true, // Test quiet mode
+	}
+
+	// This will fail but we're testing quiet mode
+	_, err := VerifyBlobs(ctx, client, opts)
+	assert.Error(t, err)
+}
+
+func TestSetupCertIdentityValidationQuiet(t *testing.T) {
+	// Test with quiet mode enabled
+	opts := SetupCertIdentityValidation("https://example.com/cert.json", false, true)
+	assert.NotNil(t, opts)
+	assert.Equal(t, "https://example.com/cert.json", opts.URL)
+	assert.False(t, opts.DisableCache)
+}
+
+func TestSetupCertIdentityValidationCacheDisabled(t *testing.T) {
+	// Test with cache disabled and not quiet - covers line 90-92
+	opts := SetupCertIdentityValidation("https://example.com/cert.json", true, false)
+	assert.NotNil(t, opts)
+	assert.Equal(t, "https://example.com/cert.json", opts.URL)
+	assert.True(t, opts.DisableCache)
+}
+
+func TestVerifyBlobsWithCertIdentityValidation(t *testing.T) {
+	ctx := context.Background()
+	client := github.NewClient(nil)
+
 	certOpts := certid.DefaultOptions()
 	certOpts.URL = "https://example.com/cert-identities.json"
-	
+
 	opts := Options{
-		ArtifactDigest:         "sha256:abc123",
 		Repository:             "test/repo",
 		CertIdentity:           "test-identity",
 		CertIssuer:             "test-issuer",
@@ -161,7 +188,7 @@ func TestVerifyBlobs_WithCertIdentityValidation(t *testing.T) {
 		CertIdentityValidation: &certOpts,
 		Quiet:                  true,
 	}
-	
+
 	// This will fail due to GitHub client requirement, but tests the cert validation path
 	_, err := VerifyBlobs(ctx, client, opts)
 	assert.Error(t, err)

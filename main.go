@@ -82,6 +82,7 @@ const (
 	flagVSAOutput           = "vsa-output"
 	flagPolicyURI           = "policy-uri"
 	flagPolicyBundlePath    = "policy-bundle-path"
+	flagPolicySchemasPath   = "policy-schemas-path"
 	flagNoCache             = "no-cache"
 	flagOfflineAttestations = "attestations"
 	flagOfflineTrustedRoot  = "trusted-root"
@@ -108,6 +109,7 @@ func init() {
 
 	// OPA policy flags
 	rootCmd.Flags().String(flagPolicyBundlePath, "", "Path to OPA policy bundle directory or .tar.gz file for policy evaluation")
+	rootCmd.Flags().String(flagPolicySchemasPath, "", "Path to directory containing JSON schemas for OPA policy validation")
 
 	// VSA generation flags
 	rootCmd.Flags().Bool(flagGenerateVSA, false, "Generate Verification Summary Attestation after successful verification")
@@ -175,17 +177,18 @@ func init() {
 
 	// bind env vars
 	envBinds := map[string]string{
-		flagArtifactDigest:   "ARTIFACT_DIGEST",
-		flagBlobPath:         "BLOB_PATH",
-		flagRepo:             "REPO",
-		flagCertIdentity:     "CERT_IDENTITY",
-		flagCertIssuer:       "CERT_ISSUER",
-		flagQuiet:            "QUIET",
-		flagSourceRef:        "SOURCE_REF",
-		flagAttestationsPath: "ATTESTATIONS_PATH",
-		flagCertIdentityList: "CERT_IDENTITY_LIST",
-		flagNoCache:          "NO_CACHE",
-		flagPolicyBundlePath: "POLICY_BUNDLE_PATH",
+		flagArtifactDigest:    "ARTIFACT_DIGEST",
+		flagBlobPath:          "BLOB_PATH",
+		flagRepo:              "REPO",
+		flagCertIdentity:      "CERT_IDENTITY",
+		flagCertIssuer:        "CERT_ISSUER",
+		flagQuiet:             "QUIET",
+		flagSourceRef:         "SOURCE_REF",
+		flagAttestationsPath:  "ATTESTATIONS_PATH",
+		flagCertIdentityList:  "CERT_IDENTITY_LIST",
+		flagNoCache:           "NO_CACHE",
+		flagPolicyBundlePath:  "POLICY_BUNDLE_PATH",
+		flagPolicySchemasPath: "POLICY_SCHEMAS_PATH",
 	}
 
 	for key, env := range envBinds {

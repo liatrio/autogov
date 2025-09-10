@@ -12,11 +12,11 @@ import (
 // Helper function to create a test bundle with a given statement
 func createTestBundle(statement map[string]interface{}) *bundle.Bundle {
 	b := &bundle.Bundle{}
-	
+
 	// Marshal the statement to JSON
 	stmtJSON, _ := json.Marshal(statement)
 	payload := base64.StdEncoding.EncodeToString(stmtJSON)
-	
+
 	// Create a minimal bundle
 	bundleJSON := `{
 		"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.1",
@@ -229,7 +229,7 @@ func TestDetectTypeVariousPredicateTypes(t *testing.T) {
 				"subject":       []interface{}{map[string]interface{}{"name": "test"}},
 				"predicate":     map[string]interface{}{},
 			})
-			
+
 			result := DetectType(bundle)
 			assert.Equal(t, pt.predicateType, result)
 		})

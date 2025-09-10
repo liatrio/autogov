@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	flagPolicyURI        = "policy-uri"
-	flagVSAOutput        = "vsa-output"
-	flagPolicyBundlePath = "policy-bundle-path"
+	flagPolicyURI         = "policy-uri"
+	flagVSAOutput         = "vsa-output"
+	flagPolicyBundlePath  = "policy-bundle-path"
+	flagPolicySchemasPath = "policy-schemas-path"
 )
 
 // GenerateOptions contains options for VSA generation
@@ -41,6 +42,12 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 	}
 	if opts.PolicyBundlePath == "" {
 		opts.PolicyBundlePath = viper.GetString(flagPolicyBundlePath)
+	}
+
+	// get schemas path for policy validation
+	schemasPath := viper.GetString(flagPolicySchemasPath)
+	if schemasPath == "" {
+		schemasPath = viper.GetString(flagPolicyBundlePath)
 	}
 
 	if opts.PolicyURI == "" {
@@ -87,14 +94,14 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 	}
 
 	// OPA evaluator, use bundle path if provided, otherwise download from URI
-	var evaluatorPath string
+	var policyBundlePath string
 	if opts.PolicyBundlePath != "" {
-		evaluatorPath = opts.PolicyBundlePath
+		policyBundlePath = opts.PolicyBundlePath
 	} else {
-		evaluatorPath = opts.PolicyURI
+		policyBundlePath = opts.PolicyURI
 	}
 
-	evaluator, err := policy.NewOPAEvaluator(ctx, evaluatorPath)
+	evaluator, err := policy.NewOPAEvaluator(ctx, policyBundlePath, schemasPath)
 	if err != nil {
 		return fmt.Errorf("failed to create OPA evaluator: %w", err)
 	}
@@ -120,7 +127,7 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 	}
 
 	// calculate policy digest from the actual policy content
-	policyDigest, err := policy.CalculateDigest(evaluatorPath)
+	policyDigest, err := policy.CalculateDigest(policyBundlePath)
 	if err != nil {
 		return fmt.Errorf("failed to calculate policy digest: %w", err)
 	}
@@ -162,7 +169,7 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 			"result":          policyResult.Result,
 			"violations":      violations,
 			"evaluation_time": policyResult.Timestamp,
-			"policy_bundle":   evaluatorPath,
+			"policy_bundle":   policyBundlePath,
 		}
 
 		// violation summary by policy type

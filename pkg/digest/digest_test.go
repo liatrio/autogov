@@ -16,12 +16,12 @@ func TestCalculateFile(t *testing.T) {
 	// create a temp file with known content
 	tmpFile, err := os.CreateTemp("", "test-digest-*.txt")
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	testContent := "Hello, World!"
 	_, err = tmpFile.WriteString(testContent)
 	require.NoError(t, err)
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// calculate digest
 	digest, err := CalculateFile(tmpFile.Name())
@@ -137,7 +137,7 @@ func TestCalculateDirectory(t *testing.T) {
 	// create a temp directory with test files
 	tmpDir, err := os.MkdirTemp("", "test-digest-dir-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// create test files
 	files := map[string]string{
@@ -208,11 +208,11 @@ func TestFormat(t *testing.T) {
 
 func TestParse(t *testing.T) {
 	tests := []struct {
-		name        string
-		digest      string
-		wantAlgo    string
-		wantHex     string
-		wantError   bool
+		name      string
+		digest    string
+		wantAlgo  string
+		wantHex   string
+		wantError bool
 	}{
 		{
 			name:      "valid sha256",
