@@ -1,0 +1,206 @@
+package vsa
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/liatrio/autogov-verify/pkg/policy"
+	"github.com/sigstore/cosign/v2/pkg/oci"
+	"github.com/spf13/viper"
+)
+
+const (
+	flagPolicyURI        = "policy-uri"
+	flagVSAOutput        = "vsa-output"
+	flagPolicyBundlePath = "policy-bundle-path"
+	opaVersion           = "1.8.0"
+)
+
+// GenerateOptions contains options for VSA generation
+type GenerateOptions struct {
+	ArtifactDigest    string
+	VSASubjects       []VSASubject
+	InputAttestations []ResourceDescriptor
+	AttestationTypes  []string
+	Signatures        []oci.Signature
+	PolicyURI         string
+	VSAOutput         string
+	PolicyBundlePath  string
+	Quiet             bool
+	Version           string
+}
+
+// Generate creates a VSA after successful attestation verification
+func Generate(ctx context.Context, opts GenerateOptions) error {
+	if opts.PolicyURI == "" {
+		opts.PolicyURI = viper.GetString(flagPolicyURI)
+	}
+	if opts.VSAOutput == "" {
+		opts.VSAOutput = viper.GetString(flagVSAOutput)
+	}
+	if opts.PolicyBundlePath == "" {
+		opts.PolicyBundlePath = viper.GetString(flagPolicyBundlePath)
+	}
+
+	if opts.PolicyURI == "" {
+		return fmt.Errorf("policy URI is required for VSA generation (use --%s)", flagPolicyURI)
+	}
+
+	if opts.VSAOutput == "" {
+		return fmt.Errorf("VSA output path is required (use --%s)", flagVSAOutput)
+	}
+
+	if !opts.Quiet {
+		fmt.Println("\n---")
+		fmt.Println("Generating Verification Summary Attestation...")
+	}
+
+	// verification results based on successful attestation verification
+	verificationResults := map[string]bool{
+		"attestation.verification": true,
+		"attestation.signature":    true,
+	}
+
+	// specific results for each attestation type
+	for _, attType := range opts.AttestationTypes {
+		switch attType {
+		case "https://slsa.dev/provenance/v1":
+			verificationResults["attestation.slsa_provenance"] = true
+		case "https://cyclonedx.org/bom":
+			verificationResults["attestation.sbom"] = true
+		case "https://in-toto.io/attestation/vuln/v0.1":
+			verificationResults["attestation.vulnerability"] = true
+		default:
+			verificationResults["attestation."+attType] = true
+		}
+	}
+
+	// OPA policy evaluation
+	if !opts.Quiet {
+		fmt.Println("Evaluating OPA policy...")
+	}
+
+	// require policy source for evaluation
+	if opts.PolicyBundlePath == "" && opts.PolicyURI == "" {
+		return fmt.Errorf("policy evaluation requires either --policy-bundle-path or --policy-uri")
+	}
+
+	// OPA evaluator, use bundle path if provided, otherwise download from URI
+	var evaluatorPath string
+	if opts.PolicyBundlePath != "" {
+		evaluatorPath = opts.PolicyBundlePath
+	} else {
+		evaluatorPath = opts.PolicyURI
+	}
+
+	evaluator, err := policy.NewOPAEvaluator(ctx, evaluatorPath)
+	if err != nil {
+		return fmt.Errorf("failed to create OPA evaluator: %w", err)
+	}
+	defer evaluator.Stop(ctx)
+
+	// eval policy against attestations
+	policyResult, err := evaluator.EvaluatePolicy(ctx, opts.Signatures)
+	if err != nil {
+		return fmt.Errorf("failed to evaluate OPA policy: %w", err)
+	}
+
+	// policy evaluation results
+	verificationResults["policy.compliance"] = (policyResult.Result == "PASSED")
+
+	if !opts.Quiet {
+		fmt.Printf("✓ Policy evaluation completed: %s\n", policyResult.Result)
+		if len(policyResult.Violations) > 0 {
+			fmt.Printf("  Policy violations: %d\n", len(policyResult.Violations))
+			for _, violation := range policyResult.Violations {
+				fmt.Printf("    - %s: %s\n", violation.Policy, violation.Message)
+			}
+		}
+	}
+
+	// calculate policy digest from the actual policy content
+	policyDigest, err := policy.CalculateDigest(evaluatorPath)
+	if err != nil {
+		return fmt.Errorf("failed to calculate policy digest: %w", err)
+	}
+
+	// create VSA options with input attestations
+	vsaOpts := VSAOptions{
+		InputAttestations: opts.InputAttestations,
+		PolicyDigest: map[string]string{
+			"sha256": policyDigest,
+		},
+		AdditionalVerifiers: map[string]string{
+			"opa": opaVersion,
+		},
+	}
+
+	// add autogov-verify version if not dev build
+	if opts.Version != "" && opts.Version != "dev" {
+		vsaOpts.AdditionalVerifiers["autogov-verify"] = opts.Version
+	}
+
+	// generate VSA with subjects
+	generatedVSA, err := GenerateVSAWithSubjects(opts.ArtifactDigest, opts.VSASubjects, opts.PolicyURI, verificationResults, vsaOpts)
+	if err != nil {
+		return fmt.Errorf("failed to generate VSA: %w", err)
+	}
+
+	// VSA metadata
+	if policyResult != nil {
+		if generatedVSA.Metadata == nil {
+			generatedVSA.Metadata = make(map[string]interface{})
+		}
+
+		// policy evaluation metadata
+		generatedVSA.Metadata["autogov.policy.evaluation"] = map[string]interface{}{
+			"result":           policyResult.Result,
+			"violations":       policyResult.Violations,
+			"evaluation_time":  policyResult.Timestamp,
+			"policy_bundle":    evaluatorPath,
+		}
+
+		// violation summary by policy type
+		violationSummary := make(map[string][]string)
+		for _, v := range policyResult.Violations {
+			violationSummary[v.Policy] = append(violationSummary[v.Policy], v.Message)
+		}
+		if len(violationSummary) > 0 {
+			generatedVSA.Metadata["autogov.policy.violation_summary"] = violationSummary
+		}
+
+		// compliance metrics
+		metrics := map[string]interface{}{
+			"total_attestations":     len(opts.AttestationTypes),
+			"verified_attestations":  len(opts.AttestationTypes),
+			"policy_violations":      len(policyResult.Violations),
+			"policy_compliance_rate": 100.0,
+		}
+		if len(policyResult.Violations) > 0 && len(opts.AttestationTypes) > 0 {
+			metrics["policy_compliance_rate"] = float64(len(opts.AttestationTypes)-len(policyResult.Violations)) / float64(len(opts.AttestationTypes)) * 100.0
+		}
+		generatedVSA.Metadata["autogov.policy.metrics"] = metrics
+	}
+
+	// write VSA to file
+	if err := WriteToFile(generatedVSA, opts.VSAOutput); err != nil {
+		return fmt.Errorf("failed to write VSA: %w", err)
+	}
+
+	if !opts.Quiet {
+		fmt.Printf("✓ VSA saved to: %s\n", opts.VSAOutput)
+		fmt.Println("\n=== Verification Summary ===")
+		fmt.Printf("Artifact: %s\n", opts.ArtifactDigest)
+		fmt.Printf("Attestations Verified: %d\n", len(opts.AttestationTypes))
+		fmt.Printf("Policy Compliance: %s\n", policyResult.Result)
+		if policyResult != nil {
+			fmt.Printf("  Evaluation Time: %s\n", policyResult.Timestamp.Format(time.RFC3339))
+			fmt.Printf("  Policy Violations: %d\n", len(policyResult.Violations))
+			fmt.Printf("  Policy Evaluation: %s\n", policyResult.Result)
+		}
+		fmt.Println()
+	}
+
+	return nil
+}

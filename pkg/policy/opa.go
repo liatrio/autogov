@@ -12,13 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/liatrio/autogov-verify/pkg/digest"
+	"github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/open-policy-agent/opa/v1/rego"
 	"github.com/sigstore/cosign/v2/pkg/oci"
 )
 
-const (
-	tempDirCleanupWarning = "Warning: failed to clean up temp directory: %v\n"
-)
 
 // handles OPA policy evaluation using the Rego API
 type OPAEvaluator struct {
@@ -101,14 +100,8 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// use gh token if available
-	var token string
-	for _, key := range []string{"GH_TOKEN", "GITHUB_TOKEN", "GITHUB_AUTH_TOKEN"} {
-		if token = os.Getenv(key); token != "" {
-			break
-		}
-	}
-	if token != "" {
+	// use gh token if available from centralized client
+	if token := github.GetToken(); token != "" {
 		req.Header.Set("Authorization", "token "+token)
 	}
 
@@ -128,18 +121,18 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 		return "", fmt.Errorf("failed to download bundle: HTTP %d", resp.StatusCode)
 	}
 
-	// temp dir
-	tempDir, err := os.MkdirTemp("", "opa-bundle-*")
+	// temp dir using digest package
+	tempDir, cleanup, err := digest.CreateTempDir("opa-bundle-")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp directory: %w", err)
 	}
+	// note: cleanup will be called when extraction fails, but directory is returned on success
+	_ = cleanup
 
 	// extracts tar.gz
 	gzr, err := gzip.NewReader(resp.Body)
 	if err != nil {
-		if err := os.RemoveAll(tempDir); err != nil {
-			fmt.Printf(tempDirCleanupWarning, err)
-		}
+		cleanup()
 		return "", fmt.Errorf("failed to create gzip reader: %w", err)
 	}
 	defer func() {
@@ -155,9 +148,7 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 			break
 		}
 		if err != nil {
-			if err := os.RemoveAll(tempDir); err != nil {
-				fmt.Printf(tempDirCleanupWarning, err)
-			}
+			cleanup()
 			return "", fmt.Errorf("failed to read tar: %w", err)
 		}
 
@@ -166,24 +157,18 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(path, 0755); err != nil {
-				if err := os.RemoveAll(tempDir); err != nil {
-					fmt.Printf(tempDirCleanupWarning, err)
-				}
+				cleanup()
 				return "", fmt.Errorf("failed to create directory: %w", err)
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-				if err := os.RemoveAll(tempDir); err != nil {
-					fmt.Printf(tempDirCleanupWarning, err)
-				}
+				cleanup()
 				return "", fmt.Errorf("failed to create parent directory: %w", err)
 			}
 
 			file, err := os.Create(filepath.Join(tempDir, header.Name))
 			if err != nil {
-				if err := os.RemoveAll(tempDir); err != nil {
-					fmt.Printf(tempDirCleanupWarning, err)
-				}
+				cleanup()
 				return "", fmt.Errorf("failed to create file: %w", err)
 			}
 
@@ -336,6 +321,61 @@ func (e *OPAEvaluator) createSigstoreBundle(signatures []oci.Signature) (interfa
 	}
 
 	return bundles, nil
+}
+
+// CalculateDigest computes SHA256 hash of policy bundle content
+func CalculateDigest(policyPath string) (string, error) {
+	// check if it's a directory or file
+	info, err := os.Stat(policyPath)
+	if err != nil {
+		// if path doesn't exist locally, it might be a URL - download and hash content
+		if strings.HasPrefix(policyPath, "http") {
+			return calculateRemoteDigest(policyPath)
+		}
+		return "", fmt.Errorf("policy path not found: %w", err)
+	}
+
+	if info.IsDir() {
+		// hash directory contents with policy-specific extensions
+		return digest.CalculateDirectory(policyPath, []string{".rego", ".json", ".yaml"})
+	}
+	
+	// single file - use digest package
+	hexDigest, err := digest.CalculateFile(policyPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to calculate policy digest: %w", err)
+	}
+	// strip the "sha256:" prefix to match original format
+	_, hex, _ := digest.Parse(hexDigest)
+	return hex, nil
+}
+
+// calculateRemoteDigest downloads policy content from URL and hashes it
+func calculateRemoteDigest(url string) (string, error) {
+	// create HTTP request
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to download policy from %s: %w", url, err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Printf("Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download policy: HTTP %d", resp.StatusCode)
+	}
+
+	// use digest package to hash the response body
+	hexDigest, err := digest.CalculateReader(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read policy content: %w", err)
+	}
+	
+	// strip the "sha256:" prefix to match original format
+	_, hex, _ := digest.Parse(hexDigest)
+	return hex, nil
 }
 
 // returns details about the loaded policy

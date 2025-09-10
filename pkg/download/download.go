@@ -4,14 +4,14 @@ package download
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/google/go-github/v74/github"
+	bundleutils "github.com/liatrio/autogov-verify/pkg/bundle"
+	"github.com/liatrio/autogov-verify/pkg/digest"
 	"github.com/liatrio/autogov-verify/pkg/offline"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 )
@@ -73,7 +73,7 @@ func (ad *AttestationDownloader) Download(ctx context.Context) error {
 	if ad.opts.ArtifactDigest != "" {
 		targetDigest = ad.opts.ArtifactDigest
 	} else if ad.opts.ArtifactPath != "" {
-		targetDigest, err = calculateFileDigest(ad.opts.ArtifactPath)
+		targetDigest, err = digest.CalculateFile(ad.opts.ArtifactPath)
 		if err != nil {
 			return fmt.Errorf("failed to calculate artifact digest: %w", err)
 		}
@@ -82,9 +82,7 @@ func (ad *AttestationDownloader) Download(ctx context.Context) error {
 	}
 
 	// clean digest format (ensure it has sha256: prefix)
-	if !strings.HasPrefix(targetDigest, "sha256:") {
-		targetDigest = "sha256:" + targetDigest
-	}
+	targetDigest = digest.Normalize(targetDigest)
 
 	fmt.Printf("Downloading attestations for digest: %s\n", targetDigest)
 
@@ -195,7 +193,7 @@ func (ad *AttestationDownloader) filterBundles(bundles []*bundle.Bundle) []*bund
 	filtered := make([]*bundle.Bundle, 0)
 
 	for _, bundle := range bundles {
-		attestationType := ad.detectBundleType(bundle)
+		attestationType := bundleutils.DetectType(bundle)
 
 		for _, allowedType := range ad.opts.AttestationTypes {
 			if strings.Contains(attestationType, allowedType) {
@@ -208,15 +206,6 @@ func (ad *AttestationDownloader) filterBundles(bundles []*bundle.Bundle) []*bund
 	return filtered
 }
 
-// detect bundle type detects the attestation type from a bundle
-func (ad *AttestationDownloader) detectBundleType(b *bundle.Bundle) string {
-	if env, err := b.Envelope(); err == nil {
-		if stmt, err := env.Statement(); err == nil {
-			return stmt.PredicateType
-		}
-	}
-	return "unknown"
-}
 
 // save bundles saves bundles to the output file
 func (ad *AttestationDownloader) saveBundles(bundles []*bundle.Bundle) error {
@@ -230,21 +219,6 @@ func (ad *AttestationDownloader) saveBundles(bundles []*bundle.Bundle) error {
 	return offline.WriteBundles(bundles, ad.opts.OutputPath, ad.opts.OutputFormat)
 }
 
-// calculates SHA256 digest of a file
-func calculateFileDigest(filepath string) (string, error) {
-	file, err := os.Open(filepath)
-	if err != nil {
-		return "", fmt.Errorf("failed to open file: %w", err)
-	}
-	defer func() { _ = file.Close() }()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, file); err != nil {
-		return "", fmt.Errorf("failed to calculate digest: %w", err)
-	}
-
-	return fmt.Sprintf("sha256:%x", h.Sum(nil)), nil
-}
 
 // validate download options validates download options
 func ValidateDownloadOptions(opts DownloadOptions) error {

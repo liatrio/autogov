@@ -102,12 +102,13 @@ func TestRun(t *testing.T) {
 			args: []string{
 				"--cert-identity", "https://github.com/liatrio/autogov-verify/.github/workflows/test.yml@refs/heads/main",
 				"--blob-path", "/nonexistent/path",
+				"--repo", "liatrio/test-repo",
 			},
 			envVars: map[string]string{
 				"GITHUB_TOKEN": "mock-token",
 			},
 			wantErr: true,
-			errMsg:  "failed to read blob",
+			errMsg:  "file not found",
 		},
 	}
 

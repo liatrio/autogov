@@ -14,7 +14,6 @@ import (
 	"github.com/liatrio/autogov-verify/pkg/download"
 	ghclient "github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/liatrio/autogov-verify/pkg/offline"
-	"github.com/liatrio/autogov-verify/pkg/paths"
 	"github.com/liatrio/autogov-verify/pkg/verify"
 	"github.com/liatrio/autogov-verify/pkg/vsa"
 	"github.com/sigstore/cosign/v2/pkg/oci"
@@ -216,7 +215,7 @@ func run(cmd *cobra.Command, args []string) error {
 	client := ghclient.NewClient()
 
 	// Handle multiple blob paths separated by commas or a directory
-	blobPaths, err := paths.ExpandPaths(blobPath)
+	blobPaths, err := expandBlobPaths(blobPath)
 	if err != nil {
 		return fmt.Errorf("failed to expand blob paths: %w", err)
 	}
@@ -412,6 +411,56 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// expandBlobPaths takes a path string (which could be a single file, comma-separated files, or a directory)
+// and returns a slice of individual file paths
+func expandBlobPaths(pathStr string) ([]string, error) {
+	if pathStr == "" {
+		return nil, nil
+	}
+
+	// Check if it's a directory
+	fileInfo, err := os.Stat(pathStr)
+	if err == nil && fileInfo.IsDir() {
+		// It's a directory, get all files in it
+		entries, err := os.ReadDir(pathStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read directory %s: %w", pathStr, err)
+		}
+
+		var files []string
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				files = append(files, filepath.Join(pathStr, entry.Name()))
+			}
+		}
+
+		if len(files) == 0 {
+			return nil, fmt.Errorf("no files found in directory %s", pathStr)
+		}
+		return files, nil
+	}
+
+	// Not a directory, treat as comma-separated paths
+	paths := strings.Split(pathStr, ",")
+	var result []string
+	for _, p := range paths {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			// Verify the file exists
+			if _, err := os.Stat(trimmed); err != nil {
+				return nil, fmt.Errorf("file not found: %s", trimmed)
+			}
+			result = append(result, trimmed)
+		}
+	}
+
+	if len(result) == 0 {
+		return nil, fmt.Errorf("no valid paths found in: %s", pathStr)
+	}
+
+	return result, nil
 }
 
 // creates a VSA after successful attestation verification

@@ -3,13 +3,13 @@
 package offline
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
+	bundleutils "github.com/liatrio/autogov-verify/pkg/bundle"
+	"github.com/liatrio/autogov-verify/pkg/digest"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/verify"
@@ -114,7 +114,7 @@ func (ov *OfflineVerifier) VerifyArtifact(artifactPath string) (*VerificationRes
 	var expectedDigest string
 	if artifactPath != "" {
 		var err error
-		expectedDigest, err = calculateDigest(artifactPath)
+		expectedDigest, err = digest.CalculateFile(artifactPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate artifact digest: %w", err)
 		}
@@ -182,21 +182,6 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 	return result, nil
 }
 
-// calculates the SHA256 digest of a file
-func calculateDigest(filepath string) (string, error) {
-	file, err := os.Open(filepath)
-	if err != nil {
-		return "", fmt.Errorf("failed to open file: %w", err)
-	}
-	defer func() { _ = file.Close() }()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, file); err != nil {
-		return "", fmt.Errorf("failed to calculate digest: %w", err)
-	}
-
-	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
-}
 
 // verifies a single bundle using sigstore-go
 func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, expectedDigest string) AttestationResult {
@@ -209,16 +194,12 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 	}
 
 	// attestation type from envelope if available
-	if env, err := b.Envelope(); err == nil {
-		if stmt, err := env.Statement(); err == nil {
-			res.Type = stmt.PredicateType
-			// subject
-			if len(stmt.Subject) > 0 {
-				res.Subject = &Subject{
-					Name:   stmt.Subject[0].Name,
-					Digest: stmt.Subject[0].Digest,
-				}
-			}
+	res.Type = bundleutils.DetectType(b)
+	// subject
+	if name, subjectDigest := bundleutils.ExtractSubject(b); name != "" {
+		res.Subject = &Subject{
+			Name:   name,
+			Digest: subjectDigest,
 		}
 	}
 
@@ -278,12 +259,3 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 	return res
 }
 
-// extracts the attestation type from a bundle
-func detectAttestationType(b *bundle.Bundle) string {
-	if env, err := b.Envelope(); err == nil {
-		if stmt, err := env.Statement(); err == nil {
-			return stmt.PredicateType
-		}
-	}
-	return "unknown"
-}

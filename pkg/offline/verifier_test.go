@@ -3,6 +3,8 @@ package offline
 import (
 	"os"
 	"testing"
+
+	bundleutils "github.com/liatrio/autogov-verify/pkg/bundle"
 )
 
 func TestNewOfflineVerifier(t *testing.T) {
@@ -291,7 +293,7 @@ func TestOfflineVerifierWithRealData(t *testing.T) {
 
 	// test attestation type detection with real bundles
 	for i, bundle := range verifier.bundles {
-		attestationType := detectAttestationType(bundle)
+		attestationType := bundleutils.DetectType(bundle)
 		if attestationType == "" {
 			t.Errorf("Failed to detect attestation type for real bundle %d", i)
 		}

@@ -363,32 +363,6 @@ func TestGetSupportedDigestAlgorithms(t *testing.T) {
 	}
 }
 
-func TestIsHexString(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected bool
-	}{
-		{"valid hex lowercase", "abc123def456", true},
-		{"valid hex uppercase", "ABC123DEF456", true},
-		{"valid hex mixed case", "AbC123DeF456", true},
-		{"valid all numbers", "1234567890", true},
-		{"invalid with space", "abc 123", false},
-		{"invalid with special char", "abc@123", false},
-		{"invalid with g", "abcdefg", false},
-		{"empty string", "", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isHexString(tt.input)
-			if result != tt.expected {
-				t.Errorf("isHexString(%q) = %v, want %v", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestValidateDigestFormat(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -398,7 +372,7 @@ func TestValidateDigestFormat(t *testing.T) {
 	}{
 		{"valid sha256", "sha256", strings.Repeat("a", 64), false},
 		{"invalid sha256 length", "sha256", "abc123", true},
-		{"invalid sha256 chars", "sha256", strings.Repeat("g", 64), false}, // hex check is weak, only checks length
+		{"invalid sha256 chars", "sha256", strings.Repeat("g", 64), true}, // 'g' is not a valid hex character
 		{"valid sha1", "sha1", strings.Repeat("a", 40), false},
 		{"invalid sha1 length", "sha1", "abc123", true},
 		{"valid sha384", "sha384", strings.Repeat("a", 96), false},

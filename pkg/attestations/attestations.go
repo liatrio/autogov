@@ -18,8 +18,8 @@ import (
 
 	"github.com/google/go-github/v74/github"
 	"github.com/liatrio/autogov-verify/pkg/certid"
+	"github.com/liatrio/autogov-verify/pkg/digest"
 	"github.com/liatrio/autogov-verify/pkg/root"
-	"github.com/liatrio/autogov-verify/pkg/storage"
 
 	"github.com/sigstore/cosign/v2/pkg/oci"
 	"github.com/sigstore/cosign/v2/pkg/oci/static"
@@ -233,7 +233,7 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 	opts = setDefaultOptions(opts)
 
 	// create temp directory with cleanup function
-	cacheDir, cleanup, err := storage.CreateTempDir("attestations-")
+	cacheDir, cleanup, err := digest.CreateTempDir("attestations-")
 	if err != nil {
 		return nil, err
 	}
