@@ -155,10 +155,10 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 
 		// policy evaluation metadata
 		generatedVSA.Metadata["autogov.policy.evaluation"] = map[string]interface{}{
-			"result":           policyResult.Result,
-			"violations":       policyResult.Violations,
-			"evaluation_time":  policyResult.Timestamp,
-			"policy_bundle":    evaluatorPath,
+			"result":          policyResult.Result,
+			"violations":      policyResult.Violations,
+			"evaluation_time": policyResult.Timestamp,
+			"policy_bundle":   evaluatorPath,
 		}
 
 		// violation summary by policy type

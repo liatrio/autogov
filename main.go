@@ -14,7 +14,7 @@ import (
 	"github.com/liatrio/autogov-verify/pkg/download"
 	ghclient "github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/liatrio/autogov-verify/pkg/offline"
-	"github.com/liatrio/autogov-verify/pkg/verify"
+	"github.com/liatrio/autogov-verify/pkg/orchestrate"
 	"github.com/liatrio/autogov-verify/pkg/vsa"
 	"github.com/sigstore/cosign/v2/pkg/oci"
 	"github.com/spf13/cobra"
@@ -118,7 +118,7 @@ func init() {
 		if err := viper.BindPFlags(cmd.Flags()); err != nil {
 			return fmt.Errorf("failed to bind flags: %w", err)
 		}
-		
+
 		blobPath, _ := cmd.Flags().GetString(flagBlobPath)
 		artifactDigest, _ := cmd.Flags().GetString(flagArtifactDigest)
 		repo, _ := cmd.Flags().GetString(flagRepo)
@@ -264,29 +264,25 @@ func run(cmd *cobra.Command, args []string) error {
 			fmt.Println("Using online verification mode")
 		}
 
-		// set up certificate identity validation
-		certIdentityOpts := verify.SetupCertIdentityValidation(
-			viper.GetString(flagCertIdentityList),
-			viper.GetBool(flagNoCache),
-			quiet,
+		// setup cert identity validation if requested
+		certOpts := orchestrate.SetupCertIdentityValidation(
+			viper.GetString("cert-identity-list"),
+			viper.GetBool("no-cache"),
+			viper.GetBool("quiet"),
 		)
 
 		// Verify all blobs or image
-		repo := viper.GetString(flagRepo)
-		sigs, err = verify.VerifyBlobs(
-			context.Background(),
-			client,
-			verify.Options{
-				ArtifactDigest:         artifactDigest,
-				Repository:             repo,
-				CertIdentity:           certIdentity,
-				CertIssuer:             certIssuer,
-				SourceRef:              sourceRef,
-				BlobPaths:              blobPaths,
-				Quiet:                  quiet,
-				CertIdentityValidation: certIdentityOpts,
-			},
-		)
+		repo := viper.GetString("repository")
+		sigs, err = orchestrate.VerifyBlobs(context.Background(), client, orchestrate.Options{
+			ArtifactDigest:         artifactDigest,
+			Repository:             repo,
+			CertIdentity:           certIdentity,
+			CertIssuer:             certIssuer,
+			SourceRef:              sourceRef,
+			BlobPaths:              blobPaths,
+			Quiet:                  viper.GetBool("quiet"),
+			CertIdentityValidation: certOpts,
+		})
 		if err != nil {
 			return fmt.Errorf("verification failed: %w", err)
 		}

@@ -551,7 +551,7 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		// No certificate identity verification - accept any valid signature
 		policy = verify.NewPolicy(artifactPolicy, verify.WithoutIdentitiesUnsafe())
 	}
-	
+
 	// verify the bundle using the pure sigstore-go v1.0.0 API
 	_, err = verifier.Verify(b, policy)
 	if err != nil {

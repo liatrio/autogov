@@ -18,7 +18,6 @@ import (
 	"github.com/sigstore/cosign/v2/pkg/oci"
 )
 
-
 // handles OPA policy evaluation using the Rego API
 type OPAEvaluator struct {
 	policyPath string
@@ -233,11 +232,12 @@ func (e *OPAEvaluator) EvaluatePolicy(ctx context.Context, signatures []oci.Sign
 		return nil, fmt.Errorf("failed to create sigstore bundle: %w", err)
 	}
 
-	// rego query to evaluate governance.allow
+	// rego query to evaluate policy with signature bundle as input
 	rs, err := e.prepared.Eval(ctx, rego.EvalInput(bundleData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate policy: %w", err)
 	}
+	
 
 	result := &PolicyResult{
 		Result:    "FAILED",
@@ -247,27 +247,19 @@ func (e *OPAEvaluator) EvaluatePolicy(ctx context.Context, signatures []oci.Sign
 
 	// results to find governance.allow and governance.violations
 	var allow bool
-	var violations []interface{}
+	var violations map[string]interface{}
 
 	for _, r := range rs {
 		for _, expr := range r.Expressions {
-			if path, ok := expr.Value.(map[string]interface{}); ok {
-				if governance, ok := path["governance"].(map[string]interface{}); ok {
-					if allowVal, exists := governance["allow"]; exists {
-						if allowBool, ok := allowVal.(bool); ok {
-							allow = allowBool
-						}
-					}
-					if violationsVal, exists := governance["violations"]; exists {
-						if violationsArray, ok := violationsVal.([]interface{}); ok {
-							violations = violationsArray
-						}
-					}
-					if detailsVal, exists := governance["details"]; exists {
-						if detailsMap, ok := detailsVal.(map[string]interface{}); ok {
-							result.Details["details"] = detailsMap
-						}
-					}
+			// Check the query text to determine which result we're looking at
+			if expr.Text == "data.governance.allow" {
+				if allowBool, ok := expr.Value.(bool); ok {
+					allow = allowBool
+				}
+			} else if expr.Text == "data.governance.violations" {
+				// violations is a map with policy categories as keys
+				if violationsMap, ok := expr.Value.(map[string]interface{}); ok {
+					violations = violationsMap
 				}
 			}
 		}
@@ -278,14 +270,27 @@ func (e *OPAEvaluator) EvaluatePolicy(ctx context.Context, signatures []oci.Sign
 	}
 
 	// violations if policy failed
-	if !allow && len(violations) > 0 {
-		for _, v := range violations {
-			if violationMap, ok := v.(map[string]interface{}); ok {
-				violation := PolicyViolation{
-					Policy:  fmt.Sprintf("%v", violationMap["policy"]),
-					Message: fmt.Sprintf("%v", violationMap["message"]),
+	if !allow && violations != nil {
+		// iterate over violation categories (sbom, provenance, etc.)
+		for category, categoryViolations := range violations {
+			// handle sets/arrays of violations
+			if violationSet, ok := categoryViolations.([]interface{}); ok {
+				for _, v := range violationSet {
+					violation := PolicyViolation{
+						Policy:  category,
+						Message: fmt.Sprintf("%v", v),
+					}
+					result.Violations = append(result.Violations, violation)
 				}
-				result.Violations = append(result.Violations, violation)
+			} else if categoryViolations != nil {
+				// handle single violation or non-empty value
+				if msg := fmt.Sprintf("%v", categoryViolations); msg != "[]" && msg != "<nil>" {
+					violation := PolicyViolation{
+						Policy:  category,
+						Message: msg,
+					}
+					result.Violations = append(result.Violations, violation)
+				}
 			}
 		}
 	}
@@ -339,7 +344,7 @@ func CalculateDigest(policyPath string) (string, error) {
 		// hash directory contents with policy-specific extensions
 		return digest.CalculateDirectory(policyPath, []string{".rego", ".json", ".yaml"})
 	}
-	
+
 	// single file - use digest package
 	hexDigest, err := digest.CalculateFile(policyPath)
 	if err != nil {
@@ -372,7 +377,7 @@ func calculateRemoteDigest(url string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to read policy content: %w", err)
 	}
-	
+
 	// strip the "sha256:" prefix to match original format
 	_, hex, _ := digest.Parse(hexDigest)
 	return hex, nil

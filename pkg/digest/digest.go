@@ -53,17 +53,17 @@ func CalculateReader(r io.Reader) (string, error) {
 // CalculateDirectory calculates a combined hash of all files in a directory
 func CalculateDirectory(dirPath string, extensions []string) (string, error) {
 	h := sha256.New()
-	
+
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		
+
 		// skip directories
 		if info.IsDir() {
 			return nil
 		}
-		
+
 		// check if file matches extensions filter
 		if len(extensions) > 0 {
 			matched := false
@@ -77,25 +77,25 @@ func CalculateDirectory(dirPath string, extensions []string) (string, error) {
 				return nil
 			}
 		}
-		
+
 		file, err := os.Open(path)
 		if err != nil {
 			return err
 		}
 		defer file.Close()
-		
+
 		// include relative path in hash for uniqueness
 		relPath, _ := filepath.Rel(dirPath, path)
 		h.Write([]byte(relPath))
-		
+
 		_, err = io.Copy(h, file)
 		return err
 	})
-	
+
 	if err != nil {
 		return "", fmt.Errorf("failed to hash directory: %w", err)
 	}
-	
+
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 

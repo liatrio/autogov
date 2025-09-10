@@ -206,7 +206,6 @@ func (ad *AttestationDownloader) filterBundles(bundles []*bundle.Bundle) []*bund
 	return filtered
 }
 
-
 // save bundles saves bundles to the output file
 func (ad *AttestationDownloader) saveBundles(bundles []*bundle.Bundle) error {
 	// ensure output directory exists
@@ -218,7 +217,6 @@ func (ad *AttestationDownloader) saveBundles(bundles []*bundle.Bundle) error {
 	// write to output file
 	return offline.WriteBundles(bundles, ad.opts.OutputPath, ad.opts.OutputFormat)
 }
-
 
 // validate download options validates download options
 func ValidateDownloadOptions(opts DownloadOptions) error {

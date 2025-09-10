@@ -182,7 +182,6 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 	return result, nil
 }
 
-
 // verifies a single bundle using sigstore-go
 func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, expectedDigest string) AttestationResult {
 	res := AttestationResult{
@@ -258,4 +257,3 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 
 	return res
 }
-

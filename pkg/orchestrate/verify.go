@@ -1,5 +1,5 @@
-// Package verify orchestrates the verification process
-package verify
+// Package orchestrate handles the verification orchestration process
+package orchestrate
 
 import (
 	"context"

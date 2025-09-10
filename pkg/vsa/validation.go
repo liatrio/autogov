@@ -161,7 +161,6 @@ func validateDigestFormat(algorithm, hexDigest string) error {
 	return digest.ValidateFormat(algorithm, hexDigest)
 }
 
-
 // validates an existing VSA (SLSA v1.1 compliant)
 func ValidateVSA(vsaBytes []byte) (*VSA, error) {
 	var vsa VSA
