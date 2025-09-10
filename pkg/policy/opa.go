@@ -67,8 +67,7 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string) (*OPAEvaluato
 	// rego instance with all policies and queries
 	r := rego.New(
 		append(modules,
-			rego.Query("data.governance.allow"),
-			rego.Query("data.governance.violations"),
+			rego.Query("data.governance"),
 		)...,
 	)
 
@@ -251,15 +250,20 @@ func (e *OPAEvaluator) EvaluatePolicy(ctx context.Context, signatures []oci.Sign
 
 	for _, r := range rs {
 		for _, expr := range r.Expressions {
-			// Check the query text to determine which result we're looking at
-			if expr.Text == "data.governance.allow" {
-				if allowBool, ok := expr.Value.(bool); ok {
-					allow = allowBool
-				}
-			} else if expr.Text == "data.governance.violations" {
-				// violations is a map with policy categories as keys
-				if violationsMap, ok := expr.Value.(map[string]interface{}); ok {
-					violations = violationsMap
+			// For data.governance query, we get the whole governance module
+			if expr.Text == "data.governance" {
+				if govData, ok := expr.Value.(map[string]interface{}); ok {
+					// Extract allow and violations from governance data
+					if allowVal, exists := govData["allow"]; exists {
+						if allowBool, ok := allowVal.(bool); ok {
+							allow = allowBool
+						}
+					}
+					if violationsVal, exists := govData["violations"]; exists {
+						if violationsMap, ok := violationsVal.(map[string]interface{}); ok {
+							violations = violationsMap
+						}
+					}
 				}
 			}
 		}

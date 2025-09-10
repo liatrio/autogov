@@ -82,7 +82,11 @@ func CalculateDirectory(dirPath string, extensions []string) (string, error) {
 		if err != nil {
 			return err
 		}
-		defer file.Close()
+		defer func() {
+			if closeErr := file.Close(); closeErr != nil {
+				fmt.Printf("Warning: failed to close file %s: %v\n", path, closeErr)
+			}
+		}()
 
 		// include relative path in hash for uniqueness
 		relPath, _ := filepath.Rel(dirPath, path)

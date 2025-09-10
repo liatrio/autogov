@@ -154,9 +154,13 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 		}
 
 		// policy evaluation metadata
+		violations := policyResult.Violations
+		if violations == nil {
+			violations = []policy.PolicyViolation{}
+		}
 		generatedVSA.Metadata["autogov.policy.evaluation"] = map[string]interface{}{
 			"result":          policyResult.Result,
-			"violations":      policyResult.Violations,
+			"violations":      violations,
 			"evaluation_time": policyResult.Timestamp,
 			"policy_bundle":   evaluatorPath,
 		}
