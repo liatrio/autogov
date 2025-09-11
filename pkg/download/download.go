@@ -1,5 +1,4 @@
-// Package offline - download.go
-// Handles downloading attestations from GitHub API for offline verification
+// Package download handles downloading attestations from GitHub API for offline verification
 package download
 
 import (
@@ -216,25 +215,4 @@ func (ad *AttestationDownloader) saveBundles(bundles []*bundle.Bundle) error {
 
 	// write to output file
 	return offline.WriteBundles(bundles, ad.opts.OutputPath, ad.opts.OutputFormat)
-}
-
-// validate download options validates download options
-func ValidateDownloadOptions(opts DownloadOptions) error {
-	if opts.ArtifactPath == "" && opts.ArtifactDigest == "" {
-		return fmt.Errorf("must specify either artifact-path or artifact-digest")
-	}
-
-	if opts.Repository == "" {
-		return fmt.Errorf("repository is required")
-	}
-
-	if opts.OutputPath == "" {
-		return fmt.Errorf("output path is required")
-	}
-
-	if opts.OutputFormat != "" && opts.OutputFormat != "json" && opts.OutputFormat != "jsonl" {
-		return fmt.Errorf("output format must be 'json' or 'jsonl'")
-	}
-
-	return nil
 }

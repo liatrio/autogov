@@ -196,12 +196,32 @@ autogov-verify download \
   --repo owner/repo \
   --output attestations.jsonl
 
-# Download attestations by digest (for container images)
+# Download attestations for a container image by digest
+autogov-verify download \
+  --image-digest sha256:abc123... \
+  --repo owner/repo \
+  --output attestations.jsonl
+
+# Download attestations using digest directly as argument (works for both blobs and images)
 autogov-verify download \
   --repo owner/repo \
   --output attestations.jsonl \
   sha256:abc123...
 ```
+
+**Download Command Flags:**
+
+- `--blob-path`: Path to a local blob file to download attestations for
+- `--image-digest`: Container image digest (e.g., `sha256:...`)
+- `--repo, -R`: Repository to download attestations from (format: `owner/repo`) (required)
+- `--output, -o`: Output file path for attestation bundles (required)
+- `--format`: Output format: `json` or `jsonl` (default: `jsonl`)
+
+**Note**: You can provide the digest in three ways:
+
+1. Use `--blob-path` for local files (digest will be calculated)
+2. Use `--image-digest` for container images (provide just the digest)
+3. Pass the digest as a positional argument (works for any artifact type)
 
 #### Verify Offline
 

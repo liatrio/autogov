@@ -146,38 +146,6 @@ func TestGetToken(t *testing.T) {
 	}
 }
 
-func TestGetTokenOrPanic(t *testing.T) {
-	cleanup := setupTestEnv(t)
-	defer cleanup()
-
-	t.Run("panic when no token", func(t *testing.T) {
-		defer func() {
-			r := recover()
-			if r == nil {
-				t.Error("Expected panic but none occurred")
-				return
-			}
-			// verify panic message content
-			expectedMsg := "no GitHub token found. Set GITHUB_TOKEN, GH_TOKEN, GITHUB_AUTH_TOKEN environment variable or use --token flag"
-			if r != expectedMsg {
-				t.Errorf("Expected panic message %q, got %q", expectedMsg, r)
-			}
-		}()
-		GetTokenOrPanic()
-	})
-
-	t.Run("return token when available", func(t *testing.T) {
-		if err := os.Setenv("GITHUB_TOKEN", "test-token"); err != nil {
-			t.Fatalf("Failed to set GITHUB_TOKEN: %v", err)
-		}
-
-		token := GetTokenOrPanic()
-		if token != "test-token" {
-			t.Errorf("Expected token 'test-token', got %q", token)
-		}
-	})
-}
-
 func TestNewClient(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
@@ -199,29 +167,4 @@ func TestNewClient(t *testing.T) {
 			t.Error("Expected client to be created")
 		}
 	})
-}
-
-func TestNewClientWithToken(t *testing.T) {
-	tests := []struct {
-		name  string
-		token string
-	}{
-		{
-			name:  "with token",
-			token: "test-token",
-		},
-		{
-			name:  "without token",
-			token: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			client := NewClientWithToken(tt.token)
-			if client == nil {
-				t.Error("Expected client to be created")
-			}
-		})
-	}
 }

@@ -146,6 +146,7 @@ func init() {
 
 	// download flags
 	downloadCmd.Flags().String(flagBlobPath, "", "Path to artifact file to download attestations for")
+	downloadCmd.Flags().String("image-digest", "", "Container image digest (e.g., sha256:...)")
 	downloadCmd.Flags().StringP(flagDownloadOutput, "o", "", "Output file path for attestation bundles (required)")
 	downloadCmd.Flags().String(flagDownloadFormat, "jsonl", "Output format: json or jsonl")
 	downloadCmd.Flags().StringP("repo", "R", "", "Repository to download attestations from (format: owner/repo)")

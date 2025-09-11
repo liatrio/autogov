@@ -11,6 +11,11 @@ import (
 	"strings"
 )
 
+// codeToString converts a byte array to sha256:hex format
+func codeToString(code []byte) string {
+	return Format("sha256", hex.EncodeToString(code))
+}
+
 // CalculateFile calculates the SHA256 digest of a file
 func CalculateFile(filepath string) (string, error) {
 	file, err := os.Open(filepath)
@@ -24,21 +29,7 @@ func CalculateFile(filepath string) (string, error) {
 		return "", fmt.Errorf("failed to calculate digest: %w", err)
 	}
 
-	return Format("sha256", hex.EncodeToString(h.Sum(nil))), nil
-}
-
-// CalculateString calculates the SHA256 digest of a string
-func CalculateString(content string) string {
-	h := sha256.New()
-	h.Write([]byte(content))
-	return Format("sha256", hex.EncodeToString(h.Sum(nil)))
-}
-
-// CalculateBytes calculates the SHA256 digest of bytes
-func CalculateBytes(data []byte) string {
-	h := sha256.New()
-	h.Write(data)
-	return Format("sha256", hex.EncodeToString(h.Sum(nil)))
+	return codeToString(h.Sum(nil)), nil
 }
 
 // CalculateReader calculates the SHA256 digest from a reader

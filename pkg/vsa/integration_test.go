@@ -1,7 +1,3 @@
-// Package vsa - integration_test.go
-// Integration tests using real attestation files and comprehensive VSA workflows.
-// Tests end-to-end functionality with actual GitHub attestation data.
-
 package vsa
 
 import (

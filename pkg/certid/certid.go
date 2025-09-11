@@ -330,10 +330,6 @@ func isHexString(s string) bool {
 }
 
 // returns the loaded cert-id list
-func (v *Validator) GetIdentityList() *IdentityList {
-	return v.list
-}
-
 // returns all valid identities from both latest and approved lists
 func (v *Validator) GetValidIdentities() ([]Identity, error) {
 	var validIdentities []Identity

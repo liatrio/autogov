@@ -2,6 +2,8 @@ package digest
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"os"
 	"path/filepath"
@@ -34,6 +36,20 @@ func TestCalculateFile(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to open file")
 }
 
+// calculateString is a test helper that calculates the SHA256 digest of a string
+func calculateString(content string) string {
+	h := sha256.New()
+	h.Write([]byte(content))
+	return Format("sha256", hex.EncodeToString(h.Sum(nil)))
+}
+
+// calculateBytes is a test helper that calculates the SHA256 digest of bytes
+func calculateBytes(data []byte) string {
+	h := sha256.New()
+	h.Write(data)
+	return Format("sha256", hex.EncodeToString(h.Sum(nil)))
+}
+
 func TestCalculateString(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -59,7 +75,7 @@ func TestCalculateString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := CalculateString(tt.content)
+			result := calculateString(tt.content)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -90,7 +106,7 @@ func TestCalculateBytes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := CalculateBytes(tt.data)
+			result := calculateBytes(tt.data)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

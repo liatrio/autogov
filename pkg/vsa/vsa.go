@@ -1,7 +1,5 @@
-// Package vsa - vsa.go
-// Core VSA types, structures, and generation functions.
-// Contains the main VSA data structures and factory functions for creating VSAs.
-
+// Package vsa provides types, structures, and generation functions for Verification Summary Attestations.
+// It contains the main VSA data structures and factory functions for creating VSAs.
 package vsa
 
 import (

@@ -1,7 +1,3 @@
-// Package vsa - validation.go
-// Contains all VSA validation logic, comprehensive validation functions, and error types.
-// Consolidates validation methods and error handling for better organization and maintainability.
-
 package vsa
 
 import (
