@@ -100,7 +100,7 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 				// convert to SchemaSet
 				schemaSet := ast.NewSchemaSet()
 				for name, schema := range schemas {
-					// Schema names with hyphens need to be quoted for OPA refs
+					// schema names with hyphens need to be quoted for OPA refs
 					var refStr string
 					if strings.Contains(name, "-") {
 						refStr = fmt.Sprintf(`schema["%s"]`, name)
@@ -232,7 +232,7 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 	return tempDir, nil
 }
 
-// extractBundle extracts a local tar.gz bundle to a temp directory
+// extracts a local tar.gz bundle to a temp directory
 func extractBundle(bundlePath string) (string, error) {
 	// open the tar.gz file
 	file, err := os.Open(bundlePath)
@@ -418,10 +418,10 @@ func (e *OPAEvaluator) evaluatePolicyWithBundleData(ctx context.Context, bundleD
 
 	for _, r := range rs {
 		for _, expr := range r.Expressions {
-			// For data.governance query, we get the whole governance module
+			// for data.governance query, get the whole governance module
 			if expr.Text == "data.governance" {
 				if govData, ok := expr.Value.(map[string]interface{}); ok {
-					// Extract allow and violations from governance data
+					// get allow and violations from governance data
 					if allowVal, exists := govData["allow"]; exists {
 						if allowBool, ok := allowVal.(bool); ok {
 							allow = allowBool
@@ -500,7 +500,7 @@ func (e *OPAEvaluator) createSigstoreBundle(signatures []oci.Signature) (interfa
 	return bundles, nil
 }
 
-// CalculateDigest computes SHA256 hash of policy bundle content
+// computes SHA256 hash of policy bundle content
 func CalculateDigest(policyPath string) (string, error) {
 	// check if it's a directory or file
 	info, err := os.Stat(policyPath)
@@ -527,7 +527,7 @@ func CalculateDigest(policyPath string) (string, error) {
 	return hex, nil
 }
 
-// calculateRemoteDigest downloads policy content from URL and hashes it
+// downloads policy content from URL and hashes it
 func calculateRemoteDigest(url string) (string, error) {
 	// create HTTP request
 	resp, err := http.Get(url)

@@ -134,7 +134,6 @@ func TestVerifyBlobsMultipleBlobs(t *testing.T) {
 		Quiet:        false,
 	}
 
-	// This will fail but we're testing the multi-blob flow
 	_, err := VerifyBlobs(ctx, client, opts)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "error getting attestations")
@@ -149,16 +148,16 @@ func TestVerifyBlobsQuietMode(t *testing.T) {
 		CertIdentity: "test-identity",
 		CertIssuer:   "test-issuer",
 		BlobPaths:    []string{"test.txt"},
-		Quiet:        true, // Test quiet mode
+		Quiet:        true, // test quiet mode
 	}
 
-	// This will fail but we're testing quiet mode
+	// will fail but we're testing quiet mode
 	_, err := VerifyBlobs(ctx, client, opts)
 	assert.Error(t, err)
 }
 
 func TestSetupCertIdentityValidationQuiet(t *testing.T) {
-	// Test with quiet mode enabled
+	// quiet mode enabled
 	opts := SetupCertIdentityValidation("https://example.com/cert.json", false, true)
 	assert.NotNil(t, opts)
 	assert.Equal(t, "https://example.com/cert.json", opts.URL)
@@ -166,7 +165,7 @@ func TestSetupCertIdentityValidationQuiet(t *testing.T) {
 }
 
 func TestSetupCertIdentityValidationCacheDisabled(t *testing.T) {
-	// Test with cache disabled and not quiet - covers line 90-92
+	// cache disabled and not quiet / covers line 90-92
 	opts := SetupCertIdentityValidation("https://example.com/cert.json", true, false)
 	assert.NotNil(t, opts)
 	assert.Equal(t, "https://example.com/cert.json", opts.URL)
@@ -189,7 +188,7 @@ func TestVerifyBlobsWithCertIdentityValidation(t *testing.T) {
 		Quiet:                  true,
 	}
 
-	// This will fail due to GitHub client requirement, but tests the cert validation path
+	// will fail due to GitHub client requirement, but tests the cert validation path
 	_, err := VerifyBlobs(ctx, client, opts)
 	assert.Error(t, err)
 }

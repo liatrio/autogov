@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// RunCommand handles the offline command execution
+// handles the offline command execution
 func RunCommand(cmd *cobra.Command, args []string) error {
 	// gets config values
 	artifactPath := viper.GetString("blob-path")
@@ -87,9 +87,9 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("verification failed: %w", err)
 	}
 
-	// Check if verification actually succeeded
+	// checks if verification actually succeeded
 	if !result.Verified {
-		// Count failures for better error reporting
+		// counts failures for better error reporting
 		failureCount := 0
 		for _, att := range result.Attestations {
 			if !att.Verified {
@@ -99,13 +99,12 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("verification failed: %d of %d attestations failed verification", failureCount, len(result.Attestations))
 	}
 
-	// outputs results
-	// Display verification summary matching online mode format
+	// outputs results via verification summary
 	if !quiet {
 		fmt.Println("\nSummary:")
 		fmt.Printf("✓ Successfully verified %d attestations\n", len(result.Attestations))
 
-		// Show attestation types exactly like online mode
+		// attestation types
 		fmt.Println("\nAttestation Types:")
 		i := 1
 		for _, att := range result.Attestations {
@@ -125,28 +124,28 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("policy URI is required when --generate-vsa is used")
 		}
 
-		// Extract attestation types and create VSA subjects
+		// attestation types and create VSA subjects
 		var attestationTypes []string
 		var vsaSubjects []vsa.VSASubject
 		var bundlesForOPA []map[string]interface{}
 
-		// Load raw bundles to extract payload for OPA
+		// loads raw bundles to extract payload for OPA
 		bundles, err := LoadBundles(attestationsPath)
 		if err != nil {
 			return fmt.Errorf("failed to reload bundles for OPA: %w", err)
 		}
 
-		// Build VSA subjects from verified attestations and convert for OPA
+		// builds VSA subjects from verified attestations and convert for OPA
 		subjectsMap := make(map[string]vsa.VSASubject)
 
 		for i, attestation := range result.Attestations {
 			if attestation.Verified && attestation.Subject != nil {
 				attestationTypes = append(attestationTypes, attestation.Type)
 
-				// Create VSA subject from attestation subject
+				// creates VSA subject from attestation subject
 				subjectKey := attestation.Subject.Name
 				if existing, ok := subjectsMap[subjectKey]; ok {
-					// Merge digests if subject already exists
+					// merges digests if subject already exists
 					for alg, digest := range attestation.Subject.Digest {
 						existing.Digest[alg] = digest
 					}
@@ -158,15 +157,15 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 					}
 				}
 
-				// Convert bundle to OPA format (matching createSigstoreBundle)
+				// converts bundle to OPA format (matches createSigstoreBundle)
 				if i < len(bundles) {
 					bundle := bundles[i]
 
-					// Get the payload from the bundle
+					// gets the payload from the bundle
 					if bundle.GetDsseEnvelope() != nil {
 						envelope := bundle.GetDsseEnvelope()
 
-						// Create bundle entry in format expected by OPA
+						// creates bundle entry in format expected by OPA
 						opaBundle := map[string]interface{}{
 							"dsseEnvelope": map[string]interface{}{
 								"payload":     base64.StdEncoding.EncodeToString(envelope.GetPayload()),
@@ -180,31 +179,31 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Convert map to slice
+		// converst map to slice
 		for _, subject := range subjectsMap {
 			vsaSubjects = append(vsaSubjects, subject)
 		}
 
-		// If no subjects from attestations, create from artifact or use a default
+		// if no subjects from attestations, create from artifact or use a default
 		if len(vsaSubjects) == 0 {
 			if artifactPath != "" {
 				vsaSubjects = append(vsaSubjects, vsa.VSASubject{
 					URI: artifactPath,
 				})
 			} else if artifactDigest != "" {
-				// Use digest as URI if no artifact path
+				// use digest as URI if no artifact path
 				vsaSubjects = append(vsaSubjects, vsa.VSASubject{
 					URI: fmt.Sprintf("sha256:%s", artifactDigest),
 				})
 			} else {
-				// Default subject for attestation-only verification
+				// defaults subject for attestation-only verification
 				vsaSubjects = append(vsaSubjects, vsa.VSASubject{
 					URI: "urn:attestation:verification",
 				})
 			}
 		}
 
-		// Determine resource URI for VSA
+		// determines resource URI for VSA
 		resourceURI := ""
 		if artifactPath != "" {
 			resourceURI = artifactPath
@@ -214,7 +213,7 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 			resourceURI = "urn:attestation:verification"
 		}
 
-		// Generate VSA
+		// generates VSA
 		ctx := context.Background()
 		vsaOpts := vsa.GenerateOptions{
 			ArtifactDigest:   resourceURI, // Use resourceURI as the "artifact digest" parameter
@@ -227,12 +226,12 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 			Quiet:            quiet,
 		}
 
-		// Pass attestations to viper for OPA evaluation
+		// pass attestations to viper for OPA evaluation
 		if len(bundlesForOPA) > 0 {
 			viper.Set("offline-attestations", bundlesForOPA)
 		}
 
-		// Set schemas path in viper for VSA generation to use
+		// sets schemas path in viper for VSA generation to use
 		if policySchemasPath != "" {
 			viper.Set("policy-schemas-path", policySchemasPath)
 		}

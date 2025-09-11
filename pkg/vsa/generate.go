@@ -17,7 +17,7 @@ const (
 	flagPolicySchemasPath = "policy-schemas-path"
 )
 
-// GenerateOptions contains options for VSA generation
+// contains options for VSA generation
 type GenerateOptions struct {
 	ArtifactDigest    string
 	VSASubjects       []VSASubject
@@ -32,7 +32,7 @@ type GenerateOptions struct {
 	OpaVersion        string
 }
 
-// Generate creates a VSA after successful attestation verification
+// creates a VSA after successful attestation verification
 func Generate(ctx context.Context, opts GenerateOptions) error {
 	if opts.PolicyURI == "" {
 		opts.PolicyURI = viper.GetString(flagPolicyURI)
@@ -110,9 +110,9 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 	// eval policy against attestations
 	var policyResult *policy.PolicyResult
 
-	// Check if we have offline attestations in viper (set by offline command)
+	// check if we have offline attestations in viper (set by offline command)
 	if offlineAttestations := viper.Get("offline-attestations"); offlineAttestations != nil {
-		// Use offline attestations directly
+		// use offline attestations directly
 		if bundlesData, ok := offlineAttestations.([]map[string]interface{}); ok {
 			policyResult, err = evaluator.EvaluatePolicyWithBundles(ctx, bundlesData)
 			if err != nil {
@@ -122,13 +122,13 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 			return fmt.Errorf("invalid offline attestations format")
 		}
 	} else if opts.Signatures != nil {
-		// Use online signatures
+		// use online signatures
 		policyResult, err = evaluator.EvaluatePolicy(ctx, opts.Signatures)
 		if err != nil {
 			return fmt.Errorf("failed to evaluate OPA policy: %w", err)
 		}
 	} else {
-		// No attestations to evaluate - skip policy check
+		// no attestations to evaluate / skip policy check
 		if !opts.Quiet {
 			fmt.Println("No attestations available for policy evaluation")
 		}

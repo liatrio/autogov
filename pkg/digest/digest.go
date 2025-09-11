@@ -1,4 +1,4 @@
-// Package digest provides common digest calculation utilities
+// provides common digest calculation utilities
 package digest
 
 import (
@@ -11,12 +11,12 @@ import (
 	"strings"
 )
 
-// codeToString converts a byte array to sha256:hex format
+// converts a byte array to sha256:hex format
 func codeToString(code []byte) string {
 	return Format("sha256", hex.EncodeToString(code))
 }
 
-// CalculateFile calculates the SHA256 digest of a file
+// calculates the SHA256 digest of a file
 func CalculateFile(filepath string) (string, error) {
 	file, err := os.Open(filepath)
 	if err != nil {
@@ -32,7 +32,7 @@ func CalculateFile(filepath string) (string, error) {
 	return codeToString(h.Sum(nil)), nil
 }
 
-// CalculateReader calculates the SHA256 digest from a reader
+// calculates the SHA256 digest from a reader
 func CalculateReader(r io.Reader) (string, error) {
 	h := sha256.New()
 	if _, err := io.Copy(h, r); err != nil {
@@ -41,7 +41,7 @@ func CalculateReader(r io.Reader) (string, error) {
 	return Format("sha256", hex.EncodeToString(h.Sum(nil))), nil
 }
 
-// CalculateDirectory calculates a combined hash of all files in a directory
+// calculates a combined hash of all files in a directory
 func CalculateDirectory(dirPath string, extensions []string) (string, error) {
 	h := sha256.New()
 
@@ -94,12 +94,12 @@ func CalculateDirectory(dirPath string, extensions []string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// Format formats a digest with its algorithm prefix
+// formats a digest with its algorithm prefix
 func Format(algorithm, hexDigest string) string {
 	return fmt.Sprintf("%s:%s", algorithm, hexDigest)
 }
 
-// Parse parses a digest string into algorithm and hex parts
+// parses a digest string into algorithm and hex parts
 func Parse(digest string) (algorithm, hexDigest string, err error) {
 	parts := strings.SplitN(digest, ":", 2)
 	if len(parts) != 2 {
@@ -108,7 +108,7 @@ func Parse(digest string) (algorithm, hexDigest string, err error) {
 	return parts[0], parts[1], nil
 }
 
-// Normalize ensures a digest has the algorithm prefix
+// ensures a digest has the algorithm prefix
 func Normalize(digest string) string {
 	if !strings.Contains(digest, ":") {
 		return Format("sha256", digest)
@@ -116,7 +116,7 @@ func Normalize(digest string) string {
 	return digest
 }
 
-// ValidateFormat validates digest format based on algorithm
+// validates digest format based on algorithm
 func ValidateFormat(algorithm, hexDigest string) error {
 	if hexDigest == "" {
 		return fmt.Errorf("empty digest value")
@@ -150,7 +150,7 @@ func ValidateFormat(algorithm, hexDigest string) error {
 	return nil
 }
 
-// isHexString checks if a string contains only hexadecimal characters
+// checks if a string contains only hexadecimal characters
 func isHexString(s string) bool {
 	for _, r := range s {
 		if (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F') {
@@ -160,7 +160,7 @@ func isHexString(s string) bool {
 	return true
 }
 
-// CreateTempDir creates a temp dir and returns its path along with cleanup func
+// creates a temp dir and returns its path along with cleanup func
 func CreateTempDir(prefix string) (string, func(), error) {
 	tmpDir, err := os.MkdirTemp(os.TempDir(), prefix)
 	if err != nil {
@@ -175,7 +175,7 @@ func CreateTempDir(prefix string) (string, func(), error) {
 	return tmpDir, cleanup, nil
 }
 
-// CleanupTempDir removes temp dir if it's under os.TempDir()
+// removes temp dir if it's under os.TempDir()
 func CleanupTempDir(dirPath string) error {
 	if strings.HasPrefix(dirPath, os.TempDir()) {
 		return os.RemoveAll(dirPath)

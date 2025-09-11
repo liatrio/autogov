@@ -1,4 +1,4 @@
-// Package download handles downloading attestations from GitHub API for offline verification
+// handles downloading attestations from GitHub API for offline verification
 package download
 
 import (

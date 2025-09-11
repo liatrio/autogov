@@ -183,10 +183,10 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 	}
 
 	if opts.BlobPath != "" {
-		// For blobs, we need to know which repo to fetch attestations from
-		// This can come from --repo flag or cert-identity
+		// need to know which repo the blob came from to fetch attestations from
+		// via --repo flag or cert-identity
 		if opts.Repository != "" {
-			// Parse org/repo from repository flag
+			// parse org/repo from repository flag
 			parts := strings.Split(opts.Repository, "/")
 			if len(parts) != 2 {
 				return nil, fmt.Errorf("invalid repository format, expected owner/repo")
@@ -194,13 +194,13 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 			org = parts[0]
 			repo = parts[1]
 		} else if opts.CertIdentity != "" {
-			// Fall back to extracting from cert-identity if repo not specified
+			// fall back to extracting from cert-identity if repo not specified
 			org, repo, err = parseOrgRepoFromWorkflowURL(opts.CertIdentity)
 			if err != nil {
 				return nil, fmt.Errorf("failed to extract org/repo from certificate identity: %w", err)
 			}
 		} else {
-			// Without repo or cert-identity, we can't determine where to fetch attestations
+			// without repo or cert-identity, we can't determine where to fetch attestations
 			return nil, fmt.Errorf("for blob verification, provide --repo, --cert-identity, or use offline mode with --attestations-path")
 		}
 		// if empty digest for blob, calculated later
@@ -379,7 +379,7 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		return nil, fmt.Errorf("failed to marshal attestation bundle: %w", err)
 	}
 
-	// parse bundle using sigstore-go v1.0.0 API
+	// parse bundle
 	b := &bundle.Bundle{}
 	if err := b.UnmarshalJSON(bundleData); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal bundle: %w", err)
@@ -485,7 +485,7 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		artifactPolicy = verify.WithArtifactDigest("sha256", digestBytes)
 	}
 
-	// policy using the pure sigstore-go v1.0.0 API
+	// verify policy
 	var policy verify.PolicyBuilder
 	if opts.CertIdentity != "" {
 		// certificate identity for verification (only if specified)
@@ -495,11 +495,11 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		}
 		policy = verify.NewPolicy(artifactPolicy, verify.WithCertificateIdentity(certIdentity))
 	} else {
-		// No certificate identity verification - accept any valid signature
+		// no certificate identity verification / accept any valid signature
 		policy = verify.NewPolicy(artifactPolicy, verify.WithoutIdentitiesUnsafe())
 	}
 
-	// verify the bundle using the pure sigstore-go v1.0.0 API
+	// verify bundle
 	_, err = verifier.Verify(b, policy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify attestation: %w", err)

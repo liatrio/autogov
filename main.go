@@ -26,7 +26,7 @@ var (
 	version = "dev"
 	commit  = "none"
 	date    = "unknown"
-	// OpaVersion can be overridden at build time
+	// can be overridden at build time
 	OpaVersion = "v1.8.0"
 )
 
@@ -109,7 +109,7 @@ func init() {
 
 	// OPA policy flags
 	rootCmd.Flags().String(flagPolicyBundlePath, "", "Path to OPA policy bundle directory or .tar.gz file for policy evaluation")
-	rootCmd.Flags().String(flagPolicySchemasPath, "", "Path to directory containing JSON schemas for OPA policy validation")
+	rootCmd.Flags().String(flagPolicySchemasPath, "", "Path to directory or .tar.gz file containing JSON schemas for OPA policy validation")
 
 	// VSA generation flags
 	rootCmd.Flags().Bool(flagGenerateVSA, false, "Generate Verification Summary Attestation after successful verification")
@@ -117,7 +117,7 @@ func init() {
 	rootCmd.Flags().String(flagPolicyURI, "", "Policy URI for VSA generation (required if --generate-vsa is used)")
 
 	rootCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
-		// Re-bind flags to ensure all values are captured
+		// re-bind flags to ensure all values are captured
 		if err := viper.BindPFlags(cmd.Flags()); err != nil {
 			return fmt.Errorf("failed to bind flags: %w", err)
 		}
@@ -130,12 +130,12 @@ func init() {
 			return fmt.Errorf("either --%s or --%s must be provided", flagArtifactDigest, flagBlobPath)
 		}
 
-		// For blob verification, --repo is required
+		// blob verification requires --repo
 		if blobPath != "" && repo == "" {
 			return fmt.Errorf("--%s is required for blob verification", flagRepo)
 		}
 
-		// token validation is handled by github.GetToken() and github.NewClient()
+		// token validation
 		token := ghclient.GetToken()
 		if token == "" {
 			return fmt.Errorf("GH_TOKEN, GITHUB_TOKEN or GITHUB_AUTH_TOKEN environment variable is required")
@@ -165,7 +165,7 @@ func init() {
 	offlineCmd.Flags().String(flagVSAOutput, "", "Output path for generated VSA (required if --generate-vsa is used)")
 	offlineCmd.Flags().String(flagPolicyURI, "", "Policy URI for VSA generation (required if --generate-vsa is used)")
 	offlineCmd.Flags().String(flagPolicyBundlePath, "", "Path to OPA policy bundle directory or .tar.gz file for policy evaluation")
-	offlineCmd.Flags().String(flagPolicySchemasPath, "", "Path to directory containing JSON schemas for OPA policy validation")
+	offlineCmd.Flags().String(flagPolicySchemasPath, "", "Path to directory or .tar.gz file containing JSON schemas for OPA policy validation")
 	offlineCmd.Flags().String(flagSourceRef, "", "Source repository ref to verify against (e.g., refs/heads/main)")
 
 	if err := offlineCmd.MarkFlagRequired(flagOfflineAttestations); err != nil {
@@ -224,10 +224,10 @@ func run(cmd *cobra.Command, args []string) error {
 	certIssuer, _ := cmd.Flags().GetString(flagCertIssuer)
 	sourceRef, _ := cmd.Flags().GetString(flagSourceRef)
 	blobPath, _ := cmd.Flags().GetString(flagBlobPath)
-	attestationsPath := viper.GetString(flagAttestationsPath)
+	attestationsPath, _ := cmd.Flags().GetString(flagAttestationsPath)
 	client := ghclient.NewClient()
 
-	// Handle multiple blob paths separated by commas or a directory
+	// multiple blob paths handled separated by commas or a directory
 	blobPaths, err := expandBlobPaths(blobPath)
 	if err != nil {
 		return fmt.Errorf("failed to expand blob paths: %w", err)
@@ -281,11 +281,11 @@ func run(cmd *cobra.Command, args []string) error {
 		certOpts := orchestrate.SetupCertIdentityValidation(
 			viper.GetString("cert-identity-list"),
 			viper.GetBool("no-cache"),
-			viper.GetBool("quiet"),
+			quiet,
 		)
 
-		// Verify all blobs or image
-		repo := viper.GetString("repository")
+		// verifies all blobs or image
+		repo, _ := cmd.Flags().GetString("repo")
 		sigs, err = orchestrate.VerifyBlobs(context.Background(), client, orchestrate.Options{
 			ArtifactDigest:         artifactDigest,
 			Repository:             repo,
@@ -293,7 +293,7 @@ func run(cmd *cobra.Command, args []string) error {
 			CertIssuer:             certIssuer,
 			SourceRef:              sourceRef,
 			BlobPaths:              blobPaths,
-			Quiet:                  viper.GetBool("quiet"),
+			Quiet:                  quiet,
 			CertIdentityValidation: certOpts,
 		})
 		if err != nil {
@@ -316,7 +316,7 @@ func run(cmd *cobra.Command, args []string) error {
 			h.Write(blobData)
 			digest := fmt.Sprintf("%x", h.Sum(nil))
 
-			// Add subject for this blob
+			// subject added for blob
 			vsaSubjects = append(vsaSubjects, vsa.VSASubject{
 				URI: filepath.Base(path),
 				Digest: map[string]string{
@@ -324,11 +324,33 @@ func run(cmd *cobra.Command, args []string) error {
 				},
 			})
 
-			// Use first blob's digest as the artifact ref (for backward compatibility)
-			if vsaArtifactRef == "" {
-				vsaArtifactRef = fmt.Sprintf("sha256:%s", digest)
+		}
+
+		// repo URI as resourceUri for all blob verifications
+		if vsaArtifactRef == "" && len(blobPaths) > 0 {
+			repo, _ := cmd.Flags().GetString("repo")
+			if repo != "" {
+				vsaArtifactRef = fmt.Sprintf("https://github.com/%s", repo)
 			}
 		}
+	} else if artifactDigest != "" {
+		// create VSA subject for the container image
+		digestValue := artifactDigest
+		// use SHA256 from image reference (format: registry/repo@sha256:hash)
+		if idx := strings.Index(artifactDigest, "@sha256:"); idx != -1 {
+			digestValue = artifactDigest[idx+8:] // Skip "@sha256:"
+		} else if strings.HasPrefix(artifactDigest, "sha256:") {
+			digestValue = strings.TrimPrefix(artifactDigest, "sha256:")
+		}
+
+		vsaSubjects = append(vsaSubjects, vsa.VSASubject{
+			URI: artifactDigest, // image ref with digest
+			Digest: map[string]string{
+				"sha256": digestValue,
+			},
+		})
+		// use image reference as resourceUri
+		vsaArtifactRef = artifactDigest
 	}
 
 	if !quiet {
@@ -422,17 +444,17 @@ func run(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// expandBlobPaths takes a path string (which could be a single file, comma-separated files, or a directory)
+// takes a path string (which could be a single file, comma-separated files, or a directory)
 // and returns a slice of individual file paths
 func expandBlobPaths(pathStr string) ([]string, error) {
 	if pathStr == "" {
 		return nil, nil
 	}
 
-	// Check if it's a directory
+	// check if dir
 	fileInfo, err := os.Stat(pathStr)
 	if err == nil && fileInfo.IsDir() {
-		// It's a directory, get all files in it
+		// if dir, get all files in it
 		entries, err := os.ReadDir(pathStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read directory %s: %w", pathStr, err)
@@ -451,13 +473,13 @@ func expandBlobPaths(pathStr string) ([]string, error) {
 		return files, nil
 	}
 
-	// Not a directory, treat as comma-separated paths
+	// if no dir, treat as comma-separated paths
 	paths := strings.Split(pathStr, ",")
 	var result []string
 	for _, p := range paths {
 		trimmed := strings.TrimSpace(p)
 		if trimmed != "" {
-			// Verify the file exists
+			// verify the file exists
 			if _, err := os.Stat(trimmed); err != nil {
 				return nil, fmt.Errorf("file not found: %s", trimmed)
 			}
@@ -486,12 +508,12 @@ func generateVSA(ctx context.Context, artifactDigest string, vsaSubjects []vsa.V
 	})
 }
 
-// handles the download command execution
+// handles download command execution
 func runDownload(cmd *cobra.Command, args []string) error {
 	return download.RunCommand(cmd, args)
 }
 
-// handles the offline command execution
+// handles offline command execution
 func runOffline(cmd *cobra.Command, args []string) error {
 	return offline.RunCommand(cmd, args)
 }

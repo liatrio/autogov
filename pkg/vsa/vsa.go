@@ -1,5 +1,4 @@
-// Package vsa provides types, structures, and generation functions for Verification Summary Attestations.
-// It contains the main VSA data structures and factory functions for creating VSAs.
+// provides types, structures, and generation functions for Verification Summary Attestations.
 package vsa
 
 import (
@@ -248,7 +247,7 @@ func IsSLSATrackLevel(level string) bool {
 	return false
 }
 
-// generateVSACore is the core VSA generation logic shared by all public functions
+// core VSA generation logic shared by all public functions
 func generateVSACore(imageRef string, subjects []VSASubject, policyURI string, verificationResults map[string]bool, opts VSAOptions) (*VSA, error) {
 	// overall result
 	result := "PASSED"
@@ -270,12 +269,12 @@ func generateVSACore(imageRef string, subjects []VSASubject, policyURI string, v
 
 	dependencyLevels := make(map[string]uint64) // empty map for backward compatibility
 
-	// Use provided subjects if available, otherwise fall back to single subject
+	// use provided subjects if available, otherwise fall back to single subject
 	var vsaSubjects []VSASubject
 	if len(subjects) > 0 {
 		vsaSubjects = subjects
 	} else {
-		// Fall back to extracting from imageRef for backward compatibility
+		// fall back to extracting from imageRef for backward compatibility
 		digest, err := extractDigestFromImageRef(imageRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract digest: %w", err)
@@ -322,15 +321,15 @@ func generateVSACore(imageRef string, subjects []VSASubject, policyURI string, v
 	return vsa, nil
 }
 
-// WriteToFile writes a VSA to a file in JSON format
+// writes a VSA to a file in JSON format
 func WriteToFile(vsa *VSA, outputPath string) error {
-	// Marshal VSA to JSON with indentation
+	// marshals VSA to JSON with indentation
 	vsaJSON, err := json.MarshalIndent(vsa, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal VSA: %w", err)
 	}
 
-	// Write to file
+	// write to file
 	if err := os.WriteFile(outputPath, vsaJSON, 0644); err != nil {
 		return fmt.Errorf("failed to write VSA to file: %w", err)
 	}

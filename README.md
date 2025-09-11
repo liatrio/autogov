@@ -31,7 +31,7 @@ The tool performs several steps for each attestation:
 1. **Trusted Root Fetching**: Dynamically fetches GitHub's trusted root using `gh attestation trusted-root`, with fallback to embedded trusted root
 2. **Parses the OCI reference** to extract organization, repository, and digest
 3. **Retrieves attestations** from GitHub's container registry
-4. **Verifies the certificate chain** for each attestation using sigstore-go v1.0.0 API
+4. **Verifies the certificate chain** for each attestation using sigstore-go
 5. **Validates the attestation signature** with proper timestamp verification
 6. **Checks the certificate identity and issuer** against expected values
 7. **Verifies the attestation payload** structure and content
@@ -217,12 +217,6 @@ autogov-verify download \
 - `--output, -o`: Output file path for attestation bundles (required)
 - `--format`: Output format: `json` or `jsonl` (default: `jsonl`)
 
-**Note**: You can provide the digest in three ways:
-
-1. Use `--blob-path` for local files (digest will be calculated)
-2. Use `--image-digest` for container images (provide just the digest)
-3. Pass the digest as a positional argument (works for any artifact type)
-
 #### Verify Offline
 
 Then verify offline using the downloaded attestations:
@@ -252,14 +246,14 @@ autogov-verify offline \
 
 - `--attestations`: Path to pre-downloaded attestation bundles file (required)
 - `--blob-path`: Path to artifact file or directory containing multiple artifacts to verify (optional, calculates SHA256 digest for single files)
-- `--artifact-digest`: SHA256 digest of artifact for verification (optional, alternative to blob-path)
+- `--artifact-digest`: SHA256 digest for container image verification (optional, use when image cannot be pulled offline)
 - `--cert-identity`: Certificate identity (workflow URL with commit SHA) (required)
 - `--cert-issuer`: Certificate issuer (defaults to GitHub Actions)
-- `--trusted-root`: Path to trusted root JSON file (defaults to embedded GitHub trusted root) if not provided)
+- `--trusted-root`: Path to trusted root JSON file (defaults to embedded GitHub trusted root if not provided)
 - `-q, --quiet`: Only show errors and final results
 
 **Implementation Notes**:
-- Uses pure sigstore-go v1.0.0 APIs for all verification
+- Uses sigstore-go for all verification
 - Handles large attestations (up to 10MB per line in JSONL files)
 - Transparency log verification is automatically skipped in offline mode
 - Supports both JSON and JSONL attestation formats

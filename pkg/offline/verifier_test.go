@@ -44,7 +44,7 @@ func TestNewOfflineVerifier(t *testing.T) {
 			name:            "empty trusted root path uses default",
 			trustedRootPath: "",
 			options:         VerifyOptions{},
-			wantErr:         false, // now uses embedded trusted root as fallback
+			wantErr:         false, // uses embedded trusted root as fallback
 		},
 		{
 			name:            "invalid trusted root path",

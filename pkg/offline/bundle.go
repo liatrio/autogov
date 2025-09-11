@@ -1,4 +1,4 @@
-// Package offline provides functionality for offline attestation verification
+// provides functionality for offline attestation verification
 // using pre-downloaded Sigstore bundles and trusted roots.
 package offline
 
@@ -17,24 +17,24 @@ import (
 
 // loads sigstore bundles from a JSON/JSONL file or directory
 func LoadBundles(bundlePath string) ([]*bundle.Bundle, error) {
-	// Check if path is a directory
+	// check if dir
 	fileInfo, err := os.Stat(bundlePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat path: %w", err)
 	}
 
-	// If it's a directory, load all .json and .jsonl files
+	// if dir, load all .json and .jsonl files
 	if fileInfo.IsDir() {
 		return loadBundlesFromDirectory(bundlePath)
 	}
 
-	// Otherwise load as a single file
+	// otherwise load as a single file
 	data, err := os.ReadFile(bundlePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read bundle file: %w", err)
 	}
 
-	// Try to parse as single bundle JSON first
+	// parse as single bundle JSON first
 	singleBundle := &bundle.Bundle{}
 	if err := singleBundle.UnmarshalJSON(data); err == nil {
 		return []*bundle.Bundle{singleBundle}, nil
@@ -106,7 +106,7 @@ func LoadBundles(bundlePath string) ([]*bundle.Bundle, error) {
 func loadBundlesFromDirectory(dirPath string) ([]*bundle.Bundle, error) {
 	var allBundles []*bundle.Bundle
 
-	// Read all files in the directory
+	// read all files in dir
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read directory: %w", err)
@@ -117,17 +117,17 @@ func loadBundlesFromDirectory(dirPath string) ([]*bundle.Bundle, error) {
 			continue
 		}
 
-		// Only process .json and .jsonl files
+		// process .json and .jsonl files only
 		name := entry.Name()
 		if !strings.HasSuffix(name, ".json") && !strings.HasSuffix(name, ".jsonl") {
 			continue
 		}
 
-		// Load bundles from this file
+		// loads bundles from file
 		filePath := filepath.Join(dirPath, name)
 		bundles, err := LoadBundles(filePath)
 		if err != nil {
-			// Skip files that can't be parsed as bundles
+			// skip files that can't be parsed as bundles
 			continue
 		}
 

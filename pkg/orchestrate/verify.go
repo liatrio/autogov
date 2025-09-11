@@ -1,4 +1,4 @@
-// Package orchestrate handles the verification orchestration process
+// handles the verification orchestration process
 package orchestrate
 
 import (
@@ -12,7 +12,7 @@ import (
 	"github.com/sigstore/cosign/v2/pkg/oci"
 )
 
-// Options contains all options for verification
+// contains all options for verification
 type Options struct {
 	ArtifactDigest         string
 	Repository             string
@@ -24,10 +24,10 @@ type Options struct {
 	CertIdentityValidation *certid.Options
 }
 
-// VerifyBlobs verifies multiple blob files and returns all signatures
+// verifies multiple blob files and returns all signatures
 func VerifyBlobs(ctx context.Context, client *github.Client, opts Options) ([]oci.Signature, error) {
 	if len(opts.BlobPaths) == 0 {
-		// No blob paths, verify image/container
+		// no blob paths, verify image/container
 		return attestations.GetFromGitHub(
 			ctx,
 			opts.ArtifactDigest,
@@ -44,7 +44,7 @@ func VerifyBlobs(ctx context.Context, client *github.Client, opts Options) ([]oc
 		)
 	}
 
-	// Process each blob individually and collect all signatures
+	// each blob processed individually and collects all signatures
 	var allSigs []oci.Signature
 	for i, bp := range opts.BlobPaths {
 		if !opts.Quiet {
@@ -74,7 +74,7 @@ func VerifyBlobs(ctx context.Context, client *github.Client, opts Options) ([]oc
 	return allSigs, nil
 }
 
-// SetupCertIdentityValidation configures certificate identity validation if needed
+// configures certificate identity validation if needed
 func SetupCertIdentityValidation(certIdentityListURL string, noCache bool, quiet bool) *certid.Options {
 	if certIdentityListURL == "" {
 		return nil

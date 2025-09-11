@@ -36,14 +36,14 @@ func TestCalculateFile(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to open file")
 }
 
-// calculateString is a test helper that calculates the SHA256 digest of a string
+// a test helper that calculates the SHA256 digest of a string
 func calculateString(content string) string {
 	h := sha256.New()
 	h.Write([]byte(content))
 	return Format("sha256", hex.EncodeToString(h.Sum(nil)))
 }
 
-// calculateBytes is a test helper that calculates the SHA256 digest of bytes
+// a test helper that calculates the SHA256 digest of bytes
 func calculateBytes(data []byte) string {
 	h := sha256.New()
 	h.Write(data)

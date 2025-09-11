@@ -9,15 +9,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Helper function to create a test bundle with a given statement
+// helper function to create a test bundle with a given statement
 func createTestBundle(statement map[string]interface{}) *bundle.Bundle {
 	b := &bundle.Bundle{}
 
-	// Marshal the statement to JSON
+	// marshal statement to JSON
 	stmtJSON, _ := json.Marshal(statement)
 	payload := base64.StdEncoding.EncodeToString(stmtJSON)
 
-	// Create a minimal bundle
+	// minimal bundle
 	bundleJSON := `{
 		"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.1",
 		"verificationMaterial": {},

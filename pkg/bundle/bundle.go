@@ -1,11 +1,11 @@
-// Package bundle provides common utilities for working with Sigstore bundles
+// common utilities for working with Sigstore bundles
 package bundle
 
 import (
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 )
 
-// DetectType detects the attestation type from a bundle
+// detects the attestation type from a bundle
 func DetectType(b *bundle.Bundle) string {
 	if b == nil {
 		return "unknown"
@@ -23,7 +23,7 @@ func DetectType(b *bundle.Bundle) string {
 	return "unknown"
 }
 
-// ExtractSubject extracts the first subject from a bundle
+// extracts the first subject from a bundle
 func ExtractSubject(b *bundle.Bundle) (name string, digest map[string]string) {
 	if b == nil || b.Bundle == nil {
 		return "", nil
