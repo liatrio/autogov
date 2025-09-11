@@ -1,12 +1,10 @@
-// Package vsa - vsa.go
-// Core VSA types, structures, and generation functions.
-// Contains the main VSA data structures and factory functions for creating VSAs.
-
+// provides types, structures, and generation functions for Verification Summary Attestations.
 package vsa
 
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -90,8 +88,8 @@ type VSAVerifier struct {
 
 // provides config
 type VSAOptions struct {
+	Subjects            []VSASubject         `json:"subjects,omitempty"`
 	InputAttestations   []ResourceDescriptor `json:"inputAttestations,omitempty"`
-	AutoGovVersion      string               `json:"autogovVersion,omitempty"`
 	PolicyDigest        map[string]string    `json:"policyDigest,omitempty"`
 	Dependencies        []Dependency         `json:"dependencies,omitempty"`
 	AdditionalVerifiers map[string]string    `json:"additionalVerifiers,omitempty"`
@@ -107,83 +105,35 @@ type Dependency struct {
 
 // creates a VSA w/ opts
 func GenerateVSAWithOptions(imageRef string, policyURI string, verificationResults map[string]bool, opts VSAOptions) (*VSA, error) {
-	// image ref to extract digest
-	digest, err := extractDigestFromImageRef(imageRef)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract digest: %w", err)
-	}
-
-	// overall result
-	result := "PASSED"
-	for _, passed := range verificationResults {
-		if !passed {
-			result = "FAILED"
-			break
+	// if no subjects provided, create from imageRef
+	if len(opts.Subjects) == 0 {
+		digest, err := extractDigestFromImageRef(imageRef)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract digest: %w", err)
 		}
-	}
-
-	// timestamp pointer for v1.1 compliance
-	now := time.Now().UTC()
-
-	// version to use
-	version := "v1.0.0"
-	if opts.AutoGovVersion != "" {
-		version = opts.AutoGovVersion
-	}
-
-	// verifier versions map
-	verifierVersions := map[string]string{
-		"autogov-verify": version,
-	}
-	for tool, ver := range opts.AdditionalVerifiers {
-		verifierVersions[tool] = ver
-	}
-
-	dependencyLevels := make(map[string]uint64) // empty map for backward compatibility
-
-	vsa := &VSA{
-		Type:          "https://in-toto.io/Statement/v1",
-		PredicateType: "https://slsa.dev/verification_summary/v1",
-		Subject: []VSASubject{
+		opts.Subjects = []VSASubject{
 			{
 				URI: imageRef,
 				Digest: map[string]string{
 					"sha256": digest,
 				},
 			},
-		},
-		Predicate: VSAPredicate{
-			Verifier: VSAVerifier{
-				ID:      "https://github.com/liatrio/autogov-verify",
-				Version: verifierVersions,
-			},
-			TimeVerified: now.Format(time.RFC3339),
-			ResourceURI:  imageRef,
-			Policy: VSAPolicy{
-				URI:    policyURI,
-				Digest: opts.PolicyDigest,
-			},
-			InputAttestations:  opts.InputAttestations,
-			VerificationResult: result,
-			VerifiedLevels: []string{
-				"SLSA_BUILD_LEVEL_3",
-			},
-			DependencyLevels: dependencyLevels,
-			SlsaVersion:      "1.1",
-		},
-		Metadata: map[string]interface{}{
-			"autogov.verification.details": verificationResults,
-			"autogov.policy.version":       "v1",
-		},
+		}
 	}
 
-	return vsa, nil
+	return generateVSACore(imageRef, opts.Subjects, policyURI, verificationResults, opts)
 }
 
 // creates a VSA for successful AutoGov validation
 // calls GenerateVSAWithOptions w/ default options
 func GenerateVSA(imageRef string, policyURI string, verificationResults map[string]bool) (*VSA, error) {
 	return GenerateVSAWithOptions(imageRef, policyURI, verificationResults, VSAOptions{})
+}
+
+// creates a VSA with multiple subjects
+func GenerateVSAWithSubjects(imageRef string, subjects []VSASubject, policyURI string, verificationResults map[string]bool, opts VSAOptions) (*VSA, error) {
+	opts.Subjects = subjects
+	return generateVSACore(imageRef, subjects, policyURI, verificationResults, opts)
 }
 
 // extracts SHA256 digest from image ref / direct digest
@@ -295,4 +245,94 @@ func IsSLSATrackLevel(level string) bool {
 		}
 	}
 	return false
+}
+
+// core VSA generation logic shared by all public functions
+func generateVSACore(imageRef string, subjects []VSASubject, policyURI string, verificationResults map[string]bool, opts VSAOptions) (*VSA, error) {
+	// overall result
+	result := "PASSED"
+	for _, passed := range verificationResults {
+		if !passed {
+			result = "FAILED"
+			break
+		}
+	}
+
+	// timestamp pointer for v1.1 compliance
+	now := time.Now().UTC()
+
+	// verifier versions map - only include additional verifiers
+	verifierVersions := make(map[string]string)
+	for tool, ver := range opts.AdditionalVerifiers {
+		verifierVersions[tool] = ver
+	}
+
+	dependencyLevels := make(map[string]uint64) // empty map for backward compatibility
+
+	// use provided subjects if available, otherwise fall back to single subject
+	var vsaSubjects []VSASubject
+	if len(subjects) > 0 {
+		vsaSubjects = subjects
+	} else {
+		// fall back to extracting from imageRef for backward compatibility
+		digest, err := extractDigestFromImageRef(imageRef)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract digest: %w", err)
+		}
+		vsaSubjects = []VSASubject{
+			{
+				URI: imageRef,
+				Digest: map[string]string{
+					"sha256": digest,
+				},
+			},
+		}
+	}
+
+	vsa := &VSA{
+		Type:          "https://in-toto.io/Statement/v1",
+		PredicateType: "https://slsa.dev/verification_summary/v1",
+		Subject:       vsaSubjects,
+		Predicate: VSAPredicate{
+			Verifier: VSAVerifier{
+				ID:      "https://github.com/liatrio/autogov-verify",
+				Version: verifierVersions,
+			},
+			TimeVerified:       now.Format(time.RFC3339),
+			ResourceURI:        imageRef,
+			Policy:             VSAPolicy{URI: policyURI, Digest: opts.PolicyDigest},
+			InputAttestations:  opts.InputAttestations,
+			VerificationResult: result,
+			VerifiedLevels:     []string{"SLSA_BUILD_LEVEL_3"},
+			DependencyLevels:   dependencyLevels,
+			SlsaVersion:        "1.1",
+		},
+		Metadata: map[string]interface{}{
+			"autogov.verification.details": verificationResults,
+			"autogov.policy.version":       "v1",
+		},
+	}
+
+	// validate the generated VSA before returning
+	if err := vsa.ValidateComprehensive(); err != nil {
+		return nil, fmt.Errorf("generated VSA failed validation: %w", err)
+	}
+
+	return vsa, nil
+}
+
+// writes a VSA to a file in JSON format
+func WriteToFile(vsa *VSA, outputPath string) error {
+	// marshals VSA to JSON with indentation
+	vsaJSON, err := json.MarshalIndent(vsa, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal VSA: %w", err)
+	}
+
+	// write to file
+	if err := os.WriteFile(outputPath, vsaJSON, 0644); err != nil {
+		return fmt.Errorf("failed to write VSA to file: %w", err)
+	}
+
+	return nil
 }

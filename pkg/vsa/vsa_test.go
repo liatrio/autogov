@@ -11,8 +11,6 @@ const (
 	testImageRef2         = "ghcr.io/test/image:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	testPolicyURI         = "https://github.com/liatrio/liatrio-rego-policy-library/policies/test-policy"
 	testExamplePolicyURI  = "https://example.com/policy"
-	testAutoGovVersion    = "v1.1.0"
-	testVerifierID        = "autogov-verify"
 	testGenerateVSAError  = "GenerateVSAWithOptions failed: %v"
 	testGenerateVSAError2 = "GenerateVSA failed: %v"
 )
@@ -42,9 +40,8 @@ func TestGenerateVSAWithOptions(t *testing.T) {
 				},
 			},
 		},
-		AutoGovVersion: testAutoGovVersion,
 		PolicyDigest: map[string]string{
-			"sha256": "policy123hash456",
+			"sha256": "abc123",
 		},
 		Dependencies: []Dependency{
 			{
@@ -87,15 +84,7 @@ func TestGenerateVSAWithOptions(t *testing.T) {
 		t.Errorf("Expected SlsaVersion to be 1.1, got %s", vsa.Predicate.SlsaVersion)
 	}
 
-	// validates verifier version map
-	if len(vsa.Predicate.Verifier.Version) == 0 {
-		t.Error("Expected verifier versions to be populated")
-	}
-
-	if vsa.Predicate.Verifier.Version[testVerifierID] != testAutoGovVersion {
-		t.Errorf("Expected autogov-verify version to be %s, got %s", testAutoGovVersion, vsa.Predicate.Verifier.Version[testVerifierID])
-	}
-
+	// validates verifier version map - should only have OPA
 	if vsa.Predicate.Verifier.Version["opa"] != "v0.58.0" {
 		t.Errorf("Expected opa version to be v0.58.0, got %s", vsa.Predicate.Verifier.Version["opa"])
 	}
@@ -110,8 +99,8 @@ func TestGenerateVSAWithOptions(t *testing.T) {
 		t.Errorf("Expected policy URI to be %s, got %s", policyURI, vsa.Predicate.Policy.URI)
 	}
 
-	if vsa.Predicate.Policy.Digest["sha256"] != "policy123hash456" {
-		t.Errorf("Expected policy digest to be policy123hash456, got %s", vsa.Predicate.Policy.Digest["sha256"])
+	if vsa.Predicate.Policy.Digest["sha256"] != "abc123" {
+		t.Errorf("Expected policy digest to be abc123, got %s", vsa.Predicate.Policy.Digest["sha256"])
 	}
 
 	// validates TimeVerified is set as string
@@ -181,9 +170,9 @@ func TestBackwardCompatibility(t *testing.T) {
 		t.Errorf("Expected SlsaVersion to be 1.1, got %s", vsa.Predicate.SlsaVersion)
 	}
 
-	// should have default verifier version
-	if vsa.Predicate.Verifier.Version[testVerifierID] != "v1.0.0" {
-		t.Errorf("Expected default autogov-verify version to be v1.0.0, got %s", vsa.Predicate.Verifier.Version[testVerifierID])
+	// should have empty verifier version map (no additional verifiers)
+	if len(vsa.Predicate.Verifier.Version) != 0 {
+		t.Errorf("Expected empty verifier version map, got %v", vsa.Predicate.Verifier.Version)
 	}
 
 	// should work with existing validation
@@ -303,9 +292,7 @@ func TestVSAValidationErrors(t *testing.T) {
 
 // tests optional timestamp handling
 func TestVSATimestampHandling(t *testing.T) {
-	opts := VSAOptions{
-		AutoGovVersion: testAutoGovVersion,
-	}
+	opts := VSAOptions{}
 
 	vsa, err := GenerateVSAWithOptions(
 		testImageRef2,

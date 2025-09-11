@@ -1,13 +1,11 @@
-// Package vsa - validation.go
-// Contains all VSA validation logic, comprehensive validation functions, and error types.
-// Consolidates validation methods and error handling for better organization and maintainability.
-
 package vsa
 
 import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/liatrio/autogov-verify/pkg/digest"
 )
 
 // structured error for VSA operations
@@ -143,10 +141,10 @@ func (v *VSA) GetSupportedDigestAlgorithms() []string {
 // validates that all digests in VSA subjects have proper format
 func (v *VSA) ValidateDigestFormats() error {
 	for i, subject := range v.Subject {
-		for alg, digest := range subject.Digest {
-			if err := validateDigestFormat(alg, digest); err != nil {
+		for alg, hexDigest := range subject.Digest {
+			if err := validateDigestFormat(alg, hexDigest); err != nil {
 				return NewValidationError("digest",
-					fmt.Sprintf("invalid digest format in subject %d: %s:%s", i, alg, digest), err)
+					fmt.Sprintf("invalid digest format in subject %d: %s:%s", i, alg, hexDigest), err)
 			}
 		}
 	}
@@ -155,47 +153,8 @@ func (v *VSA) ValidateDigestFormats() error {
 }
 
 // validates digest format based on algorithm
-func validateDigestFormat(algorithm, digest string) error {
-	if digest == "" {
-		return fmt.Errorf("empty digest value")
-	}
-
-	// format validation based on common algorithms
-	switch algorithm {
-	case "sha256":
-		if len(digest) != 64 {
-			return fmt.Errorf("invalid SHA256 digest length: expected 64 characters, got %d", len(digest))
-		}
-	case "sha1":
-		if len(digest) != 40 {
-			return fmt.Errorf("invalid SHA1 digest length: expected 40 characters, got %d", len(digest))
-		}
-	case "sha512":
-		if len(digest) != 128 {
-			return fmt.Errorf("invalid SHA512 digest length: expected 128 characters, got %d", len(digest))
-		}
-	case "md5":
-		if len(digest) != 32 {
-			return fmt.Errorf("invalid MD5 digest length: expected 32 characters, got %d", len(digest))
-		}
-	default:
-		// unknown algorithms, just check it's not empty and is hex
-		if !isHexString(digest) {
-			return fmt.Errorf("digest contains non-hexadecimal characters")
-		}
-	}
-
-	return nil
-}
-
-// checks if a string contains only hexadecimal characters
-func isHexString(s string) bool {
-	for _, r := range s {
-		if (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F') {
-			return false
-		}
-	}
-	return true
+func validateDigestFormat(algorithm, hexDigest string) error {
+	return digest.ValidateFormat(algorithm, hexDigest)
 }
 
 // validates an existing VSA (SLSA v1.1 compliant)

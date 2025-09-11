@@ -110,7 +110,7 @@ func TestGetFromGitHub(t *testing.T) {
 				BlobPath: blobPath,
 			},
 			wantErr: true,
-			errMsg:  "failed to extract org/repo from certificate identity",
+			errMsg:  "for blob verification, provide --repo, --cert-identity, or use offline mode with --attestations-path",
 		},
 		{
 			name:     "invalid cert identity format with blob",
@@ -688,51 +688,6 @@ func TestParseOrgRepoFromWorkflowURL(t *testing.T) {
 				if repo != tt.wantRepo {
 					t.Errorf("parseOrgRepoFromWorkflowURL() repo = %v, want %v", repo, tt.wantRepo)
 				}
-			}
-		})
-	}
-}
-
-func TestGetManifestWithOras(t *testing.T) {
-	// skip if no gh token available
-	token := getGitHubToken(t)
-
-	tests := []struct {
-		name    string
-		org     string
-		repo    string
-		digest  string
-		wantErr bool
-	}{
-		{
-			name:    "invalid org",
-			org:     "invalid-org-that-does-not-exist",
-			repo:    "repo",
-			digest:  testDigest,
-			wantErr: true,
-		},
-		{
-			name:    "empty org",
-			org:     "",
-			repo:    "repo",
-			digest:  testDigest,
-			wantErr: true,
-		},
-		{
-			name:    "empty repo",
-			org:     "liatrio",
-			repo:    "",
-			digest:  testDigest,
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			client := github.NewClient(nil).WithAuthToken(token)
-			_, err := getManifestWithOras(context.Background(), tt.org, tt.repo, tt.digest, client)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("getManifestWithOras() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

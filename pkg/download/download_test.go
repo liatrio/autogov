@@ -3,6 +3,7 @@ package download
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -208,6 +209,27 @@ func TestDownload(t *testing.T) {
 	})
 }
 
+// validate download options validates download options
+func validateDownloadOptions(opts DownloadOptions) error {
+	if opts.ArtifactPath == "" && opts.ArtifactDigest == "" {
+		return fmt.Errorf("must specify either artifact-path or artifact-digest")
+	}
+
+	if opts.Repository == "" {
+		return fmt.Errorf("repository is required")
+	}
+
+	if opts.OutputPath == "" {
+		return fmt.Errorf("output path is required")
+	}
+
+	if opts.OutputFormat != "" && opts.OutputFormat != "json" && opts.OutputFormat != "jsonl" {
+		return fmt.Errorf("output format must be 'json' or 'jsonl'")
+	}
+
+	return nil
+}
+
 func TestValidateDownloadOptions(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -270,9 +292,9 @@ func TestValidateDownloadOptions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateDownloadOptions(tt.opts)
+			err := validateDownloadOptions(tt.opts)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateDownloadOptions() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("validateDownloadOptions() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

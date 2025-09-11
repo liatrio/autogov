@@ -1,4 +1,4 @@
-// Package offline provides functionality for offline attestation verification
+// provides functionality for offline attestation verification
 // using pre-downloaded Sigstore bundles and trusted roots.
 package offline
 
@@ -9,17 +9,38 @@ import (
 	"fmt"
 	"os"
 
+	"path/filepath"
+	"strings"
+
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 )
 
-// loads sigstore bundles from a JSON/JSONL file
+// loads sigstore bundles from a JSON/JSONL file or directory
 func LoadBundles(bundlePath string) ([]*bundle.Bundle, error) {
+	// check if dir
+	fileInfo, err := os.Stat(bundlePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat path: %w", err)
+	}
+
+	// if dir, load all .json and .jsonl files
+	if fileInfo.IsDir() {
+		return loadBundlesFromDirectory(bundlePath)
+	}
+
+	// otherwise load as a single file
 	data, err := os.ReadFile(bundlePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read bundle file: %w", err)
 	}
 
-	// parse as JSON array first
+	// parse as single bundle JSON first
+	singleBundle := &bundle.Bundle{}
+	if err := singleBundle.UnmarshalJSON(data); err == nil {
+		return []*bundle.Bundle{singleBundle}, nil
+	}
+
+	// parse as JSON array
 	var jsonBundles []json.RawMessage
 	if err := json.Unmarshal(data, &jsonBundles); err == nil {
 		bundles := make([]*bundle.Bundle, 0, len(jsonBundles))
@@ -79,6 +100,45 @@ func LoadBundles(bundlePath string) ([]*bundle.Bundle, error) {
 	}
 
 	return bundles, nil
+}
+
+// loads bundles from all JSON/JSONL files in a directory
+func loadBundlesFromDirectory(dirPath string) ([]*bundle.Bundle, error) {
+	var allBundles []*bundle.Bundle
+
+	// read all files in dir
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		// process .json and .jsonl files only
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".json") && !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+
+		// loads bundles from file
+		filePath := filepath.Join(dirPath, name)
+		bundles, err := LoadBundles(filePath)
+		if err != nil {
+			// skip files that can't be parsed as bundles
+			continue
+		}
+
+		allBundles = append(allBundles, bundles...)
+	}
+
+	if len(allBundles) == 0 {
+		return nil, fmt.Errorf("no valid attestation bundles found in directory %s", dirPath)
+	}
+
+	return allBundles, nil
 }
 
 // writes sigstore bundles to a file in the specified format

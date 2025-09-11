@@ -1,15 +1,18 @@
-// Package offline provides functionality for offline attestation verification
+// provides functionality for offline attestation verification
 // using pre-downloaded Sigstore bundles and trusted roots
 package offline
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
-	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
+	bundleutils "github.com/liatrio/autogov-verify/pkg/bundle"
+	"github.com/liatrio/autogov-verify/pkg/digest"
+	localroot "github.com/liatrio/autogov-verify/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/verify"
@@ -27,6 +30,8 @@ type VerifyOptions struct {
 	CertIdentity   string // expected certificate identity (workflow URL)
 	CertOIDCIssuer string // expected OIDC issuer
 	SkipTLogVerify bool   // skip transparency log verification (for compatibility)
+	Quiet          bool   // suppress output messages
+	SourceRef      string // expected source repository ref (e.g., refs/heads/main)
 }
 
 // attestation subject
@@ -63,27 +68,27 @@ type AttestationResult struct {
 	Warnings         []string `json:"warnings,omitempty"`
 }
 
-// offline verifier with trusted root
-func NewOfflineVerifier(trustedRootPath string, options VerifyOptions) (*OfflineVerifier, error) {
-	var tr *root.TrustedRoot
-	var err error
-
-	if trustedRootPath != "" {
-		tr, err = root.NewTrustedRootFromPath(trustedRootPath)
-	} else {
-		// embedded trusted root
-		var data []byte
-		data, err = os.ReadFile("pkg/root/github-trusted-root.json")
+// loads trusted root from file or uses embedded default
+func loadTrustedRoot(path string) (*root.TrustedRoot, error) {
+	if path != "" {
+		// load from file if provided
+		data, err := os.ReadFile(path)
 		if err != nil {
-			// alternate path
-			data, err = os.ReadFile("github-trusted-root.json")
-			if err != nil {
-				return nil, fmt.Errorf("failed to read embedded trusted root: %w", err)
-			}
+			return nil, fmt.Errorf("failed to read trusted root file: %w", err)
 		}
-		tr, err = root.NewTrustedRootFromJSON(data)
+		return root.NewTrustedRootFromJSON(data)
 	}
 
+	// Use embedded trusted root from pkg/root as fallback
+	if len(localroot.GithubTrustedRoot) == 0 {
+		return nil, fmt.Errorf("embedded trusted root is empty")
+	}
+	return root.NewTrustedRootFromJSON(localroot.GithubTrustedRoot)
+}
+
+// offline verifier with trusted root
+func NewOfflineVerifier(trustedRootPath string, options VerifyOptions) (*OfflineVerifier, error) {
+	tr, err := loadTrustedRoot(trustedRootPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load trusted root: %w", err)
 	}
@@ -104,23 +109,34 @@ func (ov *OfflineVerifier) LoadBundlesFromFile(bundlePath string) error {
 	return nil
 }
 
-// verifies an artifact file against loaded bundles
+// verifies an artifact file or directory against loaded bundles
 func (ov *OfflineVerifier) VerifyArtifact(artifactPath string) (*VerificationResult, error) {
 	if len(ov.bundles) == 0 {
 		return nil, fmt.Errorf("no bundles loaded for verification")
 	}
 
-	// calculates artifact digest if provided
-	var expectedDigest string
+	// checks if path is a dir
 	if artifactPath != "" {
-		var err error
-		expectedDigest, err = calculateDigest(artifactPath)
+		fileInfo, err := os.Stat(artifactPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to stat artifact path: %w", err)
+		}
+
+		if fileInfo.IsDir() {
+			// handles directory of artifacts
+			return ov.verifyDirectory(artifactPath)
+		}
+
+		// single file / calculate digest
+		expectedDigest, err := digest.CalculateFile(artifactPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate artifact digest: %w", err)
 		}
+		return ov.verifyWithDigest(expectedDigest)
 	}
 
-	return ov.verifyWithDigest(expectedDigest)
+	// No artifact path provided, verify attestations only
+	return ov.verifyWithDigest("")
 }
 
 // verifies an artifact by its digest (useful for container images)
@@ -130,6 +146,40 @@ func (ov *OfflineVerifier) VerifyArtifactDigest(digest string) (*VerificationRes
 	}
 
 	return ov.verifyWithDigest(digest)
+}
+
+// verifies all artifacts in a directory
+func (ov *OfflineVerifier) verifyDirectory(dirPath string) (*VerificationResult, error) {
+	// reads all files in the dir
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	// filters out directories and gets only files
+	var artifactFiles []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			artifactFiles = append(artifactFiles, filepath.Join(dirPath, entry.Name()))
+		}
+	}
+
+	if len(artifactFiles) == 0 {
+		return nil, fmt.Errorf("no files found in directory %s", dirPath)
+	}
+
+	// for multiple artifacts, verify attestations without specific digest matching
+	// the attestations themselves contain the subject digests
+	if !ov.options.Quiet {
+		fmt.Printf("Verifying %d artifact(s) in directory: %s\n", len(artifactFiles), dirPath)
+		for _, file := range artifactFiles {
+			fmt.Printf("  - %s\n", filepath.Base(file))
+		}
+	}
+
+	// verify attestations without a specific artifact digest
+	// validates the attestations are properly signed and match their internal subjects
+	return ov.verifyWithDigest("")
 }
 
 // performs verification with the given digest
@@ -159,17 +209,95 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 
 	// verify each bundle
 	validAttestations := 0
-	for _, b := range ov.bundles {
+	for i, b := range ov.bundles {
+		// show which attestation is being verified
+		if !ov.options.Quiet {
+			// get attestation type for display
+			attType := bundleutils.DetectType(b)
+			fmt.Printf("Verifying attestation %d (%s)...\n", i+1, attType)
+		}
+
 		attestationResult := ov.verifyBundle(v, b, expectedDigest)
 		result.Attestations = append(result.Attestations, attestationResult)
 
-		if attestationResult.Verified {
+		if !attestationResult.Verified {
+			// if any attestation fails verification (bad signature, digest mismatch, etc.)
+			// we should fail the entire verification process
+			// error already printed in the per-attestation output if not quiet mode
+			// continue to check all attestations to show all errors
+		} else {
 			validAttestations++
+
+			// checks for source ref in SLSA provenance attestations
+			if ov.options.SourceRef != "" && attestationResult.Type == "https://slsa.dev/provenance/v1" {
+				if b.GetDsseEnvelope() != nil {
+					payload := b.GetDsseEnvelope().GetPayload()
+					var statement struct {
+						PredicateType string `json:"predicateType"`
+						Predicate     struct {
+							BuildDefinition struct {
+								ExternalParameters struct {
+									Workflow struct {
+										Ref string `json:"ref"`
+									} `json:"workflow"`
+								} `json:"externalParameters"`
+							} `json:"buildDefinition"`
+						} `json:"predicate"`
+					}
+
+					if err := json.Unmarshal(payload, &statement); err == nil {
+						if statement.PredicateType == "https://slsa.dev/provenance/v1" {
+							workflowRef := statement.Predicate.BuildDefinition.ExternalParameters.Workflow.Ref
+							if workflowRef != ov.options.SourceRef {
+								// source ref mismatch / mark attestation as failed
+								attestationResult.Verified = false
+								attestationResult.Error = fmt.Sprintf("source ref mismatch: expected %s, found %s", ov.options.SourceRef, workflowRef)
+								result.Attestations[i] = attestationResult
+								validAttestations--
+								if !ov.options.Quiet {
+									fmt.Printf("✗ Source ref mismatch: expected %s, found %s\n", ov.options.SourceRef, workflowRef)
+								}
+							} else if !ov.options.Quiet {
+								fmt.Printf("✓ Source repository ref verified: %s\n", ov.options.SourceRef)
+							}
+						}
+					}
+				}
+			}
+
+			if !ov.options.Quiet {
+				fmt.Printf("✓ Attestation %d verified successfully\n", i+1)
+				fmt.Println("---")
+			}
+		}
+
+		if !attestationResult.Verified && !ov.options.Quiet {
+			fmt.Printf("✗ Attestation %d verification failed: %s\n", i+1, attestationResult.Error)
+			fmt.Println("---")
 		}
 	}
 
-	// overall verification status
-	result.Verified = validAttestations > 0
+	// checks if any attestations had verification failures (not just cert-identity mismatches)
+	hasVerificationFailures := false
+	for _, att := range result.Attestations {
+		if !att.Verified && att.Error != "" {
+			// checks if it's a real verification failure vs just cert-identity mismatch
+			if strings.Contains(att.Error, "digest does not match") ||
+				strings.Contains(att.Error, "failed to verify signature") ||
+				strings.Contains(att.Error, "transparency log") ||
+				strings.Contains(att.Error, "source ref mismatch") {
+				hasVerificationFailures = true
+				break
+			}
+		}
+	}
+
+	// overall verification status - fail if there are real verification failures
+	if hasVerificationFailures {
+		result.Verified = false
+	} else {
+		result.Verified = validAttestations > 0
+	}
 
 	// certificate identity from first valid attestation
 	for _, att := range result.Attestations {
@@ -182,23 +310,7 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 	return result, nil
 }
 
-// calculates the SHA256 digest of a file
-func calculateDigest(filepath string) (string, error) {
-	file, err := os.Open(filepath)
-	if err != nil {
-		return "", fmt.Errorf("failed to open file: %w", err)
-	}
-	defer func() { _ = file.Close() }()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, file); err != nil {
-		return "", fmt.Errorf("failed to calculate digest: %w", err)
-	}
-
-	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
-}
-
-// verifies a single bundle using sigstore-go
+// verifies a single bundle
 func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, expectedDigest string) AttestationResult {
 	res := AttestationResult{
 		Type:             "unknown",
@@ -209,16 +321,12 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 	}
 
 	// attestation type from envelope if available
-	if env, err := b.Envelope(); err == nil {
-		if stmt, err := env.Statement(); err == nil {
-			res.Type = stmt.PredicateType
-			// subject
-			if len(stmt.Subject) > 0 {
-				res.Subject = &Subject{
-					Name:   stmt.Subject[0].Name,
-					Digest: stmt.Subject[0].Digest,
-				}
-			}
+	res.Type = bundleutils.DetectType(b)
+	// subject
+	if name, subjectDigest := bundleutils.ExtractSubject(b); name != "" {
+		res.Subject = &Subject{
+			Name:   name,
+			Digest: subjectDigest,
 		}
 	}
 
@@ -254,6 +362,10 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 		} else {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("failed to create identity policy: %v", err))
 		}
+	} else if ov.options.CertIdentity == "" {
+		// no cert identity specified / verify signature but not identity
+		// allows verification of attestation integrity without identity checks
+		policyOpts = append(policyOpts, verify.WithoutIdentitiesUnsafe())
 	}
 
 	policy := verify.NewPolicy(artifactOpt, policyOpts...)
@@ -276,14 +388,4 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 	}
 
 	return res
-}
-
-// extracts the attestation type from a bundle
-func detectAttestationType(b *bundle.Bundle) string {
-	if env, err := b.Envelope(); err == nil {
-		if stmt, err := env.Statement(); err == nil {
-			return stmt.PredicateType
-		}
-	}
-	return "unknown"
 }

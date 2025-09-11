@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/spf13/pflag"
 )
 
 const errMissingArtifact = "either --artifact-digest or --blob-path must be provided"
@@ -58,7 +60,7 @@ func TestRun(t *testing.T) {
 				"GH_TOKEN":     "",
 			},
 			wantErr: true,
-			errMsg:  errMissingArtifact,
+			errMsg:  "GH_TOKEN, GITHUB_TOKEN or GITHUB_AUTH_TOKEN environment variable is required",
 		},
 		{
 			name: "missing artifact digest and blob path",
@@ -72,7 +74,19 @@ func TestRun(t *testing.T) {
 			errMsg:  errMissingArtifact,
 		},
 		{
-			name: "invalid artifact digest",
+			name: "invalid artifact digest - short sha",
+			args: []string{
+				"--cert-identity", "https://github.com/liatrio/autogov-verify/.github/workflows/test.yml@refs/heads/main",
+				"--artifact-digest", "liatrio/repo@sha256:abc123",
+			},
+			envVars: map[string]string{
+				"GITHUB_TOKEN": "mock-token",
+			},
+			wantErr: true,
+			errMsg:  "invalid digest format",
+		},
+		{
+			name: "invalid artifact digest - bad format",
 			args: []string{
 				"--cert-identity", "https://github.com/liatrio/autogov-verify/.github/workflows/test.yml@refs/heads/main",
 				"--artifact-digest", "invalid-digest",
@@ -81,19 +95,20 @@ func TestRun(t *testing.T) {
 				"GITHUB_TOKEN": "mock-token",
 			},
 			wantErr: true,
-			errMsg:  errMissingArtifact,
+			errMsg:  "failed to parse image reference",
 		},
 		{
 			name: "invalid blob path",
 			args: []string{
 				"--cert-identity", "https://github.com/liatrio/autogov-verify/.github/workflows/test.yml@refs/heads/main",
 				"--blob-path", "/nonexistent/path",
+				"--repo", "liatrio/test-repo",
 			},
 			envVars: map[string]string{
 				"GITHUB_TOKEN": "mock-token",
 			},
 			wantErr: true,
-			errMsg:  errMissingArtifact,
+			errMsg:  "file not found",
 		},
 	}
 
@@ -111,6 +126,11 @@ func TestRun(t *testing.T) {
 				}
 			}
 
+			// Reset command state by clearing parsed values
+			rootCmd.Flags().VisitAll(func(flag *pflag.Flag) {
+				_ = flag.Value.Set(flag.DefValue)
+				flag.Changed = false
+			})
 			rootCmd.SetArgs(tt.args)
 			err := rootCmd.Execute()
 			if (err != nil) != tt.wantErr {

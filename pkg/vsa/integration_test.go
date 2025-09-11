@@ -1,7 +1,3 @@
-// Package vsa - integration_test.go
-// Integration tests using real attestation files and comprehensive VSA workflows.
-// Tests end-to-end functionality with actual GitHub attestation data.
-
 package vsa
 
 import (
@@ -88,7 +84,6 @@ func TestRealAttestationFiles(t *testing.T) {
 						},
 					},
 				},
-				AutoGovVersion: "v1.1.0",
 				PolicyDigest: map[string]string{
 					"sha256": "policy789hash",
 				},
@@ -202,7 +197,6 @@ func TestVSAWithMultipleRealAttestations(t *testing.T) {
 
 	opts := VSAOptions{
 		InputAttestations: inputAttestations,
-		AutoGovVersion:    "v1.1.0",
 		PolicyDigest: map[string]string{
 			"sha256": "multi-policy-hash",
 		},
@@ -232,8 +226,9 @@ func TestVSAWithMultipleRealAttestations(t *testing.T) {
 		t.Errorf("Expected %d input attestations, got %d", len(inputAttestations), len(vsa.Predicate.InputAttestations))
 	}
 
-	// verify all verifier versions are tracked
-	expectedVerifiers := []string{"autogov-verify", "opa", "slsa-verifier"}
+	// verify verifier versions - should be empty or only contain additional verifiers
+	// autogov-verify version is no longer included by default
+	expectedVerifiers := []string{"opa", "slsa-verifier"}
 	for _, verifier := range expectedVerifiers {
 		if _, exists := vsa.Predicate.Verifier.Version[verifier]; !exists {
 			t.Errorf("Expected verifier %s to be tracked in versions", verifier)

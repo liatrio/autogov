@@ -3,6 +3,8 @@ package offline
 import (
 	"os"
 	"testing"
+
+	bundleutils "github.com/liatrio/autogov-verify/pkg/bundle"
 )
 
 func TestNewOfflineVerifier(t *testing.T) {
@@ -42,7 +44,7 @@ func TestNewOfflineVerifier(t *testing.T) {
 			name:            "empty trusted root path uses default",
 			trustedRootPath: "",
 			options:         VerifyOptions{},
-			wantErr:         true, // will fail because default trusted root doesn't exist
+			wantErr:         false, // uses embedded trusted root as fallback
 		},
 		{
 			name:            "invalid trusted root path",
@@ -250,7 +252,6 @@ func TestVerifyArtifact(t *testing.T) {
 	}
 }
 
-
 // tests offline verification with real attestation data
 func TestOfflineVerifierWithRealData(t *testing.T) {
 	realAttestationFile := "../../testdata/attestations/multi-type-attestations.jsonl"
@@ -292,7 +293,7 @@ func TestOfflineVerifierWithRealData(t *testing.T) {
 
 	// test attestation type detection with real bundles
 	for i, bundle := range verifier.bundles {
-		attestationType := detectAttestationType(bundle)
+		attestationType := bundleutils.DetectType(bundle)
 		if attestationType == "" {
 			t.Errorf("Failed to detect attestation type for real bundle %d", i)
 		}

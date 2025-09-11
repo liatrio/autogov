@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,12 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/liatrio/autogov-verify/pkg/digest"
+	"github.com/liatrio/autogov-verify/pkg/github"
+	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/rego"
 	"github.com/sigstore/cosign/v2/pkg/oci"
-)
-
-const (
-	tempDirCleanupWarning = "Warning: failed to clean up temp directory: %v\n"
 )
 
 // handles OPA policy evaluation using the Rego API
@@ -41,7 +41,7 @@ type PolicyViolation struct {
 }
 
 // creates a new OPA evaluator instance
-func NewOPAEvaluator(ctx context.Context, policyBundlePath string) (*OPAEvaluator, error) {
+func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath string) (*OPAEvaluator, error) {
 	// download and extract bundle if it's a URL
 	var bundlePath string
 	if strings.HasPrefix(policyBundlePath, "http") {
@@ -49,6 +49,13 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string) (*OPAEvaluato
 		bundlePath, err = downloadBundle(ctx, policyBundlePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to download bundle: %w", err)
+		}
+	} else if strings.HasSuffix(policyBundlePath, ".tar.gz") || strings.HasSuffix(policyBundlePath, ".tgz") {
+		// extract local tar.gz bundle
+		var err error
+		bundlePath, err = extractBundle(policyBundlePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract bundle: %w", err)
 		}
 	} else {
 		bundlePath = policyBundlePath
@@ -66,13 +73,50 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string) (*OPAEvaluato
 		modules = append(modules, rego.Module(path, content))
 	}
 
+	// add query
+	modules = append(modules, rego.Query("data.governance"))
+
+	// add schemas if provided
+	if schemasPath != "" {
+		// check if it's a tar.gz file that needs extraction
+		var actualSchemasPath string
+		if strings.HasSuffix(schemasPath, ".tar.gz") || strings.HasSuffix(schemasPath, ".tgz") {
+			// extract schemas archive
+			extractedPath, err := extractBundle(schemasPath)
+			if err != nil {
+				fmt.Printf("Warning: failed to extract schemas archive: %v\n", err)
+				actualSchemasPath = schemasPath // fallback to original path
+			} else {
+				actualSchemasPath = extractedPath
+			}
+		} else {
+			actualSchemasPath = schemasPath
+		}
+
+		if _, err := os.Stat(actualSchemasPath); err == nil {
+			// load schemas from directory
+			schemas, err := loadSchemasFromPath(actualSchemasPath)
+			if err == nil && len(schemas) > 0 {
+				// convert to SchemaSet
+				schemaSet := ast.NewSchemaSet()
+				for name, schema := range schemas {
+					// schema names with hyphens need to be quoted for OPA refs
+					var refStr string
+					if strings.Contains(name, "-") {
+						refStr = fmt.Sprintf(`schema["%s"]`, name)
+					} else {
+						refStr = fmt.Sprintf("schema.%s", name)
+					}
+					schemaSet.Put(ast.MustParseRef(refStr), schema)
+				}
+				modules = append(modules, rego.Schemas(schemaSet))
+				fmt.Printf("Loaded %d schemas for validation\n", len(schemas))
+			}
+		}
+	}
+
 	// rego instance with all policies and queries
-	r := rego.New(
-		append(modules,
-			rego.Query("data.governance.allow"),
-			rego.Query("data.governance.violations"),
-		)...,
-	)
+	r := rego.New(modules...)
 
 	// query for compilation
 	prepared, err := r.PrepareForEval(ctx)
@@ -101,14 +145,8 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// use gh token if available
-	var token string
-	for _, key := range []string{"GH_TOKEN", "GITHUB_TOKEN", "GITHUB_AUTH_TOKEN"} {
-		if token = os.Getenv(key); token != "" {
-			break
-		}
-	}
-	if token != "" {
+	// use gh token if available from centralized client
+	if token := github.GetToken(); token != "" {
 		req.Header.Set("Authorization", "token "+token)
 	}
 
@@ -128,18 +166,18 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 		return "", fmt.Errorf("failed to download bundle: HTTP %d", resp.StatusCode)
 	}
 
-	// temp dir
-	tempDir, err := os.MkdirTemp("", "opa-bundle-*")
+	// temp dir using digest package
+	tempDir, cleanup, err := digest.CreateTempDir("opa-bundle-")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp directory: %w", err)
 	}
+	// note: cleanup will be called when extraction fails, but directory is returned on success
+	_ = cleanup
 
 	// extracts tar.gz
 	gzr, err := gzip.NewReader(resp.Body)
 	if err != nil {
-		if err := os.RemoveAll(tempDir); err != nil {
-			fmt.Printf(tempDirCleanupWarning, err)
-		}
+		cleanup()
 		return "", fmt.Errorf("failed to create gzip reader: %w", err)
 	}
 	defer func() {
@@ -155,9 +193,7 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 			break
 		}
 		if err != nil {
-			if err := os.RemoveAll(tempDir); err != nil {
-				fmt.Printf(tempDirCleanupWarning, err)
-			}
+			cleanup()
 			return "", fmt.Errorf("failed to read tar: %w", err)
 		}
 
@@ -166,24 +202,18 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(path, 0755); err != nil {
-				if err := os.RemoveAll(tempDir); err != nil {
-					fmt.Printf(tempDirCleanupWarning, err)
-				}
+				cleanup()
 				return "", fmt.Errorf("failed to create directory: %w", err)
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-				if err := os.RemoveAll(tempDir); err != nil {
-					fmt.Printf(tempDirCleanupWarning, err)
-				}
+				cleanup()
 				return "", fmt.Errorf("failed to create parent directory: %w", err)
 			}
 
 			file, err := os.Create(filepath.Join(tempDir, header.Name))
 			if err != nil {
-				if err := os.RemoveAll(tempDir); err != nil {
-					fmt.Printf(tempDirCleanupWarning, err)
-				}
+				cleanup()
 				return "", fmt.Errorf("failed to create file: %w", err)
 			}
 
@@ -200,6 +230,118 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 	}
 
 	return tempDir, nil
+}
+
+// extracts a local tar.gz bundle to a temp directory
+func extractBundle(bundlePath string) (string, error) {
+	// open the tar.gz file
+	file, err := os.Open(bundlePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open bundle file: %w", err)
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			fmt.Printf("Warning: failed to close bundle file: %v\n", err)
+		}
+	}()
+
+	// create temp dir for extraction
+	tempDir, cleanup, err := digest.CreateTempDir("opa-bundle-")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
+	}
+
+	// extract tar.gz
+	gzr, err := gzip.NewReader(file)
+	if err != nil {
+		cleanup()
+		return "", fmt.Errorf("failed to create gzip reader: %w", err)
+	}
+	defer func() {
+		if err := gzr.Close(); err != nil {
+			fmt.Printf("Warning: failed to close gzip reader: %v\n", err)
+		}
+	}()
+
+	tr := tar.NewReader(gzr)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			cleanup()
+			return "", fmt.Errorf("failed to read tar: %w", err)
+		}
+
+		path := filepath.Join(tempDir, header.Name)
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(path, 0755); err != nil {
+				cleanup()
+				return "", fmt.Errorf("failed to create directory: %w", err)
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				cleanup()
+				return "", fmt.Errorf("failed to create parent directory: %w", err)
+			}
+
+			outFile, err := os.Create(path)
+			if err != nil {
+				cleanup()
+				return "", fmt.Errorf("failed to create file: %w", err)
+			}
+
+			if _, err := io.Copy(outFile, tr); err != nil {
+				if err := outFile.Close(); err != nil {
+					fmt.Printf("Warning: failed to close file: %v\n", err)
+				}
+				cleanup()
+				return "", fmt.Errorf("failed to write file: %w", err)
+			}
+			if err := outFile.Close(); err != nil {
+				fmt.Printf("Warning: failed to close file: %v\n", err)
+			}
+		}
+	}
+
+	return tempDir, nil
+}
+
+// loads all .json schema files from a directory
+func loadSchemasFromPath(path string) (map[string]interface{}, error) {
+	schemas := make(map[string]interface{})
+
+	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if !info.IsDir() && strings.HasSuffix(filePath, ".json") {
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return fmt.Errorf("failed to read schema file %s: %w", filePath, err)
+			}
+
+			var schema interface{}
+			if err := json.Unmarshal(content, &schema); err != nil {
+				return fmt.Errorf("failed to parse schema %s: %w", filePath, err)
+			}
+
+			// use filename without extension as key
+			schemaName := strings.TrimSuffix(filepath.Base(filePath), ".json")
+			schemas[schemaName] = schema
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk schema directory: %w", err)
+	}
+
+	return schemas, nil
 }
 
 // loads all .rego files from a directory
@@ -248,7 +390,17 @@ func (e *OPAEvaluator) EvaluatePolicy(ctx context.Context, signatures []oci.Sign
 		return nil, fmt.Errorf("failed to create sigstore bundle: %w", err)
 	}
 
-	// rego query to evaluate governance.allow
+	return e.evaluatePolicyWithBundleData(ctx, bundleData)
+}
+
+// evaluates OPA policy with pre-formatted bundle data (for offline mode)
+func (e *OPAEvaluator) EvaluatePolicyWithBundles(ctx context.Context, bundles []map[string]interface{}) (*PolicyResult, error) {
+	return e.evaluatePolicyWithBundleData(ctx, bundles)
+}
+
+// internal method to evaluate policy with bundle data
+func (e *OPAEvaluator) evaluatePolicyWithBundleData(ctx context.Context, bundleData interface{}) (*PolicyResult, error) {
+	// rego query to evaluate policy with signature bundle as input
 	rs, err := e.prepared.Eval(ctx, rego.EvalInput(bundleData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate policy: %w", err)
@@ -262,25 +414,22 @@ func (e *OPAEvaluator) EvaluatePolicy(ctx context.Context, signatures []oci.Sign
 
 	// results to find governance.allow and governance.violations
 	var allow bool
-	var violations []interface{}
+	var violations map[string]interface{}
 
 	for _, r := range rs {
 		for _, expr := range r.Expressions {
-			if path, ok := expr.Value.(map[string]interface{}); ok {
-				if governance, ok := path["governance"].(map[string]interface{}); ok {
-					if allowVal, exists := governance["allow"]; exists {
+			// for data.governance query, get the whole governance module
+			if expr.Text == "data.governance" {
+				if govData, ok := expr.Value.(map[string]interface{}); ok {
+					// get allow and violations from governance data
+					if allowVal, exists := govData["allow"]; exists {
 						if allowBool, ok := allowVal.(bool); ok {
 							allow = allowBool
 						}
 					}
-					if violationsVal, exists := governance["violations"]; exists {
-						if violationsArray, ok := violationsVal.([]interface{}); ok {
-							violations = violationsArray
-						}
-					}
-					if detailsVal, exists := governance["details"]; exists {
-						if detailsMap, ok := detailsVal.(map[string]interface{}); ok {
-							result.Details["details"] = detailsMap
+					if violationsVal, exists := govData["violations"]; exists {
+						if violationsMap, ok := violationsVal.(map[string]interface{}); ok {
+							violations = violationsMap
 						}
 					}
 				}
@@ -293,14 +442,27 @@ func (e *OPAEvaluator) EvaluatePolicy(ctx context.Context, signatures []oci.Sign
 	}
 
 	// violations if policy failed
-	if !allow && len(violations) > 0 {
-		for _, v := range violations {
-			if violationMap, ok := v.(map[string]interface{}); ok {
-				violation := PolicyViolation{
-					Policy:  fmt.Sprintf("%v", violationMap["policy"]),
-					Message: fmt.Sprintf("%v", violationMap["message"]),
+	if !allow && violations != nil {
+		// iterate over violation categories (sbom, provenance, etc.)
+		for category, categoryViolations := range violations {
+			// handle sets/arrays of violations
+			if violationSet, ok := categoryViolations.([]interface{}); ok {
+				for _, v := range violationSet {
+					violation := PolicyViolation{
+						Policy:  category,
+						Message: fmt.Sprintf("%v", v),
+					}
+					result.Violations = append(result.Violations, violation)
 				}
-				result.Violations = append(result.Violations, violation)
+			} else if categoryViolations != nil {
+				// handle single violation or non-empty value
+				if msg := fmt.Sprintf("%v", categoryViolations); msg != "[]" && msg != "<nil>" {
+					violation := PolicyViolation{
+						Policy:  category,
+						Message: msg,
+					}
+					result.Violations = append(result.Violations, violation)
+				}
 			}
 		}
 	}
@@ -336,6 +498,61 @@ func (e *OPAEvaluator) createSigstoreBundle(signatures []oci.Signature) (interfa
 	}
 
 	return bundles, nil
+}
+
+// computes SHA256 hash of policy bundle content
+func CalculateDigest(policyPath string) (string, error) {
+	// check if it's a directory or file
+	info, err := os.Stat(policyPath)
+	if err != nil {
+		// if path doesn't exist locally, it might be a URL - download and hash content
+		if strings.HasPrefix(policyPath, "http") {
+			return calculateRemoteDigest(policyPath)
+		}
+		return "", fmt.Errorf("policy path not found: %w", err)
+	}
+
+	if info.IsDir() {
+		// hash directory contents with policy-specific extensions
+		return digest.CalculateDirectory(policyPath, []string{".rego", ".json", ".yaml"})
+	}
+
+	// single file - use digest package
+	hexDigest, err := digest.CalculateFile(policyPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to calculate policy digest: %w", err)
+	}
+	// strip the "sha256:" prefix to match original format
+	_, hex, _ := digest.Parse(hexDigest)
+	return hex, nil
+}
+
+// downloads policy content from URL and hashes it
+func calculateRemoteDigest(url string) (string, error) {
+	// create HTTP request
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to download policy from %s: %w", url, err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Printf("Warning: failed to close response body: %v\n", closeErr)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download policy: HTTP %d", resp.StatusCode)
+	}
+
+	// use digest package to hash the response body
+	hexDigest, err := digest.CalculateReader(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read policy content: %w", err)
+	}
+
+	// strip the "sha256:" prefix to match original format
+	_, hex, _ := digest.Parse(hexDigest)
+	return hex, nil
 }
 
 // returns details about the loaded policy

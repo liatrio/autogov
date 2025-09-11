@@ -18,8 +18,8 @@ import (
 
 	"github.com/google/go-github/v74/github"
 	"github.com/liatrio/autogov-verify/pkg/certid"
+	"github.com/liatrio/autogov-verify/pkg/digest"
 	"github.com/liatrio/autogov-verify/pkg/root"
-	"github.com/liatrio/autogov-verify/pkg/storage"
 
 	"github.com/sigstore/cosign/v2/pkg/oci"
 	"github.com/sigstore/cosign/v2/pkg/oci/static"
@@ -76,6 +76,9 @@ type Options struct {
 	// if given, verification performed against blob instead of image
 	// example: "/path/to/my/file.txt"
 	BlobPath string
+	// repository to fetch attestations from (format: owner/repo)
+	// required for blob verification, optional for image verification
+	Repository string
 	// expected repository ref (e.g., refs/heads/main)
 	// verifies that the source repo ref in the build provenance attestation matches this value (e.g., ${{ github.ref }})
 	SourceRef string
@@ -180,10 +183,25 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 	}
 
 	if opts.BlobPath != "" {
-		org, repo, err = parseOrgRepoFromWorkflowURL(opts.CertIdentity)
-		// if blob, extract org/repo from cert-identity
-		if err != nil {
-			return nil, fmt.Errorf("failed to extract org/repo from certificate identity: %w", err)
+		// need to know which repo the blob came from to fetch attestations from
+		// via --repo flag or cert-identity
+		if opts.Repository != "" {
+			// parse org/repo from repository flag
+			parts := strings.Split(opts.Repository, "/")
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("invalid repository format, expected owner/repo")
+			}
+			org = parts[0]
+			repo = parts[1]
+		} else if opts.CertIdentity != "" {
+			// fall back to extracting from cert-identity if repo not specified
+			org, repo, err = parseOrgRepoFromWorkflowURL(opts.CertIdentity)
+			if err != nil {
+				return nil, fmt.Errorf("failed to extract org/repo from certificate identity: %w", err)
+			}
+		} else {
+			// without repo or cert-identity, we can't determine where to fetch attestations
+			return nil, fmt.Errorf("for blob verification, provide --repo, --cert-identity, or use offline mode with --attestations-path")
 		}
 		// if empty digest for blob, calculated later
 		artifactRef, _ = NewDigest("")
@@ -215,7 +233,7 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 	opts = setDefaultOptions(opts)
 
 	// create temp directory with cleanup function
-	cacheDir, cleanup, err := storage.CreateTempDir("attestations-")
+	cacheDir, cleanup, err := digest.CreateTempDir("attestations-")
 	if err != nil {
 		return nil, err
 	}
@@ -350,59 +368,6 @@ func setDefaultOptions(opts Options) Options {
 	return opts
 }
 
-// fetch manifest using oras
-func getManifestWithOras(ctx context.Context, org, repository, artifactRef string, client *github.Client) ([]byte, error) {
-	// create repo ref
-	repoRef := fmt.Sprintf("ghcr.io/%s/%s", org, repository)
-	remoteRepo, err := remote.NewRepository(repoRef)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create repository: %w", err)
-	}
-
-	// get token from client's transport/env
-	var token string
-	if t, ok := client.Client().Transport.(*github.BasicAuthTransport); ok {
-		token = t.Password
-	}
-
-	// if no token from transport/env, try env vars
-	if token == "" {
-		token = os.Getenv("GH_TOKEN")
-		if token == "" {
-			token = os.Getenv("GITHUB_TOKEN")
-		}
-		if token == "" {
-			token = os.Getenv("GITHUB_AUTH_TOKEN")
-		}
-		if token == "" {
-			return nil, fmt.Errorf("no token found in github client transport or environment")
-		}
-	}
-
-	// auth config
-	remoteRepo.Client = &auth.Client{
-		Client: retry.DefaultClient,
-		Cache:  auth.NewCache(),
-		Credential: auth.StaticCredential("ghcr.io", auth.Credential{
-			Username: org,
-			Password: token,
-		}),
-	}
-
-	// fetch manifest
-	_, manifestReader, err := remoteRepo.Manifests().FetchReference(ctx, artifactRef)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch manifest: %w", err)
-	}
-	defer func() {
-		if closeErr := manifestReader.Close(); closeErr != nil {
-			log.Printf("Warning: failed to close manifest reader: %v", closeErr)
-		}
-	}()
-
-	return io.ReadAll(manifestReader)
-}
-
 func verifyAttestation(att *github.Attestation, artifactDigest, trust string, index int, opts Options) (oci.Signature, error) {
 	if att == nil {
 		return nil, fmt.Errorf("attestation is nil")
@@ -414,7 +379,7 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		return nil, fmt.Errorf("failed to marshal attestation bundle: %w", err)
 	}
 
-	// parse bundle using sigstore-go v1.0.0 API
+	// parse bundle
 	b := &bundle.Bundle{}
 	if err := b.UnmarshalJSON(bundleData); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal bundle: %w", err)
@@ -520,16 +485,21 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		artifactPolicy = verify.WithArtifactDigest("sha256", digestBytes)
 	}
 
-	// certificate identity for verification
-	certIdentity, err := verify.NewShortCertificateIdentity(opts.CertIssuer, "", opts.CertIdentity, "")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create certificate identity: %w", err)
+	// verify policy
+	var policy verify.PolicyBuilder
+	if opts.CertIdentity != "" {
+		// certificate identity for verification (only if specified)
+		certIdentity, err := verify.NewShortCertificateIdentity(opts.CertIssuer, "", opts.CertIdentity, "")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create certificate identity: %w", err)
+		}
+		policy = verify.NewPolicy(artifactPolicy, verify.WithCertificateIdentity(certIdentity))
+	} else {
+		// no certificate identity verification / accept any valid signature
+		policy = verify.NewPolicy(artifactPolicy, verify.WithoutIdentitiesUnsafe())
 	}
 
-	// policy using the pure sigstore-go v1.0.0 API with certificate identity verification
-	policy := verify.NewPolicy(artifactPolicy, verify.WithCertificateIdentity(certIdentity))
-
-	// verify the bundle using the pure sigstore-go v1.0.0 API
+	// verify bundle
 	_, err = verifier.Verify(b, policy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify attestation: %w", err)

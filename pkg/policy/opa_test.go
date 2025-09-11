@@ -54,7 +54,7 @@ func TestNewOPAEvaluatorLocalDirectory(t *testing.T) {
 		}
 	}()
 
-	evaluator, err := NewOPAEvaluator(ctx, tempDir)
+	evaluator, err := NewOPAEvaluator(ctx, tempDir, "")
 	if err != nil {
 		t.Fatalf("Failed to create OPA evaluator: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestNewOPAEvaluatorLocalDirectory(t *testing.T) {
 func TestNewOPAEvaluatorInvalidDirectory(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := NewOPAEvaluator(ctx, "/nonexistent/directory")
+	_, err := NewOPAEvaluator(ctx, "/nonexistent/directory", "")
 	if err == nil {
 		t.Fatal("Expected error for nonexistent directory")
 	}
@@ -93,7 +93,7 @@ func TestNewOPAEvaluatorEmptyDirectory(t *testing.T) {
 		}
 	}()
 
-	evaluator, err := NewOPAEvaluator(ctx, tempDir)
+	evaluator, err := NewOPAEvaluator(ctx, tempDir, "")
 	if err != nil {
 		t.Fatalf("Failed to create OPA evaluator: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestGetPolicyDetails(t *testing.T) {
 		}
 	}()
 
-	evaluator, err := NewOPAEvaluator(ctx, tempDir)
+	evaluator, err := NewOPAEvaluator(ctx, tempDir, "")
 	if err != nil {
 		t.Fatalf("Failed to create OPA evaluator: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestStop(t *testing.T) {
 		}
 	}()
 
-	evaluator, err := NewOPAEvaluator(ctx, tempDir)
+	evaluator, err := NewOPAEvaluator(ctx, tempDir, "")
 	if err != nil {
 		t.Fatalf("Failed to create OPA evaluator: %v", err)
 	}
