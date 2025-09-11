@@ -108,9 +108,31 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 	defer evaluator.Stop(ctx)
 
 	// eval policy against attestations
-	policyResult, err := evaluator.EvaluatePolicy(ctx, opts.Signatures)
-	if err != nil {
-		return fmt.Errorf("failed to evaluate OPA policy: %w", err)
+	var policyResult *policy.PolicyResult
+	
+	// Check if we have offline attestations in viper (set by offline command)
+	if offlineAttestations := viper.Get("offline-attestations"); offlineAttestations != nil {
+		// Use offline attestations directly
+		if bundlesData, ok := offlineAttestations.([]map[string]interface{}); ok {
+			policyResult, err = evaluator.EvaluatePolicyWithBundles(ctx, bundlesData)
+			if err != nil {
+				return fmt.Errorf("failed to evaluate OPA policy with offline attestations: %w", err)
+			}
+		} else {
+			return fmt.Errorf("invalid offline attestations format")
+		}
+	} else if opts.Signatures != nil {
+		// Use online signatures
+		policyResult, err = evaluator.EvaluatePolicy(ctx, opts.Signatures)
+		if err != nil {
+			return fmt.Errorf("failed to evaluate OPA policy: %w", err)
+		}
+	} else {
+		// No attestations to evaluate - skip policy check
+		if !opts.Quiet {
+			fmt.Println("No attestations available for policy evaluation")
+		}
+		return nil
 	}
 
 	// policy evaluation results

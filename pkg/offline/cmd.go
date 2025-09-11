@@ -2,10 +2,10 @@ package offline
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 
 	"github.com/liatrio/autogov-verify/pkg/vsa"
-	"github.com/sigstore/cosign/v2/pkg/oci"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -115,11 +115,17 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		// Extract attestation types and create VSA subjects
 		var attestationTypes []string
 		var vsaSubjects []vsa.VSASubject
-		var signatures []oci.Signature
+		var bundlesForOPA []map[string]interface{}
 
-		// Build VSA subjects from verified attestations
+		// Load raw bundles to extract payload for OPA
+		bundles, err := LoadBundles(attestationsPath)
+		if err != nil {
+			return fmt.Errorf("failed to reload bundles for OPA: %w", err)
+		}
+
+		// Build VSA subjects from verified attestations and convert for OPA
 		subjectsMap := make(map[string]vsa.VSASubject)
-		for _, attestation := range result.Attestations {
+		for i, attestation := range result.Attestations {
 			if attestation.Verified && attestation.Subject != nil {
 				attestationTypes = append(attestationTypes, attestation.Type)
 
@@ -137,6 +143,24 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 						Digest: attestation.Subject.Digest,
 					}
 				}
+
+				// Convert bundle to OPA format (matching createSigstoreBundle)
+				if i < len(bundles) {
+					bundle := bundles[i]
+
+					// Get the payload from the bundle
+					if bundle.GetDsseEnvelope() != nil {
+						envelope := bundle.GetDsseEnvelope()
+						// Create bundle entry in format expected by OPA
+						opaBundle := map[string]interface{}{
+							"dsseEnvelope": map[string]interface{}{
+								"payload":     base64.StdEncoding.EncodeToString(envelope.GetPayload()),
+								"payloadType": envelope.GetPayloadType(),
+							},
+						}
+						bundlesForOPA = append(bundlesForOPA, opaBundle)
+					}
+				}
 			}
 		}
 
@@ -145,30 +169,58 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 			vsaSubjects = append(vsaSubjects, subject)
 		}
 
-		// If no subjects from attestations, create from artifact
-		if len(vsaSubjects) == 0 && artifactPath != "" {
-			vsaSubjects = append(vsaSubjects, vsa.VSASubject{
-				URI: artifactPath,
-			})
+		// If no subjects from attestations, create from artifact or use a default
+		if len(vsaSubjects) == 0 {
+			if artifactPath != "" {
+				vsaSubjects = append(vsaSubjects, vsa.VSASubject{
+					URI: artifactPath,
+				})
+			} else if artifactDigest != "" {
+				// Use digest as URI if no artifact path
+				vsaSubjects = append(vsaSubjects, vsa.VSASubject{
+					URI: fmt.Sprintf("sha256:%s", artifactDigest),
+				})
+			} else {
+				// Default subject for attestation-only verification
+				vsaSubjects = append(vsaSubjects, vsa.VSASubject{
+					URI: "urn:attestation:verification",
+				})
+			}
+		}
+
+		// Determine resource URI for VSA
+		resourceURI := ""
+		if artifactPath != "" {
+			resourceURI = artifactPath
+		} else if len(vsaSubjects) > 0 {
+			resourceURI = vsaSubjects[0].URI
+		} else {
+			resourceURI = "urn:attestation:verification"
 		}
 
 		// Generate VSA
 		ctx := context.Background()
 		vsaOpts := vsa.GenerateOptions{
-			ArtifactDigest:   artifactDigest,
+			ArtifactDigest:   resourceURI, // Use resourceURI as the "artifact digest" parameter
 			VSASubjects:      vsaSubjects,
 			AttestationTypes: attestationTypes,
-			Signatures:       signatures,
+			Signatures:       nil, // No OCI signatures in offline mode
 			PolicyURI:        policyURI,
 			VSAOutput:        vsaOutput,
-			PolicyBundlePath: policyBundlePath,
+			PolicyBundlePath: policyBundlePath, // Enable OPA evaluation with attestations
 			Quiet:            quiet,
+		}
+
+		// Pass attestations to viper for OPA evaluation
+		if len(bundlesForOPA) > 0 {
+			viper.Set("offline-attestations", bundlesForOPA)
 		}
 
 		// Set schemas path in viper for VSA generation to use
 		if policySchemasPath != "" {
 			viper.Set("policy-schemas-path", policySchemasPath)
 		}
+
 		_ = sourceRef // Source ref is not used in VSA generation yet
 
 		if err := vsa.Generate(ctx, vsaOpts); err != nil {

@@ -101,7 +101,7 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 				schemaSet := ast.NewSchemaSet()
 				for name, schema := range schemas {
 					// Schema names with hyphens need to be quoted for OPA refs
-					refStr := name
+					var refStr string
 					if strings.Contains(name, "-") {
 						refStr = fmt.Sprintf(`schema["%s"]`, name)
 					} else {
@@ -390,6 +390,16 @@ func (e *OPAEvaluator) EvaluatePolicy(ctx context.Context, signatures []oci.Sign
 		return nil, fmt.Errorf("failed to create sigstore bundle: %w", err)
 	}
 
+	return e.evaluatePolicyWithBundleData(ctx, bundleData)
+}
+
+// evaluates OPA policy with pre-formatted bundle data (for offline mode)
+func (e *OPAEvaluator) EvaluatePolicyWithBundles(ctx context.Context, bundles []map[string]interface{}) (*PolicyResult, error) {
+	return e.evaluatePolicyWithBundleData(ctx, bundles)
+}
+
+// internal method to evaluate policy with bundle data
+func (e *OPAEvaluator) evaluatePolicyWithBundleData(ctx context.Context, bundleData interface{}) (*PolicyResult, error) {
 	// rego query to evaluate policy with signature bundle as input
 	rs, err := e.prepared.Eval(ctx, rego.EvalInput(bundleData))
 	if err != nil {
