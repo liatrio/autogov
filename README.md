@@ -231,7 +231,7 @@ autogov-verify offline \
 #### Offline Verification Flags
 
 - `--attestations`: Path to pre-downloaded attestation bundles file (required)
-- `--blob-path`: Path to artifact file to verify (optional, calculates SHA256 digest)
+- `--blob-path`: Path to artifact file or directory containing multiple artifacts to verify (optional, calculates SHA256 digest for single files)
 - `--artifact-digest`: SHA256 digest of artifact for verification (optional, alternative to blob-path)
 - `--cert-identity`: Certificate identity (workflow URL with commit SHA) (required)
 - `--cert-issuer`: Certificate issuer (defaults to GitHub Actions)

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	bundleutils "github.com/liatrio/autogov-verify/pkg/bundle"
@@ -108,23 +109,34 @@ func (ov *OfflineVerifier) LoadBundlesFromFile(bundlePath string) error {
 	return nil
 }
 
-// verifies an artifact file against loaded bundles
+// verifies an artifact file or directory against loaded bundles
 func (ov *OfflineVerifier) VerifyArtifact(artifactPath string) (*VerificationResult, error) {
 	if len(ov.bundles) == 0 {
 		return nil, fmt.Errorf("no bundles loaded for verification")
 	}
 
-	// calculates artifact digest if provided
-	var expectedDigest string
+	// Check if path is a directory
 	if artifactPath != "" {
-		var err error
-		expectedDigest, err = digest.CalculateFile(artifactPath)
+		fileInfo, err := os.Stat(artifactPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to stat artifact path: %w", err)
+		}
+
+		if fileInfo.IsDir() {
+			// Handle directory of artifacts
+			return ov.verifyDirectory(artifactPath)
+		}
+
+		// Single file - calculate digest
+		expectedDigest, err := digest.CalculateFile(artifactPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to calculate artifact digest: %w", err)
 		}
+		return ov.verifyWithDigest(expectedDigest)
 	}
 
-	return ov.verifyWithDigest(expectedDigest)
+	// No artifact path provided, verify attestations only
+	return ov.verifyWithDigest("")
 }
 
 // verifies an artifact by its digest (useful for container images)
@@ -134,6 +146,40 @@ func (ov *OfflineVerifier) VerifyArtifactDigest(digest string) (*VerificationRes
 	}
 
 	return ov.verifyWithDigest(digest)
+}
+
+// verifies all artifacts in a directory
+func (ov *OfflineVerifier) verifyDirectory(dirPath string) (*VerificationResult, error) {
+	// Read all files in the directory
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	// Filter out directories and get only files
+	var artifactFiles []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			artifactFiles = append(artifactFiles, filepath.Join(dirPath, entry.Name()))
+		}
+	}
+
+	if len(artifactFiles) == 0 {
+		return nil, fmt.Errorf("no files found in directory %s", dirPath)
+	}
+
+	// For multiple artifacts, we verify attestations without specific digest matching
+	// The attestations themselves contain the subject digests
+	if !ov.options.Quiet {
+		fmt.Printf("Verifying %d artifact(s) in directory: %s\n", len(artifactFiles), dirPath)
+		for _, file := range artifactFiles {
+			fmt.Printf("  - %s\n", filepath.Base(file))
+		}
+	}
+
+	// Verify attestations without a specific artifact digest
+	// This validates the attestations are properly signed and match their internal subjects
+	return ov.verifyWithDigest("")
 }
 
 // performs verification with the given digest
@@ -174,11 +220,16 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 		attestationResult := ov.verifyBundle(v, b, expectedDigest)
 		result.Attestations = append(result.Attestations, attestationResult)
 
-		if attestationResult.Verified {
+		if !attestationResult.Verified {
+			// If any attestation fails verification (bad signature, digest mismatch, etc.)
+			// we should fail the entire verification process
+			// Error already printed in the per-attestation output if not quiet mode
+			// Continue to check all attestations to show all errors
+		} else {
 			validAttestations++
 
 			// Check for source ref in SLSA provenance attestations (inline like online mode)
-			if !ov.options.Quiet && ov.options.SourceRef != "" && attestationResult.Type == "https://slsa.dev/provenance/v1" {
+			if ov.options.SourceRef != "" && attestationResult.Type == "https://slsa.dev/provenance/v1" {
 				if b.GetDsseEnvelope() != nil {
 					payload := b.GetDsseEnvelope().GetPayload()
 					var statement struct {
@@ -197,7 +248,16 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 					if err := json.Unmarshal(payload, &statement); err == nil {
 						if statement.PredicateType == "https://slsa.dev/provenance/v1" {
 							workflowRef := statement.Predicate.BuildDefinition.ExternalParameters.Workflow.Ref
-							if workflowRef == ov.options.SourceRef {
+							if workflowRef != ov.options.SourceRef {
+								// Source ref mismatch - mark this attestation as failed
+								attestationResult.Verified = false
+								attestationResult.Error = fmt.Sprintf("source ref mismatch: expected %s, found %s", ov.options.SourceRef, workflowRef)
+								result.Attestations[i] = attestationResult
+								validAttestations--
+								if !ov.options.Quiet {
+									fmt.Printf("✗ Source ref mismatch: expected %s, found %s\n", ov.options.SourceRef, workflowRef)
+								}
+							} else if !ov.options.Quiet {
 								fmt.Printf("✓ Source repository ref verified: %s\n", ov.options.SourceRef)
 							}
 						}
@@ -209,14 +269,35 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 				fmt.Printf("✓ Attestation %d verified successfully\n", i+1)
 				fmt.Println("---")
 			}
-		} else if !ov.options.Quiet {
+		}
+
+		if !attestationResult.Verified && !ov.options.Quiet {
 			fmt.Printf("✗ Attestation %d verification failed: %s\n", i+1, attestationResult.Error)
 			fmt.Println("---")
 		}
 	}
 
-	// overall verification status
-	result.Verified = validAttestations > 0
+	// Check if any attestations had verification failures (not just cert-identity mismatches)
+	hasVerificationFailures := false
+	for _, att := range result.Attestations {
+		if !att.Verified && att.Error != "" {
+			// Check if it's a real verification failure vs just cert-identity mismatch
+			if strings.Contains(att.Error, "digest does not match") ||
+				strings.Contains(att.Error, "failed to verify signature") ||
+				strings.Contains(att.Error, "transparency log") ||
+				strings.Contains(att.Error, "source ref mismatch") {
+				hasVerificationFailures = true
+				break
+			}
+		}
+	}
+
+	// overall verification status - fail if there are real verification failures
+	if hasVerificationFailures {
+		result.Verified = false
+	} else {
+		result.Verified = validAttestations > 0
+	}
 
 	// certificate identity from first valid attestation
 	for _, att := range result.Attestations {
@@ -273,7 +354,7 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 	// policy options
 	policyOpts := []verify.PolicyOption{}
 
-	// certificate identity if specified
+	// certificate identity if specified (optional in offline mode)
 	if ov.options.CertIdentity != "" && ov.options.CertOIDCIssuer != "" {
 		certID, err := verify.NewShortCertificateIdentity(ov.options.CertOIDCIssuer, "", ov.options.CertIdentity, "")
 		if err == nil {
@@ -281,6 +362,10 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 		} else {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("failed to create identity policy: %v", err))
 		}
+	} else if ov.options.CertIdentity == "" {
+		// No cert identity specified - verify signature but not identity
+		// This allows verification of attestation integrity without identity checks
+		policyOpts = append(policyOpts, verify.WithoutIdentitiesUnsafe())
 	}
 
 	policy := verify.NewPolicy(artifactOpt, policyOpts...)

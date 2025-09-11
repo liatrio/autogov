@@ -87,6 +87,18 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("verification failed: %w", err)
 	}
 
+	// Check if verification actually succeeded
+	if !result.Verified {
+		// Count failures for better error reporting
+		failureCount := 0
+		for _, att := range result.Attestations {
+			if !att.Verified {
+				failureCount++
+			}
+		}
+		return fmt.Errorf("verification failed: %d of %d attestations failed verification", failureCount, len(result.Attestations))
+	}
+
 	// outputs results
 	// Display verification summary matching online mode format
 	if !quiet {

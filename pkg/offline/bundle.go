@@ -34,7 +34,13 @@ func LoadBundles(bundlePath string) ([]*bundle.Bundle, error) {
 		return nil, fmt.Errorf("failed to read bundle file: %w", err)
 	}
 
-	// parse as JSON array first
+	// Try to parse as single bundle JSON first
+	singleBundle := &bundle.Bundle{}
+	if err := singleBundle.UnmarshalJSON(data); err == nil {
+		return []*bundle.Bundle{singleBundle}, nil
+	}
+
+	// parse as JSON array
 	var jsonBundles []json.RawMessage
 	if err := json.Unmarshal(data, &jsonBundles); err == nil {
 		bundles := make([]*bundle.Bundle, 0, len(jsonBundles))
