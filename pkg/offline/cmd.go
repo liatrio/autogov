@@ -154,7 +154,6 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 					if bundle.GetDsseEnvelope() != nil {
 						envelope := bundle.GetDsseEnvelope()
 
-
 						// Create bundle entry in format expected by OPA
 						opaBundle := map[string]interface{}{
 							"dsseEnvelope": map[string]interface{}{
@@ -168,7 +167,6 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 				}
 			}
 		}
-
 
 		// Convert map to slice
 		for _, subject := range subjectsMap {

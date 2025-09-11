@@ -11,6 +11,7 @@ import (
 
 	bundleutils "github.com/liatrio/autogov-verify/pkg/bundle"
 	"github.com/liatrio/autogov-verify/pkg/digest"
+	localroot "github.com/liatrio/autogov-verify/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/verify"
@@ -66,30 +67,22 @@ type AttestationResult struct {
 	Warnings         []string `json:"warnings,omitempty"`
 }
 
-// loads trusted root from file or fetches default
+// loads trusted root from file or uses embedded default
 func loadTrustedRoot(path string) (*root.TrustedRoot, error) {
 	if path != "" {
-		// load from file
-		if _, err := os.Stat(path); err == nil {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read trusted root file: %w", err)
-			}
-			return root.NewTrustedRootFromJSON(data)
+		// load from file if provided
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read trusted root file: %w", err)
 		}
+		return root.NewTrustedRootFromJSON(data)
 	}
 
-	// embedded trusted root
-	var data []byte
-	data, err := os.ReadFile("pkg/root/github-trusted-root.json")
-	if err != nil {
-		// alternate path
-		data, err = os.ReadFile("github-trusted-root.json")
-		if err != nil {
-			return nil, fmt.Errorf("failed to read embedded trusted root: %w", err)
-		}
+	// Use embedded trusted root from pkg/root as fallback
+	if len(localroot.GithubTrustedRoot) == 0 {
+		return nil, fmt.Errorf("embedded trusted root is empty")
 	}
-	return root.NewTrustedRootFromJSON(data)
+	return root.NewTrustedRootFromJSON(localroot.GithubTrustedRoot)
 }
 
 // offline verifier with trusted root
