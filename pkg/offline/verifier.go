@@ -4,6 +4,7 @@ package offline
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -27,6 +28,8 @@ type VerifyOptions struct {
 	CertIdentity   string // expected certificate identity (workflow URL)
 	CertOIDCIssuer string // expected OIDC issuer
 	SkipTLogVerify bool   // skip transparency log verification (for compatibility)
+	Quiet          bool   // suppress output messages
+	SourceRef      string // expected source repository ref (e.g., refs/heads/main)
 }
 
 // attestation subject
@@ -63,27 +66,35 @@ type AttestationResult struct {
 	Warnings         []string `json:"warnings,omitempty"`
 }
 
-// offline verifier with trusted root
-func NewOfflineVerifier(trustedRootPath string, options VerifyOptions) (*OfflineVerifier, error) {
-	var tr *root.TrustedRoot
-	var err error
-
-	if trustedRootPath != "" {
-		tr, err = root.NewTrustedRootFromPath(trustedRootPath)
-	} else {
-		// embedded trusted root
-		var data []byte
-		data, err = os.ReadFile("pkg/root/github-trusted-root.json")
-		if err != nil {
-			// alternate path
-			data, err = os.ReadFile("github-trusted-root.json")
+// loads trusted root from file or fetches default
+func loadTrustedRoot(path string) (*root.TrustedRoot, error) {
+	if path != "" {
+		// load from file
+		if _, err := os.Stat(path); err == nil {
+			data, err := os.ReadFile(path)
 			if err != nil {
-				return nil, fmt.Errorf("failed to read embedded trusted root: %w", err)
+				return nil, fmt.Errorf("failed to read trusted root file: %w", err)
 			}
+			return root.NewTrustedRootFromJSON(data)
 		}
-		tr, err = root.NewTrustedRootFromJSON(data)
 	}
 
+	// embedded trusted root
+	var data []byte
+	data, err := os.ReadFile("pkg/root/github-trusted-root.json")
+	if err != nil {
+		// alternate path
+		data, err = os.ReadFile("github-trusted-root.json")
+		if err != nil {
+			return nil, fmt.Errorf("failed to read embedded trusted root: %w", err)
+		}
+	}
+	return root.NewTrustedRootFromJSON(data)
+}
+
+// offline verifier with trusted root
+func NewOfflineVerifier(trustedRootPath string, options VerifyOptions) (*OfflineVerifier, error) {
+	tr, err := loadTrustedRoot(trustedRootPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load trusted root: %w", err)
 	}
@@ -159,12 +170,55 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 
 	// verify each bundle
 	validAttestations := 0
-	for _, b := range ov.bundles {
+	for i, b := range ov.bundles {
+		// Show which attestation is being verified (like online mode)
+		if !ov.options.Quiet {
+			// Get attestation type for display
+			attType := bundleutils.DetectType(b)
+			fmt.Printf("Verifying attestation %d (%s)...\n", i+1, attType)
+		}
+
 		attestationResult := ov.verifyBundle(v, b, expectedDigest)
 		result.Attestations = append(result.Attestations, attestationResult)
 
 		if attestationResult.Verified {
 			validAttestations++
+
+			// Check for source ref in SLSA provenance attestations (inline like online mode)
+			if !ov.options.Quiet && ov.options.SourceRef != "" && attestationResult.Type == "https://slsa.dev/provenance/v1" {
+				if b.GetDsseEnvelope() != nil {
+					payload := b.GetDsseEnvelope().GetPayload()
+					var statement struct {
+						PredicateType string `json:"predicateType"`
+						Predicate     struct {
+							BuildDefinition struct {
+								ExternalParameters struct {
+									Workflow struct {
+										Ref string `json:"ref"`
+									} `json:"workflow"`
+								} `json:"externalParameters"`
+							} `json:"buildDefinition"`
+						} `json:"predicate"`
+					}
+
+					if err := json.Unmarshal(payload, &statement); err == nil {
+						if statement.PredicateType == "https://slsa.dev/provenance/v1" {
+							workflowRef := statement.Predicate.BuildDefinition.ExternalParameters.Workflow.Ref
+							if workflowRef == ov.options.SourceRef {
+								fmt.Printf("✓ Source repository ref verified: %s\n", ov.options.SourceRef)
+							}
+						}
+					}
+				}
+			}
+
+			if !ov.options.Quiet {
+				fmt.Printf("✓ Attestation %d verified successfully\n", i+1)
+				fmt.Println("---")
+			}
+		} else if !ov.options.Quiet {
+			fmt.Printf("✗ Attestation %d verification failed: %s\n", i+1, attestationResult.Error)
+			fmt.Println("---")
 		}
 	}
 

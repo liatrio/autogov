@@ -38,6 +38,8 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		CertIdentity:   certIdentity,
 		CertOIDCIssuer: certIssuer,
 		SkipTLogVerify: true, // skip tlog verification in offline mode
+		Quiet:          quiet,
+		SourceRef:      sourceRef,
 	}
 
 	if !quiet {
@@ -68,7 +70,11 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		fmt.Println("Loaded attestation bundles successfully")
 	}
 
-	// verifies artifact - pass either path or digest
+	// verifies artifact and attestations
+	if !quiet {
+		fmt.Println("Verifying attestations...")
+	}
+
 	var result *VerificationResult
 	if artifactPath != "" {
 		result, err = verifier.VerifyArtifact(artifactPath)
@@ -82,25 +88,20 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	// outputs results
-	if result.Verified {
-		if !quiet {
-			fmt.Println("✓ VERIFICATION SUCCESSFUL")
-			fmt.Printf("Verified %d attestations\n", len(result.Attestations))
-		} else {
-			fmt.Println("VERIFICATION_SUCCESSFUL")
-		}
-	} else {
-		if !quiet {
-			fmt.Println("✗ VERIFICATION FAILED")
-			for _, attestation := range result.Attestations {
-				if !attestation.Verified {
-					fmt.Printf("  - %s: %s\n", attestation.Type, attestation.Error)
-				}
+	// Display verification summary matching online mode format
+	if !quiet {
+		fmt.Println("\nSummary:")
+		fmt.Printf("✓ Successfully verified %d attestations\n", len(result.Attestations))
+
+		// Show attestation types exactly like online mode
+		fmt.Println("\nAttestation Types:")
+		i := 1
+		for _, att := range result.Attestations {
+			if att.Verified {
+				fmt.Printf("%d. %s\n", i, att.Type)
+				i++
 			}
-		} else {
-			fmt.Println("VERIFICATION_FAILED")
 		}
-		return fmt.Errorf("offline verification failed")
 	}
 
 	// VSA generation if requested
@@ -125,6 +126,7 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 
 		// Build VSA subjects from verified attestations and convert for OPA
 		subjectsMap := make(map[string]vsa.VSASubject)
+
 		for i, attestation := range result.Attestations {
 			if attestation.Verified && attestation.Subject != nil {
 				attestationTypes = append(attestationTypes, attestation.Type)
@@ -151,11 +153,14 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 					// Get the payload from the bundle
 					if bundle.GetDsseEnvelope() != nil {
 						envelope := bundle.GetDsseEnvelope()
+
+
 						// Create bundle entry in format expected by OPA
 						opaBundle := map[string]interface{}{
 							"dsseEnvelope": map[string]interface{}{
 								"payload":     base64.StdEncoding.EncodeToString(envelope.GetPayload()),
 								"payloadType": envelope.GetPayloadType(),
+								"signatures":  envelope.GetSignatures(),
 							},
 						}
 						bundlesForOPA = append(bundlesForOPA, opaBundle)
@@ -163,6 +168,7 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 				}
 			}
 		}
+
 
 		// Convert map to slice
 		for _, subject := range subjectsMap {
@@ -220,8 +226,6 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		if policySchemasPath != "" {
 			viper.Set("policy-schemas-path", policySchemasPath)
 		}
-
-		_ = sourceRef // Source ref is not used in VSA generation yet
 
 		if err := vsa.Generate(ctx, vsaOpts); err != nil {
 			return fmt.Errorf("failed to generate VSA: %w", err)

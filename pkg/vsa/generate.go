@@ -109,7 +109,7 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 
 	// eval policy against attestations
 	var policyResult *policy.PolicyResult
-	
+
 	// Check if we have offline attestations in viper (set by offline command)
 	if offlineAttestations := viper.Get("offline-attestations"); offlineAttestations != nil {
 		// Use offline attestations directly
