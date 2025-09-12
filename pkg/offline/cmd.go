@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
+	"github.com/liatrio/autogov-verify/pkg/cli"
 	"github.com/liatrio/autogov-verify/pkg/vsa"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -12,120 +13,68 @@ import (
 
 // handles the offline command execution
 func RunCommand(cmd *cobra.Command, args []string) error {
-	// gets config values with error checking
-	var (
-		artifactPath     string
-		imageDigest      string
-		attestationsPath string
-		trustedRootPath  string
-		certIdentity     string
-		certIssuer       string
-		sourceRef        string
-		quiet            bool
-
-		generateVSA       bool
-		vsaOutput         string
-		policyURI         string
-		policyBundlePath  string
-		policySchemasPath string
-	)
-	var err error
-
-	if artifactPath, err = cmd.Flags().GetString("blob-path"); err != nil {
-		return fmt.Errorf("failed to read --blob-path flag: %w", err)
-	}
-	if imageDigest, err = cmd.Flags().GetString("image-digest"); err != nil {
-		return fmt.Errorf("failed to read --image-digest flag: %w", err)
-	}
-	if attestationsPath, err = cmd.Flags().GetString("attestations"); err != nil {
-		return fmt.Errorf("failed to read --attestations flag: %w", err)
-	}
-	if trustedRootPath, err = cmd.Flags().GetString("trusted-root"); err != nil {
-		return fmt.Errorf("failed to read --trusted-root flag: %w", err)
-	}
-	if certIdentity, err = cmd.Flags().GetString("cert-identity"); err != nil {
-		return fmt.Errorf("failed to read --cert-identity flag: %w", err)
-	}
-	if certIssuer, err = cmd.Flags().GetString("cert-issuer"); err != nil {
-		return fmt.Errorf("failed to read --cert-issuer flag: %w", err)
-	}
-	if sourceRef, err = cmd.Flags().GetString("source-ref"); err != nil {
-		return fmt.Errorf("failed to read --source-ref flag: %w", err)
-	}
-	if quiet, err = cmd.Flags().GetBool("quiet"); err != nil {
-		return fmt.Errorf("failed to read --quiet flag: %w", err)
+	// parse flags using CLI helpers
+	common, err := cli.ParseCommonOptions(cmd)
+	if err != nil {
+		return err
 	}
 
-	// VSA generation flags
-	if generateVSA, err = cmd.Flags().GetBool("generate-vsa"); err != nil {
-		return fmt.Errorf("failed to read --generate-vsa flag: %w", err)
-	}
-	if vsaOutput, err = cmd.Flags().GetString("vsa-output"); err != nil {
-		return fmt.Errorf("failed to read --vsa-output flag: %w", err)
-	}
-	if policyURI, err = cmd.Flags().GetString("policy-uri"); err != nil {
-		return fmt.Errorf("failed to read --policy-uri flag: %w", err)
-	}
-	if policyBundlePath, err = cmd.Flags().GetString("policy-bundle-path"); err != nil {
-		return fmt.Errorf("failed to read --policy-bundle-path flag: %w", err)
-	}
-	if policySchemasPath, err = cmd.Flags().GetString("policy-schemas-path"); err != nil {
-		return fmt.Errorf("failed to read --policy-schemas-path flag: %w", err)
+	selector, err := cli.ParseArtifactSelector(cmd, args)
+	if err != nil {
+		return err
 	}
 
-	if attestationsPath == "" {
+	offlineOpts, err := cli.ParseOfflineOptions(cmd)
+	if err != nil {
+		return err
+	}
+
+	if offlineOpts.AttestationsPath == "" {
 		return fmt.Errorf("attestations is required")
 	}
 
 	// verification options
 	verifyOpts := VerifyOptions{
-		CertIdentity:   certIdentity,
-		CertOIDCIssuer: certIssuer,
+		CertIdentity:   common.CertIdentity,
+		CertOIDCIssuer: common.CertIssuer,
 		SkipTLogVerify: true, // skip tlog verification in offline mode
-		Quiet:          quiet,
-		SourceRef:      sourceRef,
+		Quiet:          common.Quiet,
+		SourceRef:      common.SourceRef,
 	}
 
-	if !quiet {
-		if artifactPath != "" {
-			fmt.Printf("Verifying artifact: %s\n", artifactPath)
-		} else if imageDigest != "" {
-			fmt.Printf("Verifying artifact digest: %s\n", imageDigest)
-		} else {
-			fmt.Println("No artifact provided - verifying attestations only")
-		}
-		fmt.Printf("Using attestations from: %s\n", attestationsPath)
-		fmt.Println("Performing offline verification...")
-		fmt.Println()
+	// log what we're verifying
+	if len(selector.BlobPaths) > 0 {
+		cli.LogInfoln(common.Quiet, "Verifying artifact: %s", selector.BlobPaths[0])
+	} else if selector.ImageDigest != "" {
+		cli.LogInfoln(common.Quiet, "Verifying artifact digest: %s", selector.ImageDigest)
+	} else {
+		cli.LogInfoln(common.Quiet, "No artifact provided - verifying attestations only")
 	}
+	cli.LogInfoln(common.Quiet, "Using attestations from: %s", offlineOpts.AttestationsPath)
+	cli.LogInfoln(common.Quiet, "Performing offline verification...")
+	cli.LogInfoln(common.Quiet, "")
 
 	// creates offline verifier
-	verifier, err := NewOfflineVerifier(trustedRootPath, verifyOpts)
+	verifier, err := NewOfflineVerifier(offlineOpts.TrustedRoot, verifyOpts)
 	if err != nil {
 		return fmt.Errorf("failed to create offline verifier: %w", err)
 	}
 
 	// loads attestation bundles
-	if err := verifier.LoadBundlesFromFile(attestationsPath); err != nil {
+	if err := verifier.LoadBundlesFromFile(offlineOpts.AttestationsPath); err != nil {
 		return fmt.Errorf("failed to load attestation bundles: %w", err)
 	}
 
-	if !quiet {
-		fmt.Println("Loaded attestation bundles successfully")
-	}
+	cli.LogInfoln(common.Quiet, "Loaded attestation bundles successfully")
 
 	// verifies artifact and attestations
-	if !quiet {
-		fmt.Println("Verifying attestations...")
-	}
+	cli.LogInfoln(common.Quiet, "Verifying attestations...")
 
 	var result *VerificationResult
-	if artifactPath != "" {
-		result, err = verifier.VerifyArtifact(artifactPath)
-	} else if imageDigest != "" {
-		result, err = verifier.VerifyArtifactDigest(imageDigest)
-	} else if len(args) > 0 {
-		result, err = verifier.VerifyArtifactDigest(args[0])
+	if len(selector.BlobPaths) > 0 {
+		result, err = verifier.VerifyArtifact(selector.BlobPaths[0])
+	} else if selector.ImageDigest != "" {
+		result, err = verifier.VerifyArtifactDigest(selector.ImageDigest)
 	} else {
 		result, err = verifier.VerifyArtifact("")
 	}
@@ -146,27 +95,25 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	// outputs results via verification summary
-	if !quiet {
-		fmt.Println("\nSummary:")
-		fmt.Printf("✓ Successfully verified %d attestations\n", len(result.Attestations))
+	cli.LogInfoln(common.Quiet, "\nSummary:")
+	cli.LogSuccessln(common.Quiet, "Successfully verified %d attestations", len(result.Attestations))
 
-		// attestation types
-		fmt.Println("\nAttestation Types:")
-		i := 1
-		for _, att := range result.Attestations {
-			if att.Verified {
-				fmt.Printf("%d. %s\n", i, att.Type)
-				i++
-			}
+	// attestation types
+	cli.LogInfoln(common.Quiet, "\nAttestation Types:")
+	i := 1
+	for _, att := range result.Attestations {
+		if att.Verified {
+			cli.LogInfoln(common.Quiet, "%d. %s", i, att.Type)
+			i++
 		}
 	}
 
 	// VSA generation if requested
-	if generateVSA {
-		if vsaOutput == "" {
+	if offlineOpts.GenerateVSA {
+		if offlineOpts.VSAOutput == "" {
 			return fmt.Errorf("VSA output path is required when --generate-vsa is used")
 		}
-		if policyURI == "" {
+		if offlineOpts.PolicyURI == "" {
 			return fmt.Errorf("policy URI is required when --generate-vsa is used")
 		}
 
@@ -176,7 +123,7 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		var bundlesForOPA []map[string]interface{}
 
 		// loads raw bundles to extract payload for OPA
-		bundles, err := LoadBundles(attestationsPath)
+		bundles, err := LoadBundles(offlineOpts.AttestationsPath)
 		if err != nil {
 			return fmt.Errorf("failed to reload bundles for OPA: %w", err)
 		}
@@ -232,14 +179,14 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 
 		// if no subjects from attestations, create from artifact or use a default
 		if len(vsaSubjects) == 0 {
-			if artifactPath != "" {
+			if len(selector.BlobPaths) > 0 {
 				vsaSubjects = append(vsaSubjects, vsa.VSASubject{
-					URI: artifactPath,
+					URI: selector.BlobPaths[0],
 				})
-			} else if imageDigest != "" {
+			} else if selector.ImageDigest != "" {
 				// use digest as URI if no artifact path
 				vsaSubjects = append(vsaSubjects, vsa.VSASubject{
-					URI: fmt.Sprintf("sha256:%s", imageDigest),
+					URI: fmt.Sprintf("sha256:%s", selector.ImageDigest),
 				})
 			} else {
 				// defaults subject for attestation-only verification
@@ -251,8 +198,8 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 
 		// determines resource URI for VSA
 		resourceURI := ""
-		if artifactPath != "" {
-			resourceURI = artifactPath
+		if len(selector.BlobPaths) > 0 {
+			resourceURI = selector.BlobPaths[0]
 		} else if len(vsaSubjects) > 0 {
 			resourceURI = vsaSubjects[0].URI
 		} else {
@@ -266,10 +213,10 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 			VSASubjects:      vsaSubjects,
 			AttestationTypes: attestationTypes,
 			Signatures:       nil, // No OCI signatures in offline mode
-			PolicyURI:        policyURI,
-			VSAOutput:        vsaOutput,
-			PolicyBundlePath: policyBundlePath, // Enable OPA evaluation with attestations
-			Quiet:            quiet,
+			PolicyURI:        offlineOpts.PolicyURI,
+			VSAOutput:        offlineOpts.VSAOutput,
+			PolicyBundlePath: offlineOpts.PolicyBundlePath, // Enable OPA evaluation with attestations
+			Quiet:            common.Quiet,
 		}
 
 		// pass attestations to viper for OPA evaluation
@@ -278,17 +225,15 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		}
 
 		// sets schemas path in viper for VSA generation to use
-		if policySchemasPath != "" {
-			viper.Set("policy-schemas-path", policySchemasPath)
+		if offlineOpts.PolicySchemasPath != "" {
+			viper.Set("policy-schemas-path", offlineOpts.PolicySchemasPath)
 		}
 
 		if err := vsa.Generate(ctx, vsaOpts); err != nil {
 			return fmt.Errorf("failed to generate VSA: %w", err)
 		}
 
-		if !quiet {
-			fmt.Printf("\n✓ VSA generated successfully: %s\n", vsaOutput)
-		}
+		cli.LogSuccessln(common.Quiet, "\nVSA generated successfully: %s", offlineOpts.VSAOutput)
 	}
 
 	return nil

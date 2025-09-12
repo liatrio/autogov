@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/liatrio/autogov-verify/pkg/cli"
 	"github.com/liatrio/autogov-verify/pkg/download"
 	ghclient "github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/liatrio/autogov-verify/pkg/offline"
@@ -250,7 +251,7 @@ func run(cmd *cobra.Command, args []string) error {
 	client := ghclient.NewClient()
 
 	// multiple blob paths handled separated by commas or a directory
-	blobPaths, err := expandBlobPaths(blobPath)
+	blobPaths, err := cli.ExpandBlobPaths(blobPath)
 	if err != nil {
 		return fmt.Errorf("failed to expand blob paths: %w", err)
 	}
@@ -467,56 +468,6 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-// takes a path string (which could be a single file, comma-separated files, or a directory)
-// and returns a slice of individual file paths
-func expandBlobPaths(pathStr string) ([]string, error) {
-	if pathStr == "" {
-		return nil, nil
-	}
-
-	// check if dir
-	fileInfo, err := os.Stat(pathStr)
-	if err == nil && fileInfo.IsDir() {
-		// if dir, get all files in it
-		entries, err := os.ReadDir(pathStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read directory %s: %w", pathStr, err)
-		}
-
-		var files []string
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				files = append(files, filepath.Join(pathStr, entry.Name()))
-			}
-		}
-
-		if len(files) == 0 {
-			return nil, fmt.Errorf("no files found in directory %s", pathStr)
-		}
-		return files, nil
-	}
-
-	// if no dir, treat as comma-separated paths
-	paths := strings.Split(pathStr, ",")
-	var result []string
-	for _, p := range paths {
-		trimmed := strings.TrimSpace(p)
-		if trimmed != "" {
-			// verify the file exists
-			if _, err := os.Stat(trimmed); err != nil {
-				return nil, fmt.Errorf("file not found: %s", trimmed)
-			}
-			result = append(result, trimmed)
-		}
-	}
-
-	if len(result) == 0 {
-		return nil, fmt.Errorf("no valid paths found in: %s", pathStr)
-	}
-
-	return result, nil
 }
 
 // creates a VSA after successful attestation verification
