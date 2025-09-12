@@ -4,41 +4,27 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/liatrio/autogov-verify/pkg/cli"
 	"github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/spf13/cobra"
 )
 
 // handles the download command execution
 func RunCommand(cmd *cobra.Command, args []string) error {
-	// get config values from flags with error checking
-	var (
-		artifactPath string
-		imageDigest  string
-		outputPath   string
-		format       string
-		repo         string
-		quiet        bool
-	)
-	var err error
-	if artifactPath, err = cmd.Flags().GetString("blob-path"); err != nil {
-		return fmt.Errorf("failed to read --blob-path flag: %w", err)
-	}
-	if imageDigest, err = cmd.Flags().GetString("image-digest"); err != nil {
-		return fmt.Errorf("failed to read --image-digest flag: %w", err)
-	}
-	if outputPath, err = cmd.Flags().GetString("output"); err != nil {
-		return fmt.Errorf("failed to read --output flag: %w", err)
-	}
-	if format, err = cmd.Flags().GetString("format"); err != nil {
-		return fmt.Errorf("failed to read --format flag: %w", err)
-	}
-	if repo, err = cmd.Flags().GetString("repo"); err != nil {
-		return fmt.Errorf("failed to read --repo flag: %w", err)
-	}
-	if quiet, err = cmd.Flags().GetBool("quiet"); err != nil {
-		return fmt.Errorf("failed to read --quiet flag: %w", err)
+	// gets config values
+	quiet, _ := cmd.Flags().GetBool("quiet")
+	blobPath, _ := cmd.Flags().GetString("blob-path")
+	imageDigest, _ := cmd.Flags().GetString("image-digest")
+	outputPath, _ := cmd.Flags().GetString("output")
+	format, _ := cmd.Flags().GetString("format")
+	repo, _ := cmd.Flags().GetString("repo")
+
+	// handle positional argument for digest
+	if imageDigest == "" && len(args) > 0 {
+		imageDigest = args[0]
 	}
 
+	// validate required fields
 	if outputPath == "" {
 		return fmt.Errorf("output path is required")
 	}
@@ -47,46 +33,61 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("repository is required (format: owner/repo)")
 	}
 
-	// attestation downloader with options
-	downloadOpts := DownloadOptions{
-		ArtifactPath: artifactPath,
-		OutputPath:   outputPath,
-		OutputFormat: format,
-		Repository:   repo,
-		GitHubToken:  github.GetToken(),
-		Quiet:        quiet,
+	// expand blob paths if provided
+	var blobPaths []string
+	if blobPath != "" {
+		expandedPaths, err := cli.ExpandBlobPaths(blobPath)
+		if err != nil {
+			return fmt.Errorf("failed to expand blob paths: %w", err)
+		}
+		blobPaths = expandedPaths
 	}
 
-	// handle image digest
-	if imageDigest != "" {
-		downloadOpts.ArtifactDigest = imageDigest
-	} else if len(args) > 0 {
-		// if argument provided, use it as digest
-		downloadOpts.ArtifactDigest = args[0]
-	}
+	// process each blob file
+	for i, artifactPath := range blobPaths {
+		if len(blobPaths) > 1 {
+			fmt.Printf("Processing file %d/%d: %s\n", i+1, len(blobPaths), artifactPath)
+		}
 
-	if !quiet {
-		if imageDigest != "" {
-			fmt.Printf("Downloading attestations for image digest: %s\n", imageDigest)
-		} else if downloadOpts.ArtifactDigest != "" {
-			fmt.Printf("Downloading attestations for digest: %s\n", downloadOpts.ArtifactDigest)
-		} else {
-			fmt.Printf("Downloading attestations for artifact: %s\n", artifactPath)
+		// build download options
+		downloaderOpts := DownloadOptions{
+			ArtifactPath:   artifactPath,
+			ArtifactDigest: imageDigest,
+			OutputPath:     outputPath,
+			OutputFormat:   format,
+			Repository:     repo,
+			GitHubToken:    github.GetToken(),
+			Quiet:          quiet,
+		}
+
+		// log what we're downloading
+		if !quiet {
+			if imageDigest != "" {
+				fmt.Printf("Downloading attestations for image digest: %s\n", imageDigest)
+			} else if artifactPath != "" {
+				fmt.Printf("Downloading attestations for artifact: %s\n", artifactPath)
+			}
+		}
+
+		// create downloader
+		downloader, err := NewAttestationDownloader(downloaderOpts)
+		if err != nil {
+			return fmt.Errorf("failed to create downloader for %s: %w", artifactPath, err)
+		}
+
+		// download attestations
+		err = downloader.Download(context.Background())
+		if err != nil {
+			return fmt.Errorf("download failed for %s: %w", artifactPath, err)
+		}
+
+		if !quiet {
+			fmt.Printf("\n✓ Attestations saved to: %s\n", outputPath)
 		}
 	}
 
-	downloader, err := NewAttestationDownloader(downloadOpts)
-	if err != nil {
-		return fmt.Errorf("failed to create downloader: %w", err)
-	}
-
-	// downloads attestations
-	if err := downloader.Download(context.Background()); err != nil {
-		return fmt.Errorf("failed to download attestations: %w", err)
-	}
-
-	if !quiet {
-		fmt.Printf("✓ Attestations saved to: %s\n", outputPath)
+	if len(blobPaths) == 0 {
+		return fmt.Errorf("no files found to process")
 	}
 
 	return nil

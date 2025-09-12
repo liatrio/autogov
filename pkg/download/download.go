@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v74/github"
-	bundleutils "github.com/liatrio/autogov-verify/pkg/bundle"
 	"github.com/liatrio/autogov-verify/pkg/digest"
 	"github.com/liatrio/autogov-verify/pkg/offline"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
@@ -21,9 +20,8 @@ type DownloadOptions struct {
 	ArtifactPath   string // path to local artifact file
 	ArtifactDigest string // SHA256 digest of artifact (alternative to path)
 
-	// repository information (for fetching from specific repo/release)
+	// repository information
 	Repository string // format: owner/repo
-	Tag        string // release tag (optional)
 
 	// output options
 	OutputPath   string // path to save bundle file
@@ -32,9 +30,6 @@ type DownloadOptions struct {
 	// authentication
 	GitHubToken string // GitHub token for API access
 
-	// filtering options
-	AttestationTypes []string // filter by attestation types
-	MaxAttestations  int      // limit number of attestations (0 = no limit)
 	// output control
 	Quiet bool // if true, suppress non-error output
 }
@@ -107,16 +102,6 @@ func (ad *AttestationDownloader) Download(ctx context.Context) error {
 	bundles, err := ad.convertToBundles(attestations)
 	if err != nil {
 		return fmt.Errorf("failed to convert attestations to bundles: %w", err)
-	}
-
-	// filter bundles if requested
-	if len(ad.opts.AttestationTypes) > 0 {
-		bundles = ad.filterBundles(bundles)
-	}
-
-	// limit number of bundles if requested
-	if ad.opts.MaxAttestations > 0 && len(bundles) > ad.opts.MaxAttestations {
-		bundles = bundles[:ad.opts.MaxAttestations]
 	}
 
 	if !ad.opts.Quiet {
@@ -193,28 +178,6 @@ func (ad *AttestationDownloader) convertAttestationToBundle(attestation *github.
 	}
 
 	return b, nil
-}
-
-// filter bundles by attestation type
-func (ad *AttestationDownloader) filterBundles(bundles []*bundle.Bundle) []*bundle.Bundle {
-	if len(ad.opts.AttestationTypes) == 0 {
-		return bundles
-	}
-
-	filtered := make([]*bundle.Bundle, 0)
-
-	for _, bundle := range bundles {
-		attestationType := bundleutils.DetectType(bundle)
-
-		for _, allowedType := range ad.opts.AttestationTypes {
-			if strings.Contains(attestationType, allowedType) {
-				filtered = append(filtered, bundle)
-				break
-			}
-		}
-	}
-
-	return filtered
 }
 
 // save bundles saves bundles to the output file
