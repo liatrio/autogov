@@ -4,78 +4,68 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/liatrio/autogov-verify/pkg/cli"
 	"github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/spf13/cobra"
 )
 
 // handles the download command execution
 func RunCommand(cmd *cobra.Command, args []string) error {
-	// get config values from flags with error checking
-	var (
-		artifactPath string
-		imageDigest  string
-		outputPath   string
-		format       string
-		repo         string
-		quiet        bool
-	)
-	var err error
-	if artifactPath, err = cmd.Flags().GetString("blob-path"); err != nil {
-		return fmt.Errorf("failed to read --blob-path flag: %w", err)
-	}
-	if imageDigest, err = cmd.Flags().GetString("image-digest"); err != nil {
-		return fmt.Errorf("failed to read --image-digest flag: %w", err)
-	}
-	if outputPath, err = cmd.Flags().GetString("output"); err != nil {
-		return fmt.Errorf("failed to read --output flag: %w", err)
-	}
-	if format, err = cmd.Flags().GetString("format"); err != nil {
-		return fmt.Errorf("failed to read --format flag: %w", err)
-	}
-	if repo, err = cmd.Flags().GetString("repo"); err != nil {
-		return fmt.Errorf("failed to read --repo flag: %w", err)
-	}
-	if quiet, err = cmd.Flags().GetBool("quiet"); err != nil {
-		return fmt.Errorf("failed to read --quiet flag: %w", err)
+	// parse flags using CLI helpers
+	common, err := cli.ParseCommonOptions(cmd)
+	if err != nil {
+		return err
 	}
 
-	if outputPath == "" {
+	selector, err := cli.ParseArtifactSelector(cmd, args)
+	if err != nil {
+		return err
+	}
+
+	// download command requires repo for online verification
+	if err := cli.RequireRepoIf(selector, true); err != nil {
+		return err
+	}
+
+	downloadOpts, err := cli.ParseDownloadOptions(cmd)
+	if err != nil {
+		return err
+	}
+
+	// validate required fields
+	if downloadOpts.Output == "" {
 		return fmt.Errorf("output path is required")
 	}
 
-	if repo == "" {
+	if selector.Repo == "" {
 		return fmt.Errorf("repository is required (format: owner/repo)")
 	}
 
-	// attestation downloader with options
-	downloadOpts := DownloadOptions{
-		ArtifactPath: artifactPath,
-		OutputPath:   outputPath,
-		OutputFormat: format,
-		Repository:   repo,
+	// build download options for the downloader
+	downloaderOpts := DownloadOptions{
+		OutputPath:   downloadOpts.Output,
+		OutputFormat: downloadOpts.Format,
+		Repository:   selector.Repo,
 		GitHubToken:  github.GetToken(),
-		Quiet:        quiet,
+		Quiet:        common.Quiet,
 	}
 
-	// handle image digest
-	if imageDigest != "" {
-		downloadOpts.ArtifactDigest = imageDigest
-	} else if len(args) > 0 {
-		// if argument provided, use it as digest
-		downloadOpts.ArtifactDigest = args[0]
+	// set artifact path or digest based on selector
+	if len(selector.BlobPaths) > 0 {
+		downloaderOpts.ArtifactPath = selector.BlobPaths[0] // use first blob path
+	}
+	if selector.ImageDigest != "" {
+		downloaderOpts.ArtifactDigest = selector.ImageDigest
 	}
 
-	if !quiet {
-		if imageDigest != "" {
-			fmt.Printf("Downloading attestations for image digest: %s\n", imageDigest)
-		} else if downloadOpts.ArtifactDigest != "" {
-			fmt.Printf("Downloading attestations for digest: %s\n", downloadOpts.ArtifactDigest)
-		} else {
-			fmt.Printf("Downloading attestations for artifact: %s\n", artifactPath)
-		}
+	// log what we're downloading
+	if selector.ImageDigest != "" {
+		cli.LogInfoln(common.Quiet, "Downloading attestations for image digest: %s", selector.ImageDigest)
+	} else if len(selector.BlobPaths) > 0 {
+		cli.LogInfoln(common.Quiet, "Downloading attestations for artifact: %s", selector.BlobPaths[0])
 	}
 
-	downloader, err := NewAttestationDownloader(downloadOpts)
+	downloader, err := NewAttestationDownloader(downloaderOpts)
 	if err != nil {
 		return fmt.Errorf("failed to create downloader: %w", err)
 	}
@@ -85,9 +75,7 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to download attestations: %w", err)
 	}
 
-	if !quiet {
-		fmt.Printf("✓ Attestations saved to: %s\n", outputPath)
-	}
+	cli.LogSuccessln(common.Quiet, "Attestations saved to: %s", downloadOpts.Output)
 
 	return nil
 }
