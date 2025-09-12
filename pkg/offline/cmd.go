@@ -12,22 +12,66 @@ import (
 
 // handles the offline command execution
 func RunCommand(cmd *cobra.Command, args []string) error {
-	// gets config values
-	artifactPath, _ := cmd.Flags().GetString("blob-path")
-	imageDigest, _ := cmd.Flags().GetString("image-digest")
-	attestationsPath, _ := cmd.Flags().GetString("attestations")
-	trustedRootPath, _ := cmd.Flags().GetString("trusted-root")
-	certIdentity, _ := cmd.Flags().GetString("cert-identity")
-	certIssuer, _ := cmd.Flags().GetString("cert-issuer")
-	sourceRef, _ := cmd.Flags().GetString("source-ref")
-	quiet, _ := cmd.Flags().GetBool("quiet")
+	// gets config values with error checking
+	var (
+		artifactPath     string
+		imageDigest      string
+		attestationsPath string
+		trustedRootPath  string
+		certIdentity     string
+		certIssuer       string
+		sourceRef        string
+		quiet            bool
+
+		generateVSA       bool
+		vsaOutput         string
+		policyURI         string
+		policyBundlePath  string
+		policySchemasPath string
+	)
+	var err error
+
+	if artifactPath, err = cmd.Flags().GetString("blob-path"); err != nil {
+		return fmt.Errorf("failed to read --blob-path flag: %w", err)
+	}
+	if imageDigest, err = cmd.Flags().GetString("image-digest"); err != nil {
+		return fmt.Errorf("failed to read --image-digest flag: %w", err)
+	}
+	if attestationsPath, err = cmd.Flags().GetString("attestations"); err != nil {
+		return fmt.Errorf("failed to read --attestations flag: %w", err)
+	}
+	if trustedRootPath, err = cmd.Flags().GetString("trusted-root"); err != nil {
+		return fmt.Errorf("failed to read --trusted-root flag: %w", err)
+	}
+	if certIdentity, err = cmd.Flags().GetString("cert-identity"); err != nil {
+		return fmt.Errorf("failed to read --cert-identity flag: %w", err)
+	}
+	if certIssuer, err = cmd.Flags().GetString("cert-issuer"); err != nil {
+		return fmt.Errorf("failed to read --cert-issuer flag: %w", err)
+	}
+	if sourceRef, err = cmd.Flags().GetString("source-ref"); err != nil {
+		return fmt.Errorf("failed to read --source-ref flag: %w", err)
+	}
+	if quiet, err = cmd.Flags().GetBool("quiet"); err != nil {
+		return fmt.Errorf("failed to read --quiet flag: %w", err)
+	}
 
 	// VSA generation flags
-	generateVSA, _ := cmd.Flags().GetBool("generate-vsa")
-	vsaOutput, _ := cmd.Flags().GetString("vsa-output")
-	policyURI, _ := cmd.Flags().GetString("policy-uri")
-	policyBundlePath, _ := cmd.Flags().GetString("policy-bundle-path")
-	policySchemasPath, _ := cmd.Flags().GetString("policy-schemas-path")
+	if generateVSA, err = cmd.Flags().GetBool("generate-vsa"); err != nil {
+		return fmt.Errorf("failed to read --generate-vsa flag: %w", err)
+	}
+	if vsaOutput, err = cmd.Flags().GetString("vsa-output"); err != nil {
+		return fmt.Errorf("failed to read --vsa-output flag: %w", err)
+	}
+	if policyURI, err = cmd.Flags().GetString("policy-uri"); err != nil {
+		return fmt.Errorf("failed to read --policy-uri flag: %w", err)
+	}
+	if policyBundlePath, err = cmd.Flags().GetString("policy-bundle-path"); err != nil {
+		return fmt.Errorf("failed to read --policy-bundle-path flag: %w", err)
+	}
+	if policySchemasPath, err = cmd.Flags().GetString("policy-schemas-path"); err != nil {
+		return fmt.Errorf("failed to read --policy-schemas-path flag: %w", err)
+	}
 
 	if attestationsPath == "" {
 		return fmt.Errorf("attestations is required")
