@@ -6,22 +6,17 @@ import (
 
 	"github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // handles the download command execution
 func RunCommand(cmd *cobra.Command, args []string) error {
-	// get config values from viper
-	artifactPath := viper.GetString("blob-path")
-	imageDigest := viper.GetString("image-digest")
-	outputPath := viper.GetString("output")
-	format := viper.GetString("format")
-	repo := viper.GetString("repo")
-	quiet := viper.GetBool("quiet")
-
-	if artifactPath == "" && imageDigest == "" && len(args) == 0 {
-		return fmt.Errorf("must specify --blob-path, --image-digest, or provide artifact digest as argument")
-	}
+	// get config values from flags
+	artifactPath, _ := cmd.Flags().GetString("blob-path")
+	imageDigest, _ := cmd.Flags().GetString("image-digest")
+	outputPath, _ := cmd.Flags().GetString("output")
+	format, _ := cmd.Flags().GetString("format")
+	repo, _ := cmd.Flags().GetString("repo")
+	quiet, _ := cmd.Flags().GetBool("quiet")
 
 	if outputPath == "" {
 		return fmt.Errorf("output path is required")

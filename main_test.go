@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/pflag"
 )
 
-const errMissingArtifact = "either --artifact-digest or --blob-path must be provided"
+const errMissingArtifact = "either --image-digest, --blob-path, or a positional argument must be provided"
 
 func TestRun(t *testing.T) {
 	// save current env
@@ -53,7 +53,8 @@ func TestRun(t *testing.T) {
 			name: "missing token",
 			args: []string{
 				"--cert-identity", "https://github.com/liatrio/autogov-verify/.github/workflows/test.yml@refs/heads/main",
-				"--artifact-digest", "liatrio/repo@sha256:abc123",
+				"--image-digest", "liatrio/repo@sha256:abc123",
+				"--repo", "liatrio/repo",
 			},
 			envVars: map[string]string{
 				"GITHUB_TOKEN": "",
@@ -77,7 +78,8 @@ func TestRun(t *testing.T) {
 			name: "invalid artifact digest - short sha",
 			args: []string{
 				"--cert-identity", "https://github.com/liatrio/autogov-verify/.github/workflows/test.yml@refs/heads/main",
-				"--artifact-digest", "liatrio/repo@sha256:abc123",
+				"--image-digest", "liatrio/repo@sha256:abc123",
+				"--repo", "liatrio/repo",
 			},
 			envVars: map[string]string{
 				"GITHUB_TOKEN": "mock-token",
@@ -89,13 +91,14 @@ func TestRun(t *testing.T) {
 			name: "invalid artifact digest - bad format",
 			args: []string{
 				"--cert-identity", "https://github.com/liatrio/autogov-verify/.github/workflows/test.yml@refs/heads/main",
-				"--artifact-digest", "invalid-digest",
+				"--image-digest", "invalid-digest",
+				"--repo", "liatrio/repo",
 			},
 			envVars: map[string]string{
 				"GITHUB_TOKEN": "mock-token",
 			},
 			wantErr: true,
-			errMsg:  "failed to parse image reference",
+			errMsg:  "invalid digest format",
 		},
 		{
 			name: "invalid blob path",

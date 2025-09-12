@@ -13,21 +13,21 @@ import (
 // handles the offline command execution
 func RunCommand(cmd *cobra.Command, args []string) error {
 	// gets config values
-	artifactPath := viper.GetString("blob-path")
-	artifactDigest := viper.GetString("artifact-digest")
-	attestationsPath := viper.GetString("attestations")
-	trustedRootPath := viper.GetString("trusted-root")
-	certIdentity := viper.GetString("cert-identity")
-	certIssuer := viper.GetString("cert-issuer")
-	sourceRef := viper.GetString("source-ref")
-	quiet := viper.GetBool("quiet")
+	artifactPath, _ := cmd.Flags().GetString("blob-path")
+	imageDigest, _ := cmd.Flags().GetString("image-digest")
+	attestationsPath, _ := cmd.Flags().GetString("attestations")
+	trustedRootPath, _ := cmd.Flags().GetString("trusted-root")
+	certIdentity, _ := cmd.Flags().GetString("cert-identity")
+	certIssuer, _ := cmd.Flags().GetString("cert-issuer")
+	sourceRef, _ := cmd.Flags().GetString("source-ref")
+	quiet, _ := cmd.Flags().GetBool("quiet")
 
 	// VSA generation flags
-	generateVSA := viper.GetBool("generate-vsa")
-	vsaOutput := viper.GetString("vsa-output")
-	policyURI := viper.GetString("policy-uri")
-	policyBundlePath := viper.GetString("policy-bundle-path")
-	policySchemasPath := viper.GetString("policy-schemas-path")
+	generateVSA, _ := cmd.Flags().GetBool("generate-vsa")
+	vsaOutput, _ := cmd.Flags().GetString("vsa-output")
+	policyURI, _ := cmd.Flags().GetString("policy-uri")
+	policyBundlePath, _ := cmd.Flags().GetString("policy-bundle-path")
+	policySchemasPath, _ := cmd.Flags().GetString("policy-schemas-path")
 
 	if attestationsPath == "" {
 		return fmt.Errorf("attestations is required")
@@ -45,8 +45,8 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 	if !quiet {
 		if artifactPath != "" {
 			fmt.Printf("Verifying artifact: %s\n", artifactPath)
-		} else if artifactDigest != "" {
-			fmt.Printf("Verifying artifact digest: %s\n", artifactDigest)
+		} else if imageDigest != "" {
+			fmt.Printf("Verifying artifact digest: %s\n", imageDigest)
 		} else {
 			fmt.Println("No artifact provided - verifying attestations only")
 		}
@@ -78,8 +78,10 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 	var result *VerificationResult
 	if artifactPath != "" {
 		result, err = verifier.VerifyArtifact(artifactPath)
-	} else if artifactDigest != "" {
-		result, err = verifier.VerifyArtifactDigest(artifactDigest)
+	} else if imageDigest != "" {
+		result, err = verifier.VerifyArtifactDigest(imageDigest)
+	} else if len(args) > 0 {
+		result, err = verifier.VerifyArtifactDigest(args[0])
 	} else {
 		result, err = verifier.VerifyArtifact("")
 	}
@@ -190,10 +192,10 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 				vsaSubjects = append(vsaSubjects, vsa.VSASubject{
 					URI: artifactPath,
 				})
-			} else if artifactDigest != "" {
+			} else if imageDigest != "" {
 				// use digest as URI if no artifact path
 				vsaSubjects = append(vsaSubjects, vsa.VSASubject{
-					URI: fmt.Sprintf("sha256:%s", artifactDigest),
+					URI: fmt.Sprintf("sha256:%s", imageDigest),
 				})
 			} else {
 				// defaults subject for attestation-only verification
