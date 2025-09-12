@@ -18,6 +18,7 @@ import (
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/rego"
 	"github.com/sigstore/cosign/v2/pkg/oci"
+	"github.com/spf13/viper"
 )
 
 // handles OPA policy evaluation using the Rego API
@@ -110,7 +111,9 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 					schemaSet.Put(ast.MustParseRef(refStr), schema)
 				}
 				modules = append(modules, rego.Schemas(schemaSet))
-				fmt.Printf("Loaded %d schemas for validation\n", len(schemas))
+				if !viper.GetBool("quiet") {
+					fmt.Printf("Loaded %d schemas for validation\n", len(schemas))
+				}
 			}
 		}
 	}
@@ -124,7 +127,9 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 		return nil, fmt.Errorf("failed to prepare Rego for evaluation: %w", err)
 	}
 
-	fmt.Printf("OPA evaluator created with %d policies loaded\n", len(policies))
+	if !viper.GetBool("quiet") {
+		fmt.Printf("OPA evaluator created with %d policies loaded\n", len(policies))
+	}
 
 	return &OPAEvaluator{
 		policyPath: policyBundlePath,

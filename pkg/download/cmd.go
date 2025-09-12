@@ -54,6 +54,7 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		OutputFormat: format,
 		Repository:   repo,
 		GitHubToken:  github.GetToken(),
+		Quiet:        quiet,
 	}
 
 	// handle image digest
