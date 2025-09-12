@@ -368,6 +368,7 @@ Verify a blob file:
 export GITHUB_AUTH_TOKEN=your_token
 autogov-verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
+  --repo owner/repo
   --blob-path path/to/your/file \
   --source-ref refs/heads/main
 ```
@@ -518,7 +519,6 @@ By default, the tool attempts to fetch the latest trusted root dynamically:
 
 ### Requirements for Dynamic Fetching
 
-- GitHub CLI (`gh`) must be installed and authenticated
 - Network access to GitHub's API
 - Valid GitHub authentication token
 
@@ -548,19 +548,6 @@ The tool generates SLSA v1.1 compliant Verification Summary Attestations (VSAs) 
 4. Generate comprehensive VSA
 5. Store VSA in OCI registry
 ```
-
-### Blob Verification
-
-To verify signed blobs (files) with attestations stored in GitHub:
-
-```bash
-# Verify a blob file
-autogov-verify \
-  --blob-path file.txt \
-  --cert-identity "..."
-```
-
-Note: The tool requires GitHub API access to fetch attestations. Ensure your GitHub token is set.
 
 ## Troubleshooting
 
