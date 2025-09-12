@@ -35,6 +35,8 @@ type DownloadOptions struct {
 	// filtering options
 	AttestationTypes []string // filter by attestation types
 	MaxAttestations  int      // limit number of attestations (0 = no limit)
+	// output control
+	Quiet bool // if true, suppress non-error output
 }
 
 // handles downloading attestations from GitHub
@@ -83,7 +85,9 @@ func (ad *AttestationDownloader) Download(ctx context.Context) error {
 	// clean digest format (ensure it has sha256: prefix)
 	targetDigest = digest.Normalize(targetDigest)
 
-	fmt.Printf("Downloading attestations for digest: %s\n", targetDigest)
+	if !ad.opts.Quiet {
+		fmt.Printf("Downloading attestations for digest: %s\n", targetDigest)
+	}
 
 	// fetch attestations from GitHub
 	attestations, err := ad.fetchAttestations(ctx, targetDigest)
@@ -95,7 +99,9 @@ func (ad *AttestationDownloader) Download(ctx context.Context) error {
 		return fmt.Errorf("no attestations found for digest %s", targetDigest)
 	}
 
-	fmt.Printf("Found %d attestations\n", len(attestations))
+	if !ad.opts.Quiet {
+		fmt.Printf("Found %d attestations\n", len(attestations))
+	}
 
 	// convert to bundles
 	bundles, err := ad.convertToBundles(attestations)
@@ -113,14 +119,18 @@ func (ad *AttestationDownloader) Download(ctx context.Context) error {
 		bundles = bundles[:ad.opts.MaxAttestations]
 	}
 
-	fmt.Printf("Saving %d bundles to %s\n", len(bundles), ad.opts.OutputPath)
+	if !ad.opts.Quiet {
+		fmt.Printf("Saving %d bundles to %s\n", len(bundles), ad.opts.OutputPath)
+	}
 
 	// save bundles to file
 	if err := ad.saveBundles(bundles); err != nil {
 		return fmt.Errorf("failed to save bundles: %w", err)
 	}
 
-	fmt.Printf("Successfully downloaded attestations to %s\n", ad.opts.OutputPath)
+	if !ad.opts.Quiet {
+		fmt.Printf("Successfully downloaded attestations to %s\n", ad.opts.OutputPath)
+	}
 	return nil
 }
 
@@ -159,7 +169,9 @@ func (ad *AttestationDownloader) convertToBundles(attestations []*github.Attesta
 		b, err := ad.convertAttestationToBundle(attestation)
 		if err != nil {
 			// Log warning but continue with other attestations
-			fmt.Printf("Warning: failed to convert attestation to bundle: %v\n", err)
+			if !ad.opts.Quiet {
+				fmt.Printf("Warning: failed to convert attestation to bundle: %v\n", err)
+			}
 			continue
 		}
 		bundles = append(bundles, b)

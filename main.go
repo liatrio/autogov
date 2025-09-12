@@ -145,6 +145,7 @@ func init() {
 	downloadCmd.Flags().StringP(flagDownloadOutput, "o", "", "Output file path for attestation bundles (required)")
 	downloadCmd.Flags().String(flagDownloadFormat, "jsonl", "Output format: json or jsonl")
 	downloadCmd.Flags().StringP("repo", "R", "", "Repository to download attestations from (format: owner/repo)")
+	downloadCmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final results")
 
 	downloadCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		blobPath, _ := cmd.Flags().GetString(flagBlobPath)
