@@ -88,18 +88,13 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 		fmt.Println("Evaluating OPA policy...")
 	}
 
-	// require policy source for evaluation
-	if opts.PolicyBundlePath == "" && opts.PolicyURI == "" {
-		return fmt.Errorf("policy evaluation requires either --policy-bundle-path or --policy-uri")
+	// require policy bundle for evaluation (policy-uri is just for VSA metadata)
+	if opts.PolicyBundlePath == "" {
+		return fmt.Errorf("policy evaluation requires --policy-bundle-path (local policy bundle file)")
 	}
 
-	// OPA evaluator, use bundle path if provided, otherwise download from URI
-	var policyBundlePath string
-	if opts.PolicyBundlePath != "" {
-		policyBundlePath = opts.PolicyBundlePath
-	} else {
-		policyBundlePath = opts.PolicyURI
-	}
+	// use local policy bundle for evaluation
+	policyBundlePath := opts.PolicyBundlePath
 
 	evaluator, err := policy.NewOPAEvaluator(ctx, policyBundlePath, schemasPath)
 	if err != nil {

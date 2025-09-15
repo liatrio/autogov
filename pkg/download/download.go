@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v74/github"
-	bundleutils "github.com/liatrio/autogov-verify/pkg/bundle"
 	"github.com/liatrio/autogov-verify/pkg/digest"
 	"github.com/liatrio/autogov-verify/pkg/offline"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
@@ -21,9 +20,8 @@ type DownloadOptions struct {
 	ArtifactPath   string // path to local artifact file
 	ArtifactDigest string // SHA256 digest of artifact (alternative to path)
 
-	// repository information (for fetching from specific repo/release)
+	// repository information
 	Repository string // format: owner/repo
-	Tag        string // release tag (optional)
 
 	// output options
 	OutputPath   string // path to save bundle file
@@ -32,9 +30,8 @@ type DownloadOptions struct {
 	// authentication
 	GitHubToken string // GitHub token for API access
 
-	// filtering options
-	AttestationTypes []string // filter by attestation types
-	MaxAttestations  int      // limit number of attestations (0 = no limit)
+	// output control
+	Quiet bool // if true, suppress non-error output
 }
 
 // handles downloading attestations from GitHub
@@ -83,7 +80,9 @@ func (ad *AttestationDownloader) Download(ctx context.Context) error {
 	// clean digest format (ensure it has sha256: prefix)
 	targetDigest = digest.Normalize(targetDigest)
 
-	fmt.Printf("Downloading attestations for digest: %s\n", targetDigest)
+	if !ad.opts.Quiet {
+		fmt.Printf("Downloading attestations for digest: %s\n", targetDigest)
+	}
 
 	// fetch attestations from GitHub
 	attestations, err := ad.fetchAttestations(ctx, targetDigest)
@@ -95,7 +94,9 @@ func (ad *AttestationDownloader) Download(ctx context.Context) error {
 		return fmt.Errorf("no attestations found for digest %s", targetDigest)
 	}
 
-	fmt.Printf("Found %d attestations\n", len(attestations))
+	if !ad.opts.Quiet {
+		fmt.Printf("Found %d attestations\n", len(attestations))
+	}
 
 	// convert to bundles
 	bundles, err := ad.convertToBundles(attestations)
@@ -103,24 +104,18 @@ func (ad *AttestationDownloader) Download(ctx context.Context) error {
 		return fmt.Errorf("failed to convert attestations to bundles: %w", err)
 	}
 
-	// filter bundles if requested
-	if len(ad.opts.AttestationTypes) > 0 {
-		bundles = ad.filterBundles(bundles)
+	if !ad.opts.Quiet {
+		fmt.Printf("Saving %d bundles to %s\n", len(bundles), ad.opts.OutputPath)
 	}
-
-	// limit number of bundles if requested
-	if ad.opts.MaxAttestations > 0 && len(bundles) > ad.opts.MaxAttestations {
-		bundles = bundles[:ad.opts.MaxAttestations]
-	}
-
-	fmt.Printf("Saving %d bundles to %s\n", len(bundles), ad.opts.OutputPath)
 
 	// save bundles to file
 	if err := ad.saveBundles(bundles); err != nil {
 		return fmt.Errorf("failed to save bundles: %w", err)
 	}
 
-	fmt.Printf("Successfully downloaded attestations to %s\n", ad.opts.OutputPath)
+	if !ad.opts.Quiet {
+		fmt.Printf("Successfully downloaded attestations to %s\n", ad.opts.OutputPath)
+	}
 	return nil
 }
 
@@ -159,7 +154,9 @@ func (ad *AttestationDownloader) convertToBundles(attestations []*github.Attesta
 		b, err := ad.convertAttestationToBundle(attestation)
 		if err != nil {
 			// Log warning but continue with other attestations
-			fmt.Printf("Warning: failed to convert attestation to bundle: %v\n", err)
+			if !ad.opts.Quiet {
+				fmt.Printf("Warning: failed to convert attestation to bundle: %v\n", err)
+			}
 			continue
 		}
 		bundles = append(bundles, b)
@@ -181,28 +178,6 @@ func (ad *AttestationDownloader) convertAttestationToBundle(attestation *github.
 	}
 
 	return b, nil
-}
-
-// filter bundles by attestation type
-func (ad *AttestationDownloader) filterBundles(bundles []*bundle.Bundle) []*bundle.Bundle {
-	if len(ad.opts.AttestationTypes) == 0 {
-		return bundles
-	}
-
-	filtered := make([]*bundle.Bundle, 0)
-
-	for _, bundle := range bundles {
-		attestationType := bundleutils.DetectType(bundle)
-
-		for _, allowedType := range ad.opts.AttestationTypes {
-			if strings.Contains(attestationType, allowedType) {
-				filtered = append(filtered, bundle)
-				break
-			}
-		}
-	}
-
-	return filtered
 }
 
 // save bundles saves bundles to the output file

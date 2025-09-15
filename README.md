@@ -173,13 +173,15 @@ autogov-verify -cert-identity <identity> [options]
 - `--cert-identity, -i`: Certificate identity to verify against (GitHub Actions workflow URL)
   - For blob verification, the organization and repository are extracted from this URL
   - Format: `https://github.com/OWNER/REPO/.github/workflows/...`
+- `--repo`: Repository to fetch attestations from (format: owner/repo) (required for both image and blob verification)
 
 And one of the following:
 
-- `--artifact-digest, -d`: Full OCI reference for container verification in the format `[registry/]org/repo[:tag]@sha256:hash` (e.g., `ghcr.io/owner/repo@sha256:hash` or `owner/repo@sha256:hash`)
-  - The registry is optional and defaults to ghcr.io
-  - The tag is optional and doesn't affect verification
+- `--image-digest, -d`: Container image digest. Provide either:
+  - A bare digest `sha256:<64-hex>` together with `--repo owner/repo` (recommended)
+  - Or a full OCI reference `[registry/]owner/repo[:tag]@sha256:<64-hex>` (still requires `--repo owner/repo` for API scoping)
 - `--blob-path`: Path to a blob file to verify attestations against (e.g., `--blob-path /path/to/file.txt`)
+- Positional digest: you may pass the digest as a positional argument when neither `--image-digest` nor `--blob-path` is provided.
 
 ### Offline Verification
 
@@ -232,7 +234,7 @@ autogov-verify offline \
 # Verify container image by digest
 autogov-verify offline \
   --attestations attestations.jsonl \
-  --artifact-digest "sha256:46a0df552ddbd5bfb4cc738a0f316e4060cc5b06e5fc0a8dac3a8c7e33b6992f" \
+  --image-digest "sha256:46a0df552ddbd5bfb4cc738a0f316e4060cc5b06e5fc0a8dac3a8c7e33b6992f" \
   --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@sha" \
   --cert-issuer "https://token.actions.githubusercontent.com"
 
@@ -246,7 +248,7 @@ autogov-verify offline \
 
 - `--attestations`: Path to pre-downloaded attestation bundles file (required)
 - `--blob-path`: Path to artifact file or directory containing multiple artifacts to verify (optional, calculates SHA256 digest for single files)
-- `--artifact-digest`: SHA256 digest for container image verification (optional, use when image cannot be pulled offline)
+- `--image-digest`: SHA256 digest for container image verification (optional, use when image cannot be pulled offline)
 - `--cert-identity`: Certificate identity (workflow URL with commit SHA) (required)
 - `--cert-issuer`: Certificate issuer (defaults to GitHub Actions)
 - `--trusted-root`: Path to trusted root JSON file (defaults to embedded GitHub trusted root if not provided)
@@ -355,7 +357,8 @@ Verify a container image:
 export GITHUB_AUTH_TOKEN=your_token
 autogov-verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
-  --artifact-digest "ghcr.io/liatrio/demo-gh-autogov-workflows@sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
+  --repo liatrio/demo-gh-autogov-workflows \
+  --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
   --source-ref refs/heads/main
 ```
 
@@ -365,6 +368,7 @@ Verify a blob file:
 export GITHUB_AUTH_TOKEN=your_token
 autogov-verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
+  --repo owner/repo
   --blob-path path/to/your/file \
   --source-ref refs/heads/main
 ```
@@ -375,7 +379,7 @@ Using environment variables:
 export GITHUB_AUTH_TOKEN=your_token
 export CERT_IDENTITY="https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da"
 export CERT_ISSUER=https://token.actions.githubusercontent.com
-autogov-verify -d "ghcr.io/liatrio/demo-gh-autogov-workflows@sha256:702bea33d240c2f0a1d87fe649a49b52f533bde2005b3c1bc0be7859dd5e4226"
+autogov-verify --repo liatrio/demo-gh-autogov-workflows -d "sha256:702bea33d240c2f0a1d87fe649a49b52f533bde2005b3c1bc0be7859dd5e4226"
 ```
 
 Verify with certificate identity validation:
@@ -384,7 +388,8 @@ Verify with certificate identity validation:
 export GITHUB_AUTH_TOKEN=your_token
 autogov-verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
-  --artifact-digest "ghcr.io/liatrio/demo-gh-autogov-workflows@sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
+  --repo liatrio/demo-gh-autogov-workflows \
+  --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
   --cert-identity-list "https://raw.githubusercontent.com/liatrio/liatrio-gh-autogov-workflows/refs/heads/main/cert-identities.json"
 ```
 
@@ -394,7 +399,8 @@ Generate enhanced VSA with policy evaluation:
 export GITHUB_AUTH_TOKEN=your_token
 autogov-verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
-  --artifact-digest "ghcr.io/liatrio/demo-gh-autogov-workflows@sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
+  --repo liatrio/demo-gh-autogov-workflows \
+  --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
   --generate-vsa \
   --vsa-output ./verification-summary.json \
   --policy-uri "https://github.com/liatrio/liatrio-rego-policy-library" \
@@ -513,7 +519,6 @@ By default, the tool attempts to fetch the latest trusted root dynamically:
 
 ### Requirements for Dynamic Fetching
 
-- GitHub CLI (`gh`) must be installed and authenticated
 - Network access to GitHub's API
 - Valid GitHub authentication token
 
@@ -543,19 +548,6 @@ The tool generates SLSA v1.1 compliant Verification Summary Attestations (VSAs) 
 4. Generate comprehensive VSA
 5. Store VSA in OCI registry
 ```
-
-### Blob Verification
-
-To verify signed blobs (files) with attestations stored in GitHub:
-
-```bash
-# Verify a blob file
-autogov-verify \
-  --blob-path file.txt \
-  --cert-identity "..."
-```
-
-Note: The tool requires GitHub API access to fetch attestations. Ensure your GitHub token is set.
 
 ## Troubleshooting
 

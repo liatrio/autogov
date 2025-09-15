@@ -8,7 +8,16 @@ import (
 	"github.com/spf13/pflag"
 )
 
-const errMissingArtifact = "either --artifact-digest or --blob-path must be provided"
+const (
+	testCertIdentity     = "https://github.com/liatrio/autogov-verify/.github/workflows/test.yml@refs/heads/main"
+	testRepo             = "liatrio/repo"
+	testToken            = "mock-token"
+	testFlagCertIdentity = "--cert-identity"
+	testFlagImageDigest  = "--image-digest"
+	testFlagRepo         = "--repo"
+)
+
+const errMissingArtifact = "either --image-digest, --blob-path, or a positional argument must be provided"
 
 func TestRun(t *testing.T) {
 	// save current env
@@ -52,8 +61,9 @@ func TestRun(t *testing.T) {
 		{
 			name: "missing token",
 			args: []string{
-				"--cert-identity", "https://github.com/liatrio/autogov-verify/.github/workflows/test.yml@refs/heads/main",
-				"--artifact-digest", "liatrio/repo@sha256:abc123",
+				testFlagCertIdentity, testCertIdentity,
+				testFlagImageDigest, "liatrio/repo@sha256:abc123",
+				testFlagRepo, testRepo,
 			},
 			envVars: map[string]string{
 				"GITHUB_TOKEN": "",
@@ -65,10 +75,10 @@ func TestRun(t *testing.T) {
 		{
 			name: "missing artifact digest and blob path",
 			args: []string{
-				"--cert-identity", "https://github.com/liatrio/autogov-verify/.github/workflows/test.yml@refs/heads/main",
+				testFlagCertIdentity, testCertIdentity,
 			},
 			envVars: map[string]string{
-				"GITHUB_TOKEN": "mock-token",
+				"GITHUB_TOKEN": testToken,
 			},
 			wantErr: true,
 			errMsg:  errMissingArtifact,
@@ -76,11 +86,12 @@ func TestRun(t *testing.T) {
 		{
 			name: "invalid artifact digest - short sha",
 			args: []string{
-				"--cert-identity", "https://github.com/liatrio/autogov-verify/.github/workflows/test.yml@refs/heads/main",
-				"--artifact-digest", "liatrio/repo@sha256:abc123",
+				testFlagCertIdentity, testCertIdentity,
+				testFlagImageDigest, "liatrio/repo@sha256:abc123",
+				testFlagRepo, testRepo,
 			},
 			envVars: map[string]string{
-				"GITHUB_TOKEN": "mock-token",
+				"GITHUB_TOKEN": testToken,
 			},
 			wantErr: true,
 			errMsg:  "invalid digest format",
@@ -88,27 +99,37 @@ func TestRun(t *testing.T) {
 		{
 			name: "invalid artifact digest - bad format",
 			args: []string{
-				"--cert-identity", "https://github.com/liatrio/autogov-verify/.github/workflows/test.yml@refs/heads/main",
-				"--artifact-digest", "invalid-digest",
+				testFlagCertIdentity, testCertIdentity,
+				testFlagImageDigest, "sha256:test",
+				testFlagRepo, testRepo,
 			},
 			envVars: map[string]string{
-				"GITHUB_TOKEN": "mock-token",
+				"GITHUB_TOKEN": testToken,
 			},
 			wantErr: true,
-			errMsg:  "failed to parse image reference",
+			errMsg:  "invalid digest format",
 		},
 		{
 			name: "invalid blob path",
 			args: []string{
-				"--cert-identity", "https://github.com/liatrio/autogov-verify/.github/workflows/test.yml@refs/heads/main",
+				testFlagCertIdentity, testCertIdentity,
 				"--blob-path", "/nonexistent/path",
-				"--repo", "liatrio/test-repo",
+				testFlagRepo, "liatrio/test-repo",
 			},
 			envVars: map[string]string{
-				"GITHUB_TOKEN": "mock-token",
+				"GITHUB_TOKEN": testToken,
 			},
 			wantErr: true,
-			errMsg:  "file not found",
+			errMsg:  "no such file or directory",
+		},
+		{
+			name: "invalid_blob_path",
+			args: []string{"--blob-path", "/nonexistent/path", testFlagRepo, testRepo},
+			envVars: map[string]string{
+				"GITHUB_TOKEN": testToken,
+			},
+			wantErr: true,
+			errMsg:  "no such file or directory",
 		},
 	}
 

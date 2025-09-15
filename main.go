@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/liatrio/autogov-verify/pkg/cli"
 	"github.com/liatrio/autogov-verify/pkg/download"
 	ghclient "github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/liatrio/autogov-verify/pkg/offline"
@@ -74,7 +75,7 @@ const (
 	flagCertIssuer          = "cert-issuer"
 	flagSourceRef           = "source-ref"
 	flagQuiet               = "quiet"
-	flagArtifactDigest      = "artifact-digest"
+	flagImageDigest         = "image-digest"
 	flagBlobPath            = "blob-path"
 	flagAttestationsPath    = "attestations-path"
 	flagCertIdentityList    = "cert-identity-list"
@@ -94,7 +95,7 @@ const (
 
 func init() {
 	// flags
-	rootCmd.Flags().StringP(flagArtifactDigest, "d", "", "Full OCI reference in the format [registry/]org/repo[:tag]@digest")
+	rootCmd.Flags().StringP(flagImageDigest, "d", "", "Full OCI reference in the format [registry/]org/repo[:tag]@digest")
 	rootCmd.Flags().String(flagBlobPath, "", "Path to a blob file to verify attestations against")
 	rootCmd.Flags().String(flagRepo, "", "Repository to fetch attestations from (format: owner/repo) - required for blob verification")
 	rootCmd.Flags().StringP(flagCertIdentity, "i", "", "Certificate identity to verify against (optional - if not provided, any valid signature will be accepted)")
@@ -117,22 +118,17 @@ func init() {
 	rootCmd.Flags().String(flagPolicyURI, "", "Policy URI for VSA generation (required if --generate-vsa is used)")
 
 	rootCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
-		// re-bind flags to ensure all values are captured
-		if err := viper.BindPFlags(cmd.Flags()); err != nil {
-			return fmt.Errorf("failed to bind flags: %w", err)
-		}
-
 		blobPath, _ := cmd.Flags().GetString(flagBlobPath)
-		artifactDigest, _ := cmd.Flags().GetString(flagArtifactDigest)
+		imageDigest, _ := cmd.Flags().GetString(flagImageDigest)
 		repo, _ := cmd.Flags().GetString(flagRepo)
 
-		if blobPath == "" && artifactDigest == "" {
-			return fmt.Errorf("either --%s or --%s must be provided", flagArtifactDigest, flagBlobPath)
+		if blobPath == "" && imageDigest == "" && len(args) == 0 {
+			return fmt.Errorf("either --%s, --%s, or a positional argument must be provided", flagImageDigest, flagBlobPath)
 		}
 
-		// blob verification requires --repo
-		if blobPath != "" && repo == "" {
-			return fmt.Errorf("--%s is required for blob verification", flagRepo)
+		// blob and image verification requires --repo
+		if (blobPath != "" || imageDigest != "") && repo == "" {
+			return fmt.Errorf("--%s is required for blob and image verification", flagRepo)
 		}
 
 		// token validation
@@ -150,10 +146,22 @@ func init() {
 	downloadCmd.Flags().StringP(flagDownloadOutput, "o", "", "Output file path for attestation bundles (required)")
 	downloadCmd.Flags().String(flagDownloadFormat, "jsonl", "Output format: json or jsonl")
 	downloadCmd.Flags().StringP("repo", "R", "", "Repository to download attestations from (format: owner/repo)")
+	downloadCmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final results")
+
+	downloadCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+		blobPath, _ := cmd.Flags().GetString(flagBlobPath)
+		imageDigest, _ := cmd.Flags().GetString("image-digest")
+
+		if blobPath == "" && imageDigest == "" && len(args) == 0 {
+			return fmt.Errorf("must specify --%s, --%s, or provide artifact digest as argument", flagBlobPath, "image-digest")
+		}
+
+		return nil
+	}
 
 	// offline flags
 	offlineCmd.Flags().String(flagBlobPath, "", "Path to artifact file to verify (optional - if not provided, verifies attestations only)")
-	offlineCmd.Flags().String(flagArtifactDigest, "", "Artifact digest to verify (e.g., sha256:abc123... for container images)")
+	offlineCmd.Flags().String(flagImageDigest, "", "Artifact digest to verify (e.g., sha256:abc123... for container images)")
 	offlineCmd.Flags().String(flagOfflineAttestations, "", "Path to attestation bundles file (required)")
 	offlineCmd.Flags().String(flagCertIdentity, "", "Expected certificate identity (required)")
 	offlineCmd.Flags().String(flagCertIssuer, "https://token.actions.githubusercontent.com", "Expected certificate issuer")
@@ -167,6 +175,18 @@ func init() {
 	offlineCmd.Flags().String(flagPolicyBundlePath, "", "Path to OPA policy bundle directory or .tar.gz file for policy evaluation")
 	offlineCmd.Flags().String(flagPolicySchemasPath, "", "Path to directory or .tar.gz file containing JSON schemas for OPA policy validation")
 	offlineCmd.Flags().String(flagSourceRef, "", "Source repository ref to verify against (e.g., refs/heads/main)")
+
+	offlineCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+
+		blobPath, _ := cmd.Flags().GetString(flagBlobPath)
+		imageDigest, _ := cmd.Flags().GetString(flagImageDigest)
+
+		if blobPath == "" && imageDigest == "" && len(args) == 0 {
+			return fmt.Errorf("must specify --%s, --%s, or provide artifact digest as argument", flagBlobPath, flagImageDigest)
+		}
+
+		return nil
+	}
 
 	if err := offlineCmd.MarkFlagRequired(flagOfflineAttestations); err != nil {
 		panic(fmt.Sprintf("failed to bind download flags: %v", err))
@@ -186,7 +206,7 @@ func init() {
 
 	// bind env vars
 	envBinds := map[string]string{
-		flagArtifactDigest:    "ARTIFACT_DIGEST",
+		flagImageDigest:       "IMAGE_DIGEST",
 		flagBlobPath:          "BLOB_PATH",
 		flagRepo:              "REPO",
 		flagCertIdentity:      "CERT_IDENTITY",
@@ -213,13 +233,16 @@ func init() {
 }
 
 func run(cmd *cobra.Command, args []string) error {
-	quiet := viper.GetBool(flagQuiet)
+	quiet, _ := cmd.Flags().GetBool(flagQuiet)
 	if !quiet {
 		fmt.Println("Starting verification process...")
 		fmt.Println("---")
 	}
 
-	artifactDigest, _ := cmd.Flags().GetString(flagArtifactDigest)
+	imageDigest, _ := cmd.Flags().GetString(flagImageDigest)
+	if imageDigest == "" && len(args) > 0 {
+		imageDigest = args[0]
+	}
 	certIdentity, _ := cmd.Flags().GetString(flagCertIdentity)
 	certIssuer, _ := cmd.Flags().GetString(flagCertIssuer)
 	sourceRef, _ := cmd.Flags().GetString(flagSourceRef)
@@ -228,7 +251,7 @@ func run(cmd *cobra.Command, args []string) error {
 	client := ghclient.NewClient()
 
 	// multiple blob paths handled separated by commas or a directory
-	blobPaths, err := expandBlobPaths(blobPath)
+	blobPaths, err := cli.ExpandBlobPaths(blobPath)
 	if err != nil {
 		return fmt.Errorf("failed to expand blob paths: %w", err)
 	}
@@ -278,16 +301,21 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 
 		// setup cert identity validation if requested
+		certIdentityList, _ := cmd.Flags().GetString(flagCertIdentityList)
+		noCache, _ := cmd.Flags().GetBool(flagNoCache)
 		certOpts := orchestrate.SetupCertIdentityValidation(
-			viper.GetString("cert-identity-list"),
-			viper.GetBool("no-cache"),
+			certIdentityList,
+			noCache,
 			quiet,
 		)
 
 		// verifies all blobs or image
 		repo, _ := cmd.Flags().GetString("repo")
+		if repo != "" && imageDigest != "" && !strings.Contains(imageDigest, "/") {
+			imageDigest = fmt.Sprintf("ghcr.io/%s@%s", repo, imageDigest)
+		}
 		sigs, err = orchestrate.VerifyBlobs(context.Background(), client, orchestrate.Options{
-			ArtifactDigest:         artifactDigest,
+			ArtifactDigest:         imageDigest,
 			Repository:             repo,
 			CertIdentity:           certIdentity,
 			CertIssuer:             certIssuer,
@@ -302,7 +330,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// use correct digest format based on verification type
-	vsaArtifactRef := artifactDigest
+	vsaArtifactRef := imageDigest
 	var vsaSubjects []vsa.VSASubject
 
 	if len(blobPaths) > 0 {
@@ -333,24 +361,24 @@ func run(cmd *cobra.Command, args []string) error {
 				vsaArtifactRef = fmt.Sprintf("https://github.com/%s", repo)
 			}
 		}
-	} else if artifactDigest != "" {
+	} else if imageDigest != "" {
 		// create VSA subject for the container image
-		digestValue := artifactDigest
+		digestValue := imageDigest
 		// use SHA256 from image reference (format: registry/repo@sha256:hash)
-		if idx := strings.Index(artifactDigest, "@sha256:"); idx != -1 {
-			digestValue = artifactDigest[idx+8:] // Skip "@sha256:"
-		} else if strings.HasPrefix(artifactDigest, "sha256:") {
-			digestValue = strings.TrimPrefix(artifactDigest, "sha256:")
+		if idx := strings.Index(imageDigest, "@sha256:"); idx != -1 {
+			digestValue = imageDigest[idx+8:] // Skip "@sha256:"
+		} else if strings.HasPrefix(imageDigest, "sha256:") {
+			digestValue = strings.TrimPrefix(imageDigest, "sha256:")
 		}
 
 		vsaSubjects = append(vsaSubjects, vsa.VSASubject{
-			URI: artifactDigest, // image ref with digest
+			URI: imageDigest, // image ref with digest
 			Digest: map[string]string{
 				"sha256": digestValue,
 			},
 		})
 		// use image reference as resourceUri
-		vsaArtifactRef = artifactDigest
+		vsaArtifactRef = imageDigest
 	}
 
 	if !quiet {
@@ -396,10 +424,10 @@ func run(cmd *cobra.Command, args []string) error {
 
 		// create proper URI pointing to where attestation can be retrieved
 		var attestationURI string
-		if artifactDigest != "" {
+		if imageDigest != "" {
 			// extract org from artifact digest for GitHub API endpoint
 			// format: [registry/]org/repo@digest
-			digestParts := strings.Split(artifactDigest, "@")
+			digestParts := strings.Split(imageDigest, "@")
 			if len(digestParts) >= 2 {
 				imagePart := digestParts[0]
 				// remove registry prefix if present (e.g., ghcr.io/)
@@ -435,8 +463,20 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// generate VSA if requested
-	if viper.GetBool(flagGenerateVSA) {
-		if err := generateVSA(context.Background(), vsaArtifactRef, vsaSubjects, inputAttestations, attestationTypes, sigs, quiet); err != nil {
+	generateVSA, _ := cmd.Flags().GetBool(flagGenerateVSA)
+	if generateVSA {
+		vsaOutput, _ := cmd.Flags().GetString(flagVSAOutput)
+		policyURI, _ := cmd.Flags().GetString(flagPolicyURI)
+
+		if vsaOutput == "" {
+			return fmt.Errorf("VSA output path is required when --generate-vsa is used")
+		}
+		if policyURI == "" {
+			return fmt.Errorf("policy URI is required when --generate-vsa is used")
+		}
+
+		policyBundlePath, _ := cmd.Flags().GetString(flagPolicyBundlePath)
+		if err := generateVSAWithOptions(context.Background(), vsaArtifactRef, vsaSubjects, inputAttestations, attestationTypes, sigs, quiet, vsaOutput, policyURI, policyBundlePath); err != nil {
 			return fmt.Errorf("failed to generate VSA: %w", err)
 		}
 	}
@@ -444,64 +484,17 @@ func run(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// takes a path string (which could be a single file, comma-separated files, or a directory)
-// and returns a slice of individual file paths
-func expandBlobPaths(pathStr string) ([]string, error) {
-	if pathStr == "" {
-		return nil, nil
-	}
-
-	// check if dir
-	fileInfo, err := os.Stat(pathStr)
-	if err == nil && fileInfo.IsDir() {
-		// if dir, get all files in it
-		entries, err := os.ReadDir(pathStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read directory %s: %w", pathStr, err)
-		}
-
-		var files []string
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				files = append(files, filepath.Join(pathStr, entry.Name()))
-			}
-		}
-
-		if len(files) == 0 {
-			return nil, fmt.Errorf("no files found in directory %s", pathStr)
-		}
-		return files, nil
-	}
-
-	// if no dir, treat as comma-separated paths
-	paths := strings.Split(pathStr, ",")
-	var result []string
-	for _, p := range paths {
-		trimmed := strings.TrimSpace(p)
-		if trimmed != "" {
-			// verify the file exists
-			if _, err := os.Stat(trimmed); err != nil {
-				return nil, fmt.Errorf("file not found: %s", trimmed)
-			}
-			result = append(result, trimmed)
-		}
-	}
-
-	if len(result) == 0 {
-		return nil, fmt.Errorf("no valid paths found in: %s", pathStr)
-	}
-
-	return result, nil
-}
-
 // creates a VSA after successful attestation verification
-func generateVSA(ctx context.Context, artifactDigest string, vsaSubjects []vsa.VSASubject, inputAttestations []vsa.ResourceDescriptor, attestationTypes []string, sigs []oci.Signature, quiet bool) error {
+func generateVSAWithOptions(ctx context.Context, artifactDigest string, vsaSubjects []vsa.VSASubject, inputAttestations []vsa.ResourceDescriptor, attestationTypes []string, sigs []oci.Signature, quiet bool, vsaOutput, policyURI, policyBundlePath string) error {
 	return vsa.Generate(ctx, vsa.GenerateOptions{
 		ArtifactDigest:    artifactDigest,
 		VSASubjects:       vsaSubjects,
 		InputAttestations: inputAttestations,
 		AttestationTypes:  attestationTypes,
 		Signatures:        sigs,
+		PolicyURI:         policyURI,
+		PolicyBundlePath:  policyBundlePath,
+		VSAOutput:         vsaOutput,
 		Quiet:             quiet,
 		Version:           version,
 		OpaVersion:        OpaVersion,
