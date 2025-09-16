@@ -8,8 +8,10 @@ metadata:
     github.com/project-slug: liatrio/autogov-helper
   tags:
     - automated-governance
+    - autogov
     - golang
+    - cli-app
 spec:
-  type: other
+  owner: "group:default/tag-autogov"
   lifecycle: in-progress
-  owner: tag-autogov
+  type: cli-app
