@@ -5,7 +5,7 @@ metadata:
   name: autogov-verify
   description: A tool for getting/verifying GitHub Artifact Attestations
   annotations:
-    github.com/project-slug: liatrio/autogov-helper
+    github.com/project-slug: liatrio/autogov-verify
   tags:
     - automated-governance
     - autogov
