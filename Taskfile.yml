@@ -1,0 +1,66 @@
+version: '3'
+
+vars:
+  BINARY_NAME: autogov-verify
+  BINARY_DIR: bin
+  VERSION:
+    sh: git describe --tags --always --dirty
+  LDFLAGS: -X main.version={{.VERSION}}
+
+tasks:
+  default:
+    desc: Run verify and build (default)
+    cmds:
+      - task: verify
+      - task: build
+
+  build:
+    desc: Build the binary
+    cmds:
+      - echo "Building {{.BINARY_NAME}} version {{.VERSION}}"
+      - mkdir -p {{.BINARY_DIR}}
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BINARY_DIR}}/{{.BINARY_NAME}} .
+    generates:
+      - "{{.BINARY_DIR}}/{{.BINARY_NAME}}"
+
+  test:
+    desc: Run tests with coverage
+    cmds:
+      - echo "Running tests..."
+      - go test -v -race -coverprofile=coverage.out ./...
+      - go tool cover -func=coverage.out
+    generates:
+      - coverage.out
+
+  lint:
+    desc: Run linter
+    cmds:
+      - echo "Running linter..."
+      - golangci-lint run
+
+  format:
+    desc: Format code
+    cmds:
+      - echo "Formatting code..."
+      - gofmt -w .
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - echo "Cleaning up..."
+      - rm -rf {{.BINARY_DIR}} coverage.out
+
+  install:
+    desc: Install binary to /usr/local/bin
+    deps:
+      - build
+    cmds:
+      - echo "Installing {{.BINARY_NAME}} to /usr/local/bin"
+      - sudo cp {{.BINARY_DIR}}/{{.BINARY_NAME}} /usr/local/bin/
+
+  verify:
+    desc: Run format, lint, and test
+    cmds:
+      - task: format
+      - task: lint
+      - task: test

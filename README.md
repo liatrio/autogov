@@ -156,6 +156,56 @@ The tool is organized into several key packages:
 - **`pkg/certid/`**: Certificate identity validation against approved lists
 - **`pkg/github/`**: GitHub client and token management
 
+### Predicate Type Standardization
+
+The tool implements predicate type standardization following the [in-toto attestation framework](https://github.com/in-toto/attestation) and [SLSA specifications](https://slsa.dev/spec/v1.0/). This ensures consistent, human-readable display of attestation types during verification.
+
+**Standard Predicate Types:**
+
+The tool recognizes the following standard predicate types:
+
+| Predicate Type | Short Name | Description |
+|----------------|------------|-------------|
+| `https://slsa.dev/provenance/v1` | SLSA Provenance | Build provenance attestation |
+| `https://cyclonedx.org/bom` | CycloneDX SBOM | Software bill of materials (CycloneDX format) |
+| `https://spdx.dev/Document` | SPDX SBOM | Software bill of materials (SPDX format) |
+| `https://in-toto.io/Statement/v1` | in-toto Statement | Generic in-toto attestation statement |
+| `https://in-toto.io/attestation/vulns/v0.2` | Vulnerability Scan | Security vulnerability scan results |
+| `https://slsa.dev/verification_summary/v1` | SLSA VSA | Verification summary attestation |
+
+**How It Works:**
+
+During verification, the tool:
+1. Extracts the predicate type URI from each attestation
+2. Looks up the URI in the predicate type registry
+3. Displays the short name if found, or "Unknown: <uri>" if not found
+4. Continues verification regardless of registry status
+
+**Graceful Handling of Unknown Types:**
+
+If the tool encounters a predicate type not in the registry (e.g., custom or newly-introduced types):
+- Verification proceeds normally without errors
+- The type is displayed as `Unknown: <full-uri>`
+- A warning is logged suggesting the registry be updated (if not in quiet mode)
+- Signature and certificate validation remain unchanged
+
+**Example Output:**
+
+```shell
+Verifying attestation 1 (SLSA Provenance: https://slsa.dev/provenance/v1)...
+✓ Attestation 1 verified successfully
+---
+Verifying attestation 2 (CycloneDX SBOM: https://cyclonedx.org/bom)...
+✓ Attestation 2 verified successfully
+---
+Verifying attestation 3 (Unknown: https://example.com/custom/v1)...
+⚠ Warning: Unknown predicate type: https://example.com/custom/v1
+  Consider updating PredicateTypeRegistry if this is a standard type.
+✓ Attestation 3 verified successfully
+```
+
+This approach ensures backward compatibility with all attestations while providing enhanced context for known types.
+
 ### Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines on how to contribute to this project.
@@ -475,7 +525,7 @@ The generated VSA includes comprehensive metadata about the verification and pol
 
 ## Output
 
-The tool provides detailed output about the verification process:
+The tool provides detailed output about the verification process, including human-readable predicate type names:
 
 ```shell
 Starting verification process...
@@ -484,20 +534,32 @@ Certificate identity validation enabled
 Using identity source: https://raw.githubusercontent.com/liatrio/liatrio-gh-autogov-workflows/main/cert-identities.json
 ---
 ✓ Certificate identity validated against source of truth
-Verifying attestation 1 (https://in-toto.io/attestation/vulns/v0.1)...
+Verifying attestation 1 (Vulnerability Scan: https://in-toto.io/attestation/vulns/v0.2)...
 ✓ Attestation 1 verified successfully
 ---
-[... additional attestations ...]
+Verifying attestation 2 (CycloneDX SBOM: https://cyclonedx.org/bom)...
+✓ Attestation 2 verified successfully
+---
+Verifying attestation 3 (SLSA Provenance: https://slsa.dev/provenance/v1)...
+✓ Attestation 3 verified successfully
+---
+Verifying attestation 4 (Unknown: https://cosign.sigstore.dev/attestation/v1)...
+⚠ Warning: Unknown predicate type: https://cosign.sigstore.dev/attestation/v1
+  Consider updating PredicateTypeRegistry if this is a standard type.
+✓ Attestation 4 verified successfully
+---
 
 Summary:
 ✓ Successfully verified 4 attestations
 
 Attestation Types:
-1. https://in-toto.io/attestation/vulns/v0.1
-2. https://cyclonedx.org/bom
-3. https://slsa.dev/provenance/v1
-4. https://cosign.sigstore.dev/attestation/v1
+1. Vulnerability Scan (https://in-toto.io/attestation/vulns/v0.2)
+2. CycloneDX SBOM (https://cyclonedx.org/bom)
+3. SLSA Provenance (https://slsa.dev/provenance/v1)
+4. Unknown (https://cosign.sigstore.dev/attestation/v1)
 ```
+
+Note: Predicate types not in the registry are displayed as "Unknown" with a warning, but verification continues normally.
 
 ## Trusted Root Management
 

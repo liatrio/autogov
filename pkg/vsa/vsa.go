@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/liatrio/autogov-verify/pkg/attestations"
 )
 
 // Verification Summary Attestation based on the in-toto VSA specification / SLSA v1.1
@@ -291,7 +293,7 @@ func generateVSACore(imageRef string, subjects []VSASubject, policyURI string, v
 
 	vsa := &VSA{
 		Type:          "https://in-toto.io/Statement/v1",
-		PredicateType: "https://slsa.dev/verification_summary/v1",
+		PredicateType: attestations.PredicateTypeVSA,
 		Subject:       vsaSubjects,
 		Predicate: VSAPredicate{
 			Verifier: VSAVerifier{

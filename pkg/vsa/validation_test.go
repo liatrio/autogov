@@ -5,11 +5,13 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/liatrio/autogov-verify/pkg/attestations"
 )
 
 const (
 	testStatementType = "https://in-toto.io/Statement/v1"
-	testPredicateType = "https://slsa.dev/verification_summary/v1"
+	testPredicateType = attestations.PredicateTypeVSA
 	testURI           = "https://test.com"
 	testDigest        = "a7833c841a486169ec4b376ebec4561f9de5280add97b86ebd075e401d3fd052"
 )
@@ -130,7 +132,7 @@ func TestVSAComprehensiveValidation(t *testing.T) {
 			name: "invalid SLSA level format (ignored)",
 			vsa: &VSA{
 				Type:          "https://in-toto.io/Statement/v1",
-				PredicateType: "https://slsa.dev/verification_summary/v1",
+				PredicateType: attestations.PredicateTypeVSA,
 				Subject: []VSASubject{{
 					URI:    testURI,
 					Digest: map[string]string{"sha256": testDigest},
