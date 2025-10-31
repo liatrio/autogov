@@ -364,10 +364,10 @@ func TestPredicateTypeRegistry_MetadataAccuracy(t *testing.T) {
 // TestPredicateTypeRegistry_LookupPerformance verifies that registry lookup uses
 // direct map access (O(1) operation) by confirming the implementation structure.
 func TestPredicateTypeRegistry_LookupPerformance(t *testing.T) {
-	// This test verifies that PredicateTypeRegistry is a map, which provides O(1) lookup
+	// verifies that PredicateTypeRegistry is a map, which provides O(1) lookup
 	testURI := PredicateTypeSLSAProvenance
 
-	// Direct map access should work instantly
+	// direct map access should work instantly
 	info, exists := PredicateTypeRegistry[testURI]
 	if !exists {
 		t.Errorf("Direct map lookup failed for URI: %s", testURI)
@@ -377,7 +377,7 @@ func TestPredicateTypeRegistry_LookupPerformance(t *testing.T) {
 		t.Errorf("Lookup returned incorrect entry: got URI %q, expected %q", info.URI, testURI)
 	}
 
-	// Verify unknown URI returns false for exists check (map behavior)
+	// verifies unknown URI returns false for exists check (map behavior)
 	unknownURI := "https://example.com/unknown/predicate"
 	_, exists = PredicateTypeRegistry[unknownURI]
 	if exists {
@@ -388,7 +388,7 @@ func TestPredicateTypeRegistry_LookupPerformance(t *testing.T) {
 // ExamplePredicateTypeRegistry demonstrates how to use the predicate type registry
 // to look up metadata for known predicate types.
 func ExamplePredicateTypeRegistry() {
-	// Look up metadata for a known predicate type
+	// looks up metadata for a known predicate type
 	predicateURI := PredicateTypeSLSAProvenance
 
 	if info, exists := PredicateTypeRegistry[predicateURI]; exists {
@@ -398,10 +398,10 @@ func ExamplePredicateTypeRegistry() {
 		_ = info.Spec        // Link to specification
 	}
 
-	// Handle unknown predicate types gracefully
+	// handles unknown predicate types gracefully
 	unknownURI := "https://example.com/custom/predicate"
 	if _, exists := PredicateTypeRegistry[unknownURI]; !exists {
-		// Unknown predicate type - display raw URI or default message
+		// unknown predicate type / display raw URI or default message
 	}
 }
 
@@ -432,13 +432,13 @@ func TestPredicateTypeRegistry_UnknownTypeHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Verify URI is not in registry
+			// verify URI is not in registry
 			_, exists := PredicateTypeRegistry[tt.uri]
 			if exists {
 				t.Fatalf("Test setup error: URI %q should not be in registry", tt.uri)
 			}
 
-			// Simulate predicateInfo string generation (same pattern as production code)
+			// predicateInfo string generation (same pattern as production code)
 			var predicateInfo string
 			if info, exists := PredicateTypeRegistry[tt.uri]; exists {
 				predicateInfo = fmt.Sprintf("%s: %s", info.ShortName, tt.uri)
@@ -446,7 +446,7 @@ func TestPredicateTypeRegistry_UnknownTypeHandling(t *testing.T) {
 				predicateInfo = fmt.Sprintf("Unknown: %s", tt.uri)
 			}
 
-			// Verify correct format
+			// verify correct format
 			if predicateInfo != tt.expectedMsg {
 				t.Errorf("predicateInfo = %q, expected %q", predicateInfo, tt.expectedMsg)
 			}
@@ -467,10 +467,10 @@ func TestPredicateTypeRegistry_GracefulFallback(t *testing.T) {
 
 	for _, uri := range unknownURIs {
 		t.Run(uri, func(t *testing.T) {
-			// Lookup should not panic
+			// should not panic
 			info, exists := PredicateTypeRegistry[uri]
 
-			// Should return false for exists
+			// return false for exists
 			if exists {
 				t.Errorf("Registry lookup for unknown URI %q incorrectly returned exists=true", uri)
 			}

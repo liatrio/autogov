@@ -106,26 +106,29 @@ cd autogov-verify
 go mod download
 
 # Run tests
-make test
+task test
 
 # Build binary
-make build
+task build
 
 # Run linter
-make lint
+task lint
 ```
 
-### Available Make Targets
+### Available Task Commands
+
+The project uses [Task](https://taskfile.dev) for build automation.
 
 ```bash
-make help         # Show all available make targets
-make all         # Run verify and build (default)
-make build       # Build the binary
-make test        # Run tests with coverage
-make lint        # Run linter
-make format      # Format code
-make verify      # Run format, lint, and test
-make install     # Install binary to /usr/local/bin
+task --list       # Show all available tasks
+task              # Run verify and build (default)
+task build        # Build the binary
+task test         # Run tests with coverage
+task lint         # Run linter
+task format       # Format code
+task verify       # Run format, lint, and test
+task install      # Install binary to /usr/local/bin
+task clean        # Clean build artifacts
 ```
 
 ### Testing

@@ -118,8 +118,6 @@ type PredicateTypeInfo struct {
 //	}
 //	fmt.Printf("Verifying attestation (%s)...\n", predicateInfo)
 //	// Continue with verification regardless of registry status
-//
-// See Stories 1.3-1.4 for implementation details of output formatting and graceful handling.
 var PredicateTypeRegistry = map[string]PredicateTypeInfo{
 	PredicateTypeSLSAProvenance: {
 		URI:         PredicateTypeSLSAProvenance,
