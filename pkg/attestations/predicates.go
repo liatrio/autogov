@@ -44,8 +44,9 @@
 package attestations
 
 const (
-	// PredicateTypeSLSAProvenance represents SLSA Provenance v1.0 - build provenance attestation.
+	// PredicateTypeSLSAProvenance represents SLSA Provenance v1 predicate type - build provenance attestation.
 	// This predicate type describes the build process and materials used to create a software artifact.
+	// Compatible with SLSA v1 specifications.
 	// Spec: https://github.com/in-toto/attestation/blob/main/spec/predicates/provenance.md
 	PredicateTypeSLSAProvenance = "https://slsa.dev/provenance/v1"
 
@@ -67,9 +68,10 @@ const (
 	// Spec: https://github.com/in-toto/attestation/blob/main/spec/predicates/vulns_02.md
 	PredicateTypeVulnerability = "https://in-toto.io/attestation/vulns/v0.2"
 
-	// PredicateTypeVSA represents SLSA VSA v1.0 - verification summary attestation.
+	// PredicateTypeVSA represents SLSA VSA v1 predicate type - verification summary attestation.
 	// This predicate type summarizes the verification status of an artifact against security policies.
-	// Spec: https://slsa.dev/spec/v1.0/verification_summary
+	// Compatible with SLSA v1 specifications.
+	// Spec: https://slsa.dev/spec/v1.1/verification_summary
 	PredicateTypeVSA = "https://slsa.dev/verification_summary/v1"
 )
 
