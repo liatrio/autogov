@@ -4,7 +4,7 @@ vars:
   BINARY_NAME: autogov-verify
   BINARY_DIR: bin
   VERSION:
-    sh: git describe --tags --always --dirty
+    sh: echo "${VERSION:-$(git describe --tags --always --dirty)}"
   LDFLAGS: -X main.version={{.VERSION}}
 
 tasks:
