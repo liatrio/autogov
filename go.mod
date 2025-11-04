@@ -6,7 +6,7 @@ require (
 	github.com/cli/go-gh/v2 v2.12.2
 	github.com/google/go-github/v74 v74.0.0
 	github.com/open-policy-agent/opa v1.8.0
-	github.com/sigstore/cosign/v2 v2.5.3
+	github.com/sigstore/cosign/v2 v2.6.1
 	github.com/sigstore/sigstore-go v1.1.2
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/pflag v1.0.9
