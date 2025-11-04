@@ -40,7 +40,7 @@
 //
 // References:
 //   - in-toto Attestation Framework: https://github.com/in-toto/attestation
-//   - SLSA Specification: https://slsa.dev/spec/v1.0/
+//   - SLSA Specification: https://slsa.dev/spec/v1/
 package attestations
 
 const (
@@ -153,6 +153,6 @@ var PredicateTypeRegistry = map[string]PredicateTypeInfo{
 		URI:         PredicateTypeVSA,
 		ShortName:   "SLSA VSA",
 		Description: "SLSA Verification Summary Attestation",
-		Spec:        "https://slsa.dev/spec/v1.0/verification_summary",
+		Spec:        "https://slsa.dev/spec/v1.1/verification_summary",
 	},
 }
