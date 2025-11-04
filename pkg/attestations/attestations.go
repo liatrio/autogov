@@ -420,7 +420,7 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 
 	// lookup predicate type metadata for display
 	var predicateInfo string
-	if info, exists := PredicateTypeRegistry[statement.PredicateType]; exists {
+	if info, exists := LookupPredicateType(statement.PredicateType); exists {
 		predicateInfo = fmt.Sprintf("%s: %s", info.ShortName, statement.PredicateType)
 	} else {
 		predicateInfo = fmt.Sprintf("Unknown: %s", statement.PredicateType)

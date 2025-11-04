@@ -218,7 +218,7 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 
 			// lookup predicate type metadata for display
 			var predicateInfo string
-			if info, exists := attestations.PredicateTypeRegistry[attType]; exists {
+			if info, exists := attestations.LookupPredicateType(attType); exists {
 				predicateInfo = fmt.Sprintf("%s: %s", info.ShortName, attType)
 			} else {
 				predicateInfo = fmt.Sprintf("Unknown: %s", attType)

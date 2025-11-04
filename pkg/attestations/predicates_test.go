@@ -29,7 +29,7 @@ func TestPredicateTypeConstants_NonEmpty(t *testing.T) {
 	}{
 		{"PredicateTypeSLSAProvenance", PredicateTypeSLSAProvenance},
 		{"PredicateTypeCycloneDX", PredicateTypeCycloneDX},
-		{"PredicateTypeSPDX", PredicateTypeSPDX},
+		{"PredicateTypeSPDXPrefix", PredicateTypeSPDXPrefix},
 		{"PredicateTypeInTotoV1", PredicateTypeInTotoV1},
 		{"PredicateTypeVulnerability", PredicateTypeVulnerability},
 		{"PredicateTypeVSA", PredicateTypeVSA},
@@ -56,7 +56,7 @@ func TestPredicateTypeConstants_URIFormat(t *testing.T) {
 	}{
 		{"PredicateTypeSLSAProvenance", PredicateTypeSLSAProvenance},
 		{"PredicateTypeCycloneDX", PredicateTypeCycloneDX},
-		{"PredicateTypeSPDX", PredicateTypeSPDX},
+		{"PredicateTypeSPDXPrefix", PredicateTypeSPDXPrefix},
 		{"PredicateTypeInTotoV1", PredicateTypeInTotoV1},
 		{"PredicateTypeVulnerability", PredicateTypeVulnerability},
 		{"PredicateTypeVSA", PredicateTypeVSA},
@@ -72,7 +72,7 @@ func TestPredicateTypeConstants_URIFormat(t *testing.T) {
 }
 
 // TestPredicateTypeConstants_MatchSpecification verifies that each constant value
-// exactly matches the URI specified in official in-toto/SLSA documentation.
+// matches the base URI specified in official in-toto/SLSA documentation.
 func TestPredicateTypeConstants_MatchSpecification(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -93,10 +93,10 @@ func TestPredicateTypeConstants_MatchSpecification(t *testing.T) {
 			specLocation: "https://github.com/in-toto/attestation/blob/main/spec/predicates/cyclonedx.md",
 		},
 		{
-			name:         "PredicateTypeSPDX",
-			constant:     PredicateTypeSPDX,
+			name:         "PredicateTypeSPDXPrefix",
+			constant:     PredicateTypeSPDXPrefix,
 			expectedURI:  "https://spdx.dev/Document",
-			specLocation: "SPDX specification",
+			specLocation: "https://github.com/in-toto/attestation/blob/main/spec/predicates/spdx.md",
 		},
 		{
 			name:         "PredicateTypeInTotoV1",
@@ -133,7 +133,7 @@ func TestPredicateTypeConstants_Exported(t *testing.T) {
 	constantNames := []string{
 		"PredicateTypeSLSAProvenance",
 		"PredicateTypeCycloneDX",
-		"PredicateTypeSPDX",
+		"PredicateTypeSPDXPrefix",
 		"PredicateTypeInTotoV1",
 		"PredicateTypeVulnerability",
 		"PredicateTypeVSA",
@@ -198,7 +198,7 @@ func TestPredicateTypeRegistry_ContainsAllTypes(t *testing.T) {
 	}{
 		{"PredicateTypeSLSAProvenance", PredicateTypeSLSAProvenance},
 		{"PredicateTypeCycloneDX", PredicateTypeCycloneDX},
-		{"PredicateTypeSPDX", PredicateTypeSPDX},
+		{"PredicateTypeSPDXPrefix", PredicateTypeSPDXPrefix},
 		{"PredicateTypeInTotoV1", PredicateTypeInTotoV1},
 		{"PredicateTypeVulnerability", PredicateTypeVulnerability},
 		{"PredicateTypeVSA", PredicateTypeVSA},
@@ -226,7 +226,7 @@ func TestPredicateTypeRegistry_CompleteMetadata(t *testing.T) {
 	types := []string{
 		PredicateTypeSLSAProvenance,
 		PredicateTypeCycloneDX,
-		PredicateTypeSPDX,
+		PredicateTypeSPDXPrefix,
 		PredicateTypeInTotoV1,
 		PredicateTypeVulnerability,
 		PredicateTypeVSA,
@@ -268,7 +268,7 @@ func TestPredicateTypeRegistry_KeysMatchConstants(t *testing.T) {
 	}{
 		{"PredicateTypeSLSAProvenance", PredicateTypeSLSAProvenance},
 		{"PredicateTypeCycloneDX", PredicateTypeCycloneDX},
-		{"PredicateTypeSPDX", PredicateTypeSPDX},
+		{"PredicateTypeSPDXPrefix", PredicateTypeSPDXPrefix},
 		{"PredicateTypeInTotoV1", PredicateTypeInTotoV1},
 		{"PredicateTypeVulnerability", PredicateTypeVulnerability},
 		{"PredicateTypeVSA", PredicateTypeVSA},
@@ -312,10 +312,10 @@ func TestPredicateTypeRegistry_MetadataAccuracy(t *testing.T) {
 			specContains:      "github.com/in-toto/attestation",
 		},
 		{
-			uri:               PredicateTypeSPDX,
+			uri:               PredicateTypeSPDXPrefix,
 			expectedShortName: "SPDX SBOM",
 			descriptionSubstr: "Bill of Materials",
-			specContains:      "spdx.dev",
+			specContains:      "github.com/in-toto/attestation",
 		},
 		{
 			uri:               PredicateTypeInTotoV1,
@@ -481,4 +481,230 @@ func TestPredicateTypeRegistry_GracefulFallback(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestLookupPredicateType_ExactMatch verifies that exact matches work for all predicate types.
+func TestLookupPredicateType_ExactMatch(t *testing.T) {
+	tests := []struct {
+		name            string
+		uri             string
+		expectExists    bool
+		expectShortName string
+	}{
+		{
+			name:            "SLSA Provenance exact match",
+			uri:             PredicateTypeSLSAProvenance,
+			expectExists:    true,
+			expectShortName: "SLSA Provenance",
+		},
+		{
+			name:            "CycloneDX exact match",
+			uri:             PredicateTypeCycloneDX,
+			expectExists:    true,
+			expectShortName: "CycloneDX SBOM",
+		},
+		{
+			name:            "SPDX prefix exact match",
+			uri:             PredicateTypeSPDXPrefix,
+			expectExists:    true,
+			expectShortName: "SPDX SBOM",
+		},
+		{
+			name:            "in-toto v1 exact match",
+			uri:             PredicateTypeInTotoV1,
+			expectExists:    true,
+			expectShortName: "in-toto Statement",
+		},
+		{
+			name:            "Vulnerability exact match",
+			uri:             PredicateTypeVulnerability,
+			expectExists:    true,
+			expectShortName: "Vulnerability Scan",
+		},
+		{
+			name:            "VSA exact match",
+			uri:             PredicateTypeVSA,
+			expectExists:    true,
+			expectShortName: "SLSA VSA",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info, exists := LookupPredicateType(tt.uri)
+
+			if exists != tt.expectExists {
+				t.Errorf("LookupPredicateType(%q) exists = %v, expected %v", tt.uri, exists, tt.expectExists)
+			}
+
+			if exists && info.ShortName != tt.expectShortName {
+				t.Errorf("LookupPredicateType(%q) ShortName = %q, expected %q", tt.uri, info.ShortName, tt.expectShortName)
+			}
+		})
+	}
+}
+
+// TestLookupPredicateType_SPDXVersioning verifies that SPDX prefix matching works
+// for versioned SPDX predicates as generated by GitHub's attest-sbom action.
+func TestLookupPredicateType_SPDXVersioning(t *testing.T) {
+	tests := []struct {
+		name            string
+		uri             string
+		expectExists    bool
+		expectShortName string
+	}{
+		{
+			name:            "SPDX v2.3 (GitHub attest-sbom)",
+			uri:             "https://spdx.dev/Document/v2.3",
+			expectExists:    true,
+			expectShortName: "SPDX SBOM",
+		},
+		{
+			name:            "SPDX v2.2",
+			uri:             "https://spdx.dev/Document/v2.2",
+			expectExists:    true,
+			expectShortName: "SPDX SBOM",
+		},
+		{
+			name:            "SPDX v3.0 (future version)",
+			uri:             "https://spdx.dev/Document/v3.0",
+			expectExists:    true,
+			expectShortName: "SPDX SBOM",
+		},
+		{
+			name:            "SPDX v2.3.1 (patch version)",
+			uri:             "https://spdx.dev/Document/v2.3.1",
+			expectExists:    true,
+			expectShortName: "SPDX SBOM",
+		},
+		{
+			name:            "SPDX base URI (unversioned)",
+			uri:             "https://spdx.dev/Document",
+			expectExists:    true,
+			expectShortName: "SPDX SBOM",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info, exists := LookupPredicateType(tt.uri)
+
+			if exists != tt.expectExists {
+				t.Errorf("LookupPredicateType(%q) exists = %v, expected %v", tt.uri, exists, tt.expectExists)
+			}
+
+			if exists && info.ShortName != tt.expectShortName {
+				t.Errorf("LookupPredicateType(%q) ShortName = %q, expected %q", tt.uri, info.ShortName, tt.expectShortName)
+			}
+		})
+	}
+}
+
+// TestLookupPredicateType_UnknownTypes verifies graceful handling of unknown predicate types.
+func TestLookupPredicateType_UnknownTypes(t *testing.T) {
+	tests := []struct {
+		name string
+		uri  string
+	}{
+		{
+			name: "custom predicate",
+			uri:  "https://example.com/custom/v1",
+		},
+		{
+			name: "empty string",
+			uri:  "",
+		},
+		{
+			name: "similar to SPDX but different domain",
+			uri:  "https://example.com/Document/v2.3",
+		},
+		{
+			name: "CycloneDX with version (not standard)",
+			uri:  "https://cyclonedx.org/bom/v1.4",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info, exists := LookupPredicateType(tt.uri)
+
+			if exists {
+				t.Errorf("LookupPredicateType(%q) incorrectly returned exists=true", tt.uri)
+			}
+
+			// verify zero value returned
+			if info.URI != "" || info.ShortName != "" || info.Description != "" || info.Spec != "" {
+				t.Errorf("LookupPredicateType(%q) returned non-zero info: %+v", tt.uri, info)
+			}
+		})
+	}
+}
+
+// TestLookupPredicateType_PrefixMatchingPrecision verifies that prefix matching
+// is precise and doesn't match unrelated URIs.
+func TestLookupPredicateType_PrefixMatchingPrecision(t *testing.T) {
+	tests := []struct {
+		name        string
+		uri         string
+		shouldMatch bool
+	}{
+		{
+			name:        "SPDX Document path with version",
+			uri:         "https://spdx.dev/Document/v2.3",
+			shouldMatch: true,
+		},
+		{
+			name:        "SPDX different path (not Document)",
+			uri:         "https://spdx.dev/Other/v2.3",
+			shouldMatch: false,
+		},
+		{
+			name:        "Similar domain but not spdx.dev",
+			uri:         "https://spdx-similar.dev/Document/v2.3",
+			shouldMatch: false,
+		},
+		{
+			name:        "SPDX Document with trailing content",
+			uri:         "https://spdx.dev/Document/custom",
+			shouldMatch: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info, exists := LookupPredicateType(tt.uri)
+
+			if exists != tt.shouldMatch {
+				t.Errorf("LookupPredicateType(%q) exists = %v, expected %v", tt.uri, exists, tt.shouldMatch)
+			}
+
+			if exists && info.ShortName != "SPDX SBOM" {
+				t.Errorf("LookupPredicateType(%q) matched but ShortName = %q, expected 'SPDX SBOM'", tt.uri, info.ShortName)
+			}
+		})
+	}
+}
+
+// ExampleLookupPredicateType demonstrates how to use the LookupPredicateType function
+// for both exact and prefix matching scenarios.
+func ExampleLookupPredicateType() {
+	// Exact match for CycloneDX
+	if info, exists := LookupPredicateType("https://cyclonedx.org/bom"); exists {
+		fmt.Printf("CycloneDX: %s\n", info.ShortName)
+	}
+
+	// Prefix match for versioned SPDX (GitHub attest-sbom pattern)
+	if info, exists := LookupPredicateType("https://spdx.dev/Document/v2.3"); exists {
+		fmt.Printf("SPDX: %s\n", info.ShortName)
+	}
+
+	// Unknown type handling
+	if _, exists := LookupPredicateType("https://example.com/custom"); !exists {
+		fmt.Println("Unknown type not found")
+	}
+
+	// Output:
+	// CycloneDX: CycloneDX SBOM
+	// SPDX: SPDX SBOM
+	// Unknown type not found
 }

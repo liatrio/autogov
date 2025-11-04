@@ -43,6 +43,8 @@
 //   - SLSA Specification: https://slsa.dev/spec/v1/
 package attestations
 
+import "strings"
+
 const (
 	// PredicateTypeSLSAProvenance represents SLSA Provenance v1 predicate type - build provenance attestation.
 	// This predicate type describes the build process and materials used to create a software artifact.
@@ -52,12 +54,18 @@ const (
 
 	// PredicateTypeCycloneDX represents CycloneDX SBOM - software bill of materials.
 	// This predicate type contains a comprehensive inventory of software components and dependencies.
+	// Note: GitHub's attest-sbom action uses the unversioned URI in practice, though the in-toto
+	// spec documents versioned URIs (e.g., /bom/v1.4).
 	// Spec: https://github.com/in-toto/attestation/blob/main/spec/predicates/cyclonedx.md
 	PredicateTypeCycloneDX = "https://cyclonedx.org/bom"
 
-	// PredicateTypeSPDX represents SPDX SBOM - alternative SBOM format.
-	// This predicate type provides software package data in the SPDX standard format.
-	PredicateTypeSPDX = "https://spdx.dev/Document"
+	// PredicateTypeSPDXPrefix represents the SPDX SBOM predicate type prefix.
+	// SPDX predicates include dynamic version suffixes (e.g., /v2.3, /v2.2) extracted from
+	// the SBOM's spdxVersion field. This constant is used for prefix matching to support
+	// all SPDX versions. GitHub's attest-sbom action generates versioned URIs like
+	// "https://spdx.dev/Document/v2.3" based on the SBOM content.
+	// Spec: https://github.com/in-toto/attestation/blob/main/spec/predicates/spdx.md
+	PredicateTypeSPDXPrefix = "https://spdx.dev/Document"
 
 	// PredicateTypeInTotoV1 represents in-toto Attestation v1 - generic attestation statement.
 	// This is the base predicate type for generic in-toto attestations.
@@ -131,11 +139,11 @@ var PredicateTypeRegistry = map[string]PredicateTypeInfo{
 		Description: "CycloneDX Software Bill of Materials",
 		Spec:        "https://github.com/in-toto/attestation/blob/main/spec/predicates/cyclonedx.md",
 	},
-	PredicateTypeSPDX: {
-		URI:         PredicateTypeSPDX,
+	PredicateTypeSPDXPrefix: {
+		URI:         PredicateTypeSPDXPrefix,
 		ShortName:   "SPDX SBOM",
 		Description: "SPDX Software Bill of Materials",
-		Spec:        "https://spdx.dev/",
+		Spec:        "https://github.com/in-toto/attestation/blob/main/spec/predicates/spdx.md",
 	},
 	PredicateTypeInTotoV1: {
 		URI:         PredicateTypeInTotoV1,
@@ -155,4 +163,42 @@ var PredicateTypeRegistry = map[string]PredicateTypeInfo{
 		Description: "SLSA Verification Summary Attestation",
 		Spec:        "https://slsa.dev/spec/v1.1/verification_summary",
 	},
+}
+
+// LookupPredicateType looks up predicate type metadata with support
+// for prefix matching on versioned predicates (specifically SPDX).
+//
+// Lookup Strategy:
+// 1. Exact match - Try direct registry lookup first (O(1))
+// 2. Prefix match - For SPDX predicates with dynamic versions (e.g., https://spdx.dev/Document/v2.3)
+//
+// Handles attestations from GitHub's attest-sbom action:
+//   - CycloneDX: Uses unversioned URI "https://cyclonedx.org/bom" (exact match)
+//   - SPDX: Uses versioned URIs like "https://spdx.dev/Document/v2.3" (prefix match)
+//
+// Returns:
+//   - info: PredicateTypeInfo containing metadata (ShortName, Description, Spec)
+//   - exists: true if predicate type was recognized (exact or prefix match), false otherwise
+//
+// Example:
+//
+//	info, exists := LookupPredicateType("https://spdx.dev/Document/v2.3")
+//	if exists {
+//	    fmt.Printf("%s: %s\n", info.ShortName, predicateURI)  // "SPDX SBOM: https://spdx.dev/Document/v2.3"
+//	}
+func LookupPredicateType(predicateURI string) (PredicateTypeInfo, bool) {
+	// Try exact match first (O(1))
+	if info, exists := PredicateTypeRegistry[predicateURI]; exists {
+		return info, true
+	}
+
+	// Try prefix matching for SPDX (supports dynamic versioning)
+	if strings.HasPrefix(predicateURI, PredicateTypeSPDXPrefix) {
+		if info, exists := PredicateTypeRegistry[PredicateTypeSPDXPrefix]; exists {
+			return info, true
+		}
+	}
+
+	// No match found
+	return PredicateTypeInfo{}, false
 }
