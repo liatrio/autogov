@@ -231,5 +231,20 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 		fmt.Println()
 	}
 
+	// check fail-on-policy-error flag for exit code
+	failOnError := viper.GetBool("fail-on-policy-error")
+
+	// check if we have a policy result
+	if policyResult != nil && policyResult.Result == "FAILED" {
+		if failOnError {
+			// exit with error
+			return fmt.Errorf("policy evaluation failed with %d violations", len(policyResult.Violations))
+		}
+		// logs warning / return success
+		if !opts.Quiet {
+			fmt.Printf("⚠ Warning: Policy evaluation failed with %d violations (exit code 0 due to --fail-on-policy-error=false)\n", len(policyResult.Violations))
+		}
+	}
+
 	return nil
 }

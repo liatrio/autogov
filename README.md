@@ -179,6 +179,7 @@ The tool recognizes the following standard predicate types:
 **How It Works:**
 
 During verification, the tool:
+
 1. Extracts the predicate type URI from each attestation
 2. Looks up the URI in the predicate type registry
 3. Displays the short name if found, or "Unknown: <uri>" if not found
@@ -187,6 +188,7 @@ During verification, the tool:
 **Graceful Handling of Unknown Types:**
 
 If the tool encounters a predicate type not in the registry (e.g., custom or newly-introduced types):
+
 - Verification proceeds normally without errors
 - The type is displayed as `Unknown: <full-uri>`
 - A warning is logged suggesting the registry be updated (if not in quiet mode)
@@ -334,6 +336,7 @@ The tool supports generating SLSA v1.1 Verification Summary Attestations (VSAs) 
 - `--vsa-output`: Path to save the generated VSA (e.g., `./verification-summary.json`)
 - `--policy-bundle-path`: Path or URL to OPA policy bundle for evaluation
 - `--policy-uri`: Policy URI for VSA generation (required if --generate-vsa is used)
+- `--fail-on-policy-error`: Exit with error code 1 when policy evaluation fails (default: false - exit code 0)
 - `--attestations-path`: Path to directory containing attestation files for offline verification
 
 **Enhanced VSA Features:**
@@ -401,6 +404,7 @@ All command line flags can be set via environment variables:
 - `QUIET`: Alternative to --quiet flag
 - `CERT_IDENTITY_LIST`: Alternative to --cert-identity-list flag
 - `NO_CACHE`: Alternative to --no-cache flag
+- `FAIL_ON_POLICY_ERROR`: Alternative to --fail-on-policy-error flag (set to "true" to exit with error on policy failures)
 
 ## Examples
 
