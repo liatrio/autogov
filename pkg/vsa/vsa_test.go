@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/liatrio/autogov-verify/pkg/attestations"
 )
 
 const (
@@ -76,7 +78,7 @@ func TestGenerateVSAWithOptions(t *testing.T) {
 		t.Errorf("Expected Type to be v1, got %s", vsa.Type)
 	}
 
-	if vsa.PredicateType != "https://slsa.dev/verification_summary/v1" {
+	if vsa.PredicateType != attestations.PredicateTypeVSA {
 		t.Errorf("Expected PredicateType to be verification_summary/v1, got %s", vsa.PredicateType)
 	}
 

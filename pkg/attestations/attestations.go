@@ -418,6 +418,20 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		return nil, fmt.Errorf("failed to parse statement: %w", err)
 	}
 
+	// lookup predicate type metadata for display
+	var predicateInfo string
+	if info, exists := LookupPredicateType(statement.PredicateType); exists {
+		predicateInfo = fmt.Sprintf("%s: %s", info.ShortName, statement.PredicateType)
+	} else {
+		predicateInfo = fmt.Sprintf("Unknown: %s", statement.PredicateType)
+
+		// log warning for unknown predicate types (if not in quiet mode)
+		if !opts.Quiet {
+			fmt.Fprintf(os.Stderr, "⚠ Warning: Unknown predicate type: %s\n", statement.PredicateType)
+			fmt.Fprintf(os.Stderr, "  Consider updating PredicateTypeRegistry if this is a standard type.\n")
+		}
+	}
+
 	// create signature from attestation
 	sig, err := static.NewSignature(
 		[]byte(rawPayload),
@@ -428,13 +442,13 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 	}
 
 	if !opts.Quiet {
-		fmt.Printf("Verifying attestation %d (%s)...\n", index+1, statement.PredicateType)
+		fmt.Printf("Verifying attestation %d (%s)...\n", index+1, predicateInfo)
 	}
 
 	// verify source repository ref if expected ref is set
 	if opts.SourceRef != "" {
 		// check if build provenance attestation
-		if statement.PredicateType != "https://slsa.dev/provenance/v1" {
+		if statement.PredicateType != PredicateTypeSLSAProvenance {
 			// non-provenance attestations don't contain source ref information
 		} else {
 			sourceRef := statement.Predicate.BuildDefinition.ExternalParameters.Workflow.Ref

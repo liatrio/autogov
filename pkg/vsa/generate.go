@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/liatrio/autogov-verify/pkg/attestations"
 	"github.com/liatrio/autogov-verify/pkg/policy"
 	"github.com/sigstore/cosign/v2/pkg/oci"
 	"github.com/spf13/viper"
@@ -72,11 +73,11 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 	// specific results for each attestation type
 	for _, attType := range opts.AttestationTypes {
 		switch attType {
-		case "https://slsa.dev/provenance/v1":
+		case attestations.PredicateTypeSLSAProvenance:
 			verificationResults["attestation.slsa_provenance"] = true
-		case "https://cyclonedx.org/bom":
+		case attestations.PredicateTypeCycloneDX:
 			verificationResults["attestation.sbom"] = true
-		case "https://in-toto.io/attestation/vuln/v0.1":
+		case attestations.PredicateTypeVulnerability:
 			verificationResults["attestation.vulnerability"] = true
 		default:
 			verificationResults["attestation."+attType] = true

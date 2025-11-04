@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/liatrio/autogov-verify/pkg/attestations"
 	bundleutils "github.com/liatrio/autogov-verify/pkg/bundle"
 	"github.com/liatrio/autogov-verify/pkg/digest"
 	localroot "github.com/liatrio/autogov-verify/pkg/root"
@@ -214,7 +215,20 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 		if !ov.options.Quiet {
 			// get attestation type for display
 			attType := bundleutils.DetectType(b)
-			fmt.Printf("Verifying attestation %d (%s)...\n", i+1, attType)
+
+			// lookup predicate type metadata for display
+			var predicateInfo string
+			if info, exists := attestations.LookupPredicateType(attType); exists {
+				predicateInfo = fmt.Sprintf("%s: %s", info.ShortName, attType)
+			} else {
+				predicateInfo = fmt.Sprintf("Unknown: %s", attType)
+
+				// log warning for unknown predicate types (already in !Quiet block)
+				fmt.Fprintf(os.Stderr, "⚠ Warning: Unknown predicate type: %s\n", attType)
+				fmt.Fprintf(os.Stderr, "  Consider updating PredicateTypeRegistry if this is a standard type.\n")
+			}
+
+			fmt.Printf("Verifying attestation %d (%s)...\n", i+1, predicateInfo)
 		}
 
 		attestationResult := ov.verifyBundle(v, b, expectedDigest)

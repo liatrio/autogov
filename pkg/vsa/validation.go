@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/liatrio/autogov-verify/pkg/attestations"
 	"github.com/liatrio/autogov-verify/pkg/digest"
 )
 
@@ -228,9 +229,9 @@ func (v *VSA) validateStatementType() error {
 
 // validates the VSA predicate type
 func (v *VSA) validatePredicateType() error {
-	if v.PredicateType != "https://slsa.dev/verification_summary/v1" {
+	if v.PredicateType != attestations.PredicateTypeVSA {
 		return NewValidationError("predicateType",
-			fmt.Sprintf("invalid predicate type: %s (expected https://slsa.dev/verification_summary/v1)", v.PredicateType), nil)
+			fmt.Sprintf("invalid predicate type: %s (expected %s)", v.PredicateType, attestations.PredicateTypeVSA), nil)
 	}
 	return nil
 }
