@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/google/go-github/v74/github"
+	"github.com/google/go-github/v77/github"
 	"github.com/liatrio/autogov-verify/pkg/attestations"
 	"github.com/liatrio/autogov-verify/pkg/certid"
 	"github.com/sigstore/cosign/v2/pkg/oci"
