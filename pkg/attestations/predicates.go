@@ -81,6 +81,49 @@ const (
 	// Compatible with SLSA v1 specifications.
 	// Spec: https://slsa.dev/spec/v1.1/verification_summary
 	PredicateTypeVSA = "https://slsa.dev/verification_summary/v1"
+
+	// PredicateTypeAutogovMetadata represents Autogov-specific metadata attestation.
+	// This custom predicate type contains comprehensive metadata about artifacts including
+	// artifact details, repository data, owner information, runner environment, workflow data,
+	// job data, commit information, compliance references, and security permissions.
+	// Used for Autogov policy validation and governance workflows.
+	// Spec: https://github.com/liatrio/autogov (custom predicate type)
+	PredicateTypeAutogovMetadata = "https://autogov.dev/attestation/metadata/v1"
+
+	// PredicateTypeSCAI represents SCAI (Software Supply Chain Attribute Integrity) report.
+	// This predicate type provides evidence-based assertions about software artifact and
+	// supply chain attributes or behavior.
+	// Spec: https://github.com/in-toto/attestation/blob/main/spec/predicates/scai.md
+	PredicateTypeSCAI = "https://in-toto.io/attestation/scai/v0.3"
+
+	// PredicateTypeRuntimeTrace represents runtime traces of supply chain operations.
+	// This predicate type captures system events during supply chain operations like build processes.
+	// Spec: https://github.com/in-toto/attestation/blob/main/spec/predicates/runtime-trace.md
+	PredicateTypeRuntimeTrace = "https://in-toto.io/attestation/runtime-trace/v0.1"
+
+	// PredicateTypeRelease represents release version details.
+	// This predicate type authoritatively links release versions in package registries
+	// to their corresponding artifact names and cryptographic hashes.
+	// Spec: https://github.com/in-toto/attestation/blob/main/spec/predicates/release.md
+	PredicateTypeRelease = "https://in-toto.io/attestation/release/v0.1"
+
+	// PredicateTypeTestResult represents test execution results.
+	// This predicate type expresses results of any type of tests run in the software supply chain.
+	// Spec: https://github.com/in-toto/attestation/blob/main/spec/predicates/test-result.md
+	PredicateTypeTestResult = "https://in-toto.io/attestation/test-result/v0.1"
+
+	// PredicateTypeLink represents the legacy in-toto link format.
+	// This predicate type is for migration from in-toto 0.9 format to the attestation framework.
+	// Spec: https://github.com/in-toto/attestation/blob/main/spec/predicates/link.md
+	PredicateTypeLink = "https://in-toto.io/attestation/link/v0.3"
+
+	// PredicateTypeCosignCustom represents Cosign's custom attestation predicate type.
+	// This is a generic predicate type used by Cosign for custom attestations that don't fit
+	// into other standard predicate types. The predicate contains Data (base64-encoded bytes)
+	// and Timestamp fields.
+	// Note: Autogov previously used this but now uses PredicateTypeAutogovMetadata for metadata attestations.
+	// Spec: https://github.com/sigstore/cosign/blob/main/specs/COSIGN_PREDICATE_SPEC.md
+	PredicateTypeCosignCustom = "https://cosign.sigstore.dev/attestation/v1"
 )
 
 // PredicateTypeInfo provides metadata about a predicate type, including its human-readable
@@ -162,6 +205,48 @@ var PredicateTypeRegistry = map[string]PredicateTypeInfo{
 		ShortName:   "SLSA VSA",
 		Description: "SLSA Verification Summary Attestation",
 		Spec:        "https://slsa.dev/spec/v1.1/verification_summary",
+	},
+	PredicateTypeAutogovMetadata: {
+		URI:         PredicateTypeAutogovMetadata,
+		ShortName:   "Autogov Metadata",
+		Description: "Autogov custom metadata attestation containing artifact, repository, owner, runner, workflow, and compliance information",
+		Spec:        "https://github.com/liatrio/autogov",
+	},
+	PredicateTypeSCAI: {
+		URI:         PredicateTypeSCAI,
+		ShortName:   "SCAI Report",
+		Description: "Software Supply Chain Attribute Integrity report with evidence-based assertions",
+		Spec:        "https://github.com/in-toto/attestation/blob/main/spec/predicates/scai.md",
+	},
+	PredicateTypeRuntimeTrace: {
+		URI:         PredicateTypeRuntimeTrace,
+		ShortName:   "Runtime Trace",
+		Description: "Runtime traces of supply chain operations and system events",
+		Spec:        "https://github.com/in-toto/attestation/blob/main/spec/predicates/runtime-trace.md",
+	},
+	PredicateTypeRelease: {
+		URI:         PredicateTypeRelease,
+		ShortName:   "Release",
+		Description: "Release version details linking package registry versions to artifact hashes",
+		Spec:        "https://github.com/in-toto/attestation/blob/main/spec/predicates/release.md",
+	},
+	PredicateTypeTestResult: {
+		URI:         PredicateTypeTestResult,
+		ShortName:   "Test Result",
+		Description: "Test execution results for software supply chain validation",
+		Spec:        "https://github.com/in-toto/attestation/blob/main/spec/predicates/test-result.md",
+	},
+	PredicateTypeLink: {
+		URI:         PredicateTypeLink,
+		ShortName:   "in-toto Link",
+		Description: "Legacy in-toto 0.9 link format for migration to attestation framework",
+		Spec:        "https://github.com/in-toto/attestation/blob/main/spec/predicates/link.md",
+	},
+	PredicateTypeCosignCustom: {
+		URI:         PredicateTypeCosignCustom,
+		ShortName:   "Cosign Custom",
+		Description: "Cosign generic custom attestation predicate with Data and Timestamp fields",
+		Spec:        "https://github.com/sigstore/cosign/blob/main/specs/COSIGN_PREDICATE_SPEC.md",
 	},
 }
 

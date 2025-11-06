@@ -190,7 +190,7 @@ func TestPredicateTypeRegistry_Initialized(t *testing.T) {
 }
 
 // TestPredicateTypeRegistry_ContainsAllTypes verifies that the registry contains entries
-// for all 6 standard predicate types defined in the constants.
+// for all 13 predicate types defined in the constants.
 func TestPredicateTypeRegistry_ContainsAllTypes(t *testing.T) {
 	requiredTypes := []struct {
 		name     string
@@ -202,6 +202,13 @@ func TestPredicateTypeRegistry_ContainsAllTypes(t *testing.T) {
 		{"PredicateTypeInTotoV1", PredicateTypeInTotoV1},
 		{"PredicateTypeVulnerability", PredicateTypeVulnerability},
 		{"PredicateTypeVSA", PredicateTypeVSA},
+		{"PredicateTypeAutogovMetadata", PredicateTypeAutogovMetadata},
+		{"PredicateTypeSCAI", PredicateTypeSCAI},
+		{"PredicateTypeRuntimeTrace", PredicateTypeRuntimeTrace},
+		{"PredicateTypeRelease", PredicateTypeRelease},
+		{"PredicateTypeTestResult", PredicateTypeTestResult},
+		{"PredicateTypeLink", PredicateTypeLink},
+		{"PredicateTypeCosignCustom", PredicateTypeCosignCustom},
 	}
 
 	for _, tt := range requiredTypes {
@@ -230,6 +237,13 @@ func TestPredicateTypeRegistry_CompleteMetadata(t *testing.T) {
 		PredicateTypeInTotoV1,
 		PredicateTypeVulnerability,
 		PredicateTypeVSA,
+		PredicateTypeAutogovMetadata,
+		PredicateTypeSCAI,
+		PredicateTypeRuntimeTrace,
+		PredicateTypeRelease,
+		PredicateTypeTestResult,
+		PredicateTypeLink,
+		PredicateTypeCosignCustom,
 	}
 
 	for _, uri := range types {
@@ -272,6 +286,13 @@ func TestPredicateTypeRegistry_KeysMatchConstants(t *testing.T) {
 		{"PredicateTypeInTotoV1", PredicateTypeInTotoV1},
 		{"PredicateTypeVulnerability", PredicateTypeVulnerability},
 		{"PredicateTypeVSA", PredicateTypeVSA},
+		{"PredicateTypeAutogovMetadata", PredicateTypeAutogovMetadata},
+		{"PredicateTypeSCAI", PredicateTypeSCAI},
+		{"PredicateTypeRuntimeTrace", PredicateTypeRuntimeTrace},
+		{"PredicateTypeRelease", PredicateTypeRelease},
+		{"PredicateTypeTestResult", PredicateTypeTestResult},
+		{"PredicateTypeLink", PredicateTypeLink},
+		{"PredicateTypeCosignCustom", PredicateTypeCosignCustom},
 	}
 
 	for _, tt := range tests {
