@@ -175,7 +175,7 @@ The tool recognizes all standard in-toto attestation framework predicate types:
 | `https://in-toto.io/Statement/v1` | in-toto Statement | Base in-toto attestation statement envelope |
 | `https://in-toto.io/attestation/vulns/v0.2` | Vulnerability Scan | Security vulnerability scan results |
 | `https://slsa.dev/verification_summary/v1` | SLSA VSA | Verification summary attestation |
-| `https://autogov.dev/attestation/metadata/v1` | Autogov Metadata | Custom autogov metadata with artifact/workflow/compliance details |
+| `https://autogov.dev/attestation/metadata/v1` | AutoGov Metadata | Custom autogov metadata with artifact/workflow/compliance details |
 | `https://in-toto.io/attestation/scai/v0.3` | SCAI Report | Software supply chain attribute integrity assertions |
 | `https://in-toto.io/attestation/runtime-trace/v0.1` | Runtime Trace | Runtime traces of supply chain operations |
 | `https://in-toto.io/attestation/release/v0.1` | Release | Release version and artifact hash linkage |
@@ -557,7 +557,7 @@ Verifying attestation 2 (CycloneDX SBOM: https://cyclonedx.org/bom)...
 Verifying attestation 3 (SLSA Provenance: https://slsa.dev/provenance/v1)...
 ✓ Attestation 3 verified successfully
 ---
-Verifying attestation 4 (Autogov Metadata: https://autogov.dev/attestation/metadata/v1)...
+Verifying attestation 4 (AutoGov Metadata: https://autogov.dev/attestation/metadata/v1)...
 ✓ Attestation 4 verified successfully
 ---
 
@@ -568,7 +568,7 @@ Attestation Types:
 1. Vulnerability Scan (https://in-toto.io/attestation/vulns/v0.2)
 2. CycloneDX SBOM (https://cyclonedx.org/bom)
 3. SLSA Provenance (https://slsa.dev/provenance/v1)
-4. Autogov Metadata (https://autogov.dev/attestation/metadata/v1)
+4. AutoGov Metadata (https://autogov.dev/attestation/metadata/v1)
 ```
 
 Note: Predicate types not in the registry are displayed as "Unknown" with a warning, but verification continues normally.

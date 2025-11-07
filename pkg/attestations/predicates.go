@@ -82,11 +82,11 @@ const (
 	// Spec: https://slsa.dev/spec/v1.1/verification_summary
 	PredicateTypeVSA = "https://slsa.dev/verification_summary/v1"
 
-	// PredicateTypeAutogovMetadata represents Autogov-specific metadata attestation.
+	// PredicateTypeAutogovMetadata represents AutoGov-specific metadata attestation.
 	// This custom predicate type contains comprehensive metadata about artifacts including
 	// artifact details, repository data, owner information, runner environment, workflow data,
 	// job data, commit information, compliance references, and security permissions.
-	// Used for Autogov policy validation and governance workflows.
+	// Used for AutoGov policy validation and governance workflows.
 	// Spec: https://github.com/liatrio/autogov (custom predicate type)
 	PredicateTypeAutogovMetadata = "https://autogov.dev/attestation/metadata/v1"
 
@@ -121,7 +121,7 @@ const (
 	// This is a generic predicate type used by Cosign for custom attestations that don't fit
 	// into other standard predicate types. The predicate contains Data (base64-encoded bytes)
 	// and Timestamp fields.
-	// Note: Autogov previously used this but now uses PredicateTypeAutogovMetadata for metadata attestations.
+	// Note: AutoGov previously used this but now uses PredicateTypeAutogovMetadata for metadata attestations.
 	// Spec: https://github.com/sigstore/cosign/blob/main/specs/COSIGN_PREDICATE_SPEC.md
 	PredicateTypeCosignCustom = "https://cosign.sigstore.dev/attestation/v1"
 )
@@ -208,8 +208,8 @@ var PredicateTypeRegistry = map[string]PredicateTypeInfo{
 	},
 	PredicateTypeAutogovMetadata: {
 		URI:         PredicateTypeAutogovMetadata,
-		ShortName:   "Autogov Metadata",
-		Description: "Autogov custom metadata attestation containing artifact, repository, owner, runner, workflow, and compliance information",
+		ShortName:   "AutoGov Metadata",
+		Description: "AutoGov custom metadata attestation containing artifact, repository, owner, runner, workflow, and compliance information",
 		Spec:        "https://github.com/liatrio/autogov",
 	},
 	PredicateTypeSCAI: {
