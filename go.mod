@@ -1,9 +1,9 @@
 module github.com/liatrio/autogov-verify
 
-go 1.24.6
+go 1.25.0
 
 require (
-	github.com/cli/go-gh/v2 v2.12.2
+	github.com/cli/go-gh/v2 v2.13.0
 	github.com/google/go-github/v77 v77.0.0
 	github.com/open-policy-agent/opa v1.9.0
 	github.com/sigstore/cosign/v2 v2.6.1
