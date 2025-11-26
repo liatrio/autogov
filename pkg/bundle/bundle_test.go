@@ -154,10 +154,10 @@ func TestExtractSubject(t *testing.T) {
 			expectedDgst: nil,
 		},
 		{
-			name: "bundle with blob subject",
+			name: "bundle with blob subject (autogov metadata)",
 			bundle: createTestBundle(map[string]interface{}{
 				"_type":         "https://in-toto.io/Statement/v1",
-				"predicateType": "https://cosign.sigstore.dev/attestation/v1",
+				"predicateType": "https://autogov.dev/attestation/metadata/v1",
 				"subject": []interface{}{
 					map[string]interface{}{
 						"name":   "bundle.tar.gz",
@@ -214,7 +214,7 @@ func TestDetectTypeVariousPredicateTypes(t *testing.T) {
 	}{
 		{"https://slsa.dev/provenance/v0.2", "SLSA v0.2"},
 		{"https://slsa.dev/provenance/v1", "SLSA v1"},
-		{"https://cosign.sigstore.dev/attestation/v1", "Cosign"},
+		{"https://autogov.dev/attestation/metadata/v1", "AutoGov Metadata"},
 		{"https://cyclonedx.org/bom", "CycloneDX SBOM"},
 		{"https://spdx.dev/Document", "SPDX"},
 		{"https://in-toto.io/attestation/vulns/v0.2", "Vulnerability"},

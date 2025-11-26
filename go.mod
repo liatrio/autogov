@@ -1,10 +1,10 @@
 module github.com/liatrio/autogov-verify
 
-go 1.24.6
+go 1.25.0
 
 require (
-	github.com/cli/go-gh/v2 v2.12.2
-	github.com/google/go-github/v74 v74.0.0
+	github.com/cli/go-gh/v2 v2.13.0
+	github.com/google/go-github/v77 v77.0.0
 	github.com/open-policy-agent/opa v1.8.0
 	github.com/sigstore/cosign/v2 v2.5.3
 	github.com/sigstore/sigstore-go v1.1.2
@@ -163,15 +163,15 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
-	golang.org/x/crypto v0.41.0 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
-	golang.org/x/mod v0.28.0 // indirect
-	golang.org/x/net v0.43.0 // indirect
+	golang.org/x/mod v0.29.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
-	golang.org/x/term v0.34.0 // indirect
-	golang.org/x/text v0.28.0 // indirect
+	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/term v0.37.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	google.golang.org/api v0.248.0 // indirect
 	google.golang.org/genproto v0.0.0-20250603155806-513f23925822 // indirect

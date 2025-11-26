@@ -4,13 +4,18 @@
   "extends": [
     "config:recommended"
   ],
+  "schedule": [
+    "before 5am every weekday"
+  ],
+  "go": {
+    "postUpdateOptions": [
+      "goModTidy"
+    ]
+  },
   "dependencyDashboard": false,
   "constraints": {
     "go": "1.23"
   },
-  "schedule": [
-    "before 5am every weekday"
-  ],
   "labels": [
     "renovate",
     "dependencies"

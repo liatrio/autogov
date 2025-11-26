@@ -13,7 +13,7 @@ A tool for verifying GitHub Artifact Attestations using [cosign](https://docs.si
 
 ## Features
 
-- **Multi-Attestation Verification**: Supports SLSA provenance, SBOM, vulnerability scans, and cosign attestations
+- **Multi-Attestation Verification**: Supports all standard in-toto predicate types (SLSA, SBOM, vulnerability, custom)
 - **SLSA v1.1 VSA Generation**: Creates comprehensive Verification Summary Attestations
 - **OPA Policy Integration**: Evaluates Rego policies with results included in VSA metadata
 - **Certificate Identity Validation**: Validates against approved certificate identity lists
@@ -163,22 +163,30 @@ The tool is organized into several key packages:
 
 The tool implements predicate type standardization following the [in-toto attestation framework](https://github.com/in-toto/attestation) and [SLSA specifications](https://slsa.dev/spec/v1.0/). This ensures consistent, human-readable display of attestation types during verification.
 
-**Standard Predicate Types:**
+**Supported Predicate Types:**
 
-The tool recognizes the following standard predicate types:
+The tool recognizes all standard in-toto attestation framework predicate types:
 
 | Predicate Type | Short Name | Description |
 |----------------|------------|-------------|
 | `https://slsa.dev/provenance/v1` | SLSA Provenance | Build provenance attestation |
 | `https://cyclonedx.org/bom` | CycloneDX SBOM | Software bill of materials (CycloneDX format) |
-| `https://spdx.dev/Document` | SPDX SBOM | Software bill of materials (SPDX format) |
-| `https://in-toto.io/Statement/v1` | in-toto Statement | Generic in-toto attestation statement |
+| `https://spdx.dev/Document` | SPDX SBOM | Software bill of materials (SPDX format, version-aware) |
+| `https://in-toto.io/Statement/v1` | in-toto Statement | Base in-toto attestation statement envelope |
 | `https://in-toto.io/attestation/vulns/v0.2` | Vulnerability Scan | Security vulnerability scan results |
 | `https://slsa.dev/verification_summary/v1` | SLSA VSA | Verification summary attestation |
+| `https://autogov.dev/attestation/metadata/v1` | AutoGov Metadata | Custom autogov metadata with artifact/workflow/compliance details |
+| `https://in-toto.io/attestation/scai/v0.3` | SCAI Report | Software supply chain attribute integrity assertions |
+| `https://in-toto.io/attestation/runtime-trace/v0.1` | Runtime Trace | Runtime traces of supply chain operations |
+| `https://in-toto.io/attestation/release/v0.1` | Release | Release version and artifact hash linkage |
+| `https://in-toto.io/attestation/test-result/v0.1` | Test Result | Test execution results |
+| `https://in-toto.io/attestation/link/v0.3` | in-toto Link | Legacy in-toto 0.9 format (migration support) |
+| `https://cosign.sigstore.dev/attestation/v1` | Cosign Custom | Cosign generic custom attestation |
 
 **How It Works:**
 
 During verification, the tool:
+
 1. Extracts the predicate type URI from each attestation
 2. Looks up the URI in the predicate type registry
 3. Displays the short name if found, or "Unknown: <uri>" if not found
@@ -187,6 +195,7 @@ During verification, the tool:
 **Graceful Handling of Unknown Types:**
 
 If the tool encounters a predicate type not in the registry (e.g., custom or newly-introduced types):
+
 - Verification proceeds normally without errors
 - The type is displayed as `Unknown: <full-uri>`
 - A warning is logged suggesting the registry be updated (if not in quiet mode)
@@ -334,6 +343,7 @@ The tool supports generating SLSA v1.1 Verification Summary Attestations (VSAs) 
 - `--vsa-output`: Path to save the generated VSA (e.g., `./verification-summary.json`)
 - `--policy-bundle-path`: Path or URL to OPA policy bundle for evaluation
 - `--policy-uri`: Policy URI for VSA generation (required if --generate-vsa is used)
+- `--fail-on-policy-error`: Exit with error code 1 when policy evaluation fails (default: false - exit code 0)
 - `--attestations-path`: Path to directory containing attestation files for offline verification
 
 **Enhanced VSA Features:**
@@ -401,6 +411,7 @@ All command line flags can be set via environment variables:
 - `QUIET`: Alternative to --quiet flag
 - `CERT_IDENTITY_LIST`: Alternative to --cert-identity-list flag
 - `NO_CACHE`: Alternative to --no-cache flag
+- `FAIL_ON_POLICY_ERROR`: Alternative to --fail-on-policy-error flag (set to "true" to exit with error on policy failures)
 
 ## Examples
 
@@ -510,10 +521,10 @@ The generated VSA includes comprehensive metadata about the verification and pol
       "evaluation_duration": 125
     },
     "autogov.verification.details": {
-      "provenance": true,
-      "sbom": true,
-      "vulnerability": true,
-      "cosign": true
+      "attestation.slsa_provenance": true,
+      "attestation.sbom": true,
+      "attestation.vulnerability": true,
+      "attestation.metadata": true
     }
   }
 }
@@ -546,9 +557,7 @@ Verifying attestation 2 (CycloneDX SBOM: https://cyclonedx.org/bom)...
 Verifying attestation 3 (SLSA Provenance: https://slsa.dev/provenance/v1)...
 ✓ Attestation 3 verified successfully
 ---
-Verifying attestation 4 (Unknown: https://cosign.sigstore.dev/attestation/v1)...
-⚠ Warning: Unknown predicate type: https://cosign.sigstore.dev/attestation/v1
-  Consider updating PredicateTypeRegistry if this is a standard type.
+Verifying attestation 4 (AutoGov Metadata: https://autogov.dev/attestation/metadata/v1)...
 ✓ Attestation 4 verified successfully
 ---
 
@@ -559,7 +568,7 @@ Attestation Types:
 1. Vulnerability Scan (https://in-toto.io/attestation/vulns/v0.2)
 2. CycloneDX SBOM (https://cyclonedx.org/bom)
 3. SLSA Provenance (https://slsa.dev/provenance/v1)
-4. Unknown (https://cosign.sigstore.dev/attestation/v1)
+4. AutoGov Metadata (https://autogov.dev/attestation/metadata/v1)
 ```
 
 Note: Predicate types not in the registry are displayed as "Unknown" with a warning, but verification continues normally.

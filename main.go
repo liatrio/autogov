@@ -84,6 +84,7 @@ const (
 	flagPolicyURI           = "policy-uri"
 	flagPolicyBundlePath    = "policy-bundle-path"
 	flagPolicySchemasPath   = "policy-schemas-path"
+	flagFailOnPolicyError   = "fail-on-policy-error"
 	flagNoCache             = "no-cache"
 	flagOfflineAttestations = "attestations"
 	flagOfflineTrustedRoot  = "trusted-root"
@@ -111,6 +112,7 @@ func init() {
 	// OPA policy flags
 	rootCmd.Flags().String(flagPolicyBundlePath, "", "Path to OPA policy bundle directory or .tar.gz file for policy evaluation")
 	rootCmd.Flags().String(flagPolicySchemasPath, "", "Path to directory or .tar.gz file containing JSON schemas for OPA policy validation")
+	rootCmd.Flags().Bool(flagFailOnPolicyError, false, "Exit with error when policy evaluation fails (default: false)")
 
 	// VSA generation flags
 	rootCmd.Flags().Bool(flagGenerateVSA, false, "Generate Verification Summary Attestation after successful verification")
@@ -174,6 +176,7 @@ func init() {
 	offlineCmd.Flags().String(flagPolicyURI, "", "Policy URI for VSA generation (required if --generate-vsa is used)")
 	offlineCmd.Flags().String(flagPolicyBundlePath, "", "Path to OPA policy bundle directory or .tar.gz file for policy evaluation")
 	offlineCmd.Flags().String(flagPolicySchemasPath, "", "Path to directory or .tar.gz file containing JSON schemas for OPA policy validation")
+	offlineCmd.Flags().Bool(flagFailOnPolicyError, false, "Exit with error when policy evaluation fails (default: false)")
 	offlineCmd.Flags().String(flagSourceRef, "", "Source repository ref to verify against (e.g., refs/heads/main)")
 
 	offlineCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
@@ -218,6 +221,7 @@ func init() {
 		flagNoCache:           "NO_CACHE",
 		flagPolicyBundlePath:  "POLICY_BUNDLE_PATH",
 		flagPolicySchemasPath: "POLICY_SCHEMAS_PATH",
+		flagFailOnPolicyError: "FAIL_ON_POLICY_ERROR",
 	}
 
 	for key, env := range envBinds {

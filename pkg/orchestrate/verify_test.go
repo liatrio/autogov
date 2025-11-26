@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/go-github/v74/github"
+	"github.com/google/go-github/v77/github"
 	"github.com/liatrio/autogov-verify/pkg/certid"
 	"github.com/stretchr/testify/assert"
 )

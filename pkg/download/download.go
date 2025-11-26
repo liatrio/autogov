@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/google/go-github/v74/github"
+	"github.com/google/go-github/v77/github"
 	"github.com/liatrio/autogov-verify/pkg/digest"
 	"github.com/liatrio/autogov-verify/pkg/offline"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
