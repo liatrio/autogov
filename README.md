@@ -342,6 +342,8 @@ The tool supports generating SLSA v1.1 Verification Summary Attestations (VSAs) 
 - `--generate-vsa`: Generate a VSA after successful verification with comprehensive validation
 - `--vsa-output`: Path to save the generated VSA (e.g., `./verification-summary.json`)
 - `--policy-bundle-path`: Path or URL to OPA policy bundle for evaluation
+- `--policy-schemas-path`: Path to directory or .tar.gz file containing JSON schemas for OPA policy validation
+- `--policy-data-path`: Path to JSON file containing additional OPA data (e.g., vulnerability thresholds)
 - `--policy-uri`: Policy URI for VSA generation (required if --generate-vsa is used)
 - `--fail-on-policy-error`: Exit with error code 1 when policy evaluation fails (default: false - exit code 0)
 - `--attestations-path`: Path to directory containing attestation files for offline verification
@@ -412,6 +414,7 @@ All command line flags can be set via environment variables:
 - `CERT_IDENTITY_LIST`: Alternative to --cert-identity-list flag
 - `NO_CACHE`: Alternative to --no-cache flag
 - `FAIL_ON_POLICY_ERROR`: Alternative to --fail-on-policy-error flag (set to "true" to exit with error on policy failures)
+- `POLICY_DATA_PATH`: Alternative to --policy-data-path flag
 
 ## Examples
 
@@ -470,6 +473,39 @@ autogov-verify \
   --policy-uri "https://github.com/liatrio/liatrio-rego-policy-library" \
   --policy-bundle-path "ghcr.io/liatrio/liatrio-rego-policy-library:latest"
 ```
+
+Generate VSA with custom vulnerability thresholds:
+
+```bash
+# Create threshold configuration file
+cat > thresholds.json << 'EOF'
+{
+  "vulnerability_thresholds": {
+    "critical": 0,
+    "high": 5,
+    "medium": 20,
+    "low": -1
+  }
+}
+EOF
+
+export GITHUB_AUTH_TOKEN=your_token
+autogov-verify \
+  --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
+  --repo liatrio/demo-gh-autogov-workflows \
+  --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
+  --generate-vsa \
+  --vsa-output ./verification-summary.json \
+  --policy-uri "https://github.com/liatrio/liatrio-rego-policy-library" \
+  --policy-bundle-path bundle.tar.gz \
+  --policy-data-path thresholds.json \
+  --fail-on-policy-error
+```
+
+**Threshold Values:**
+- `0`: No vulnerabilities allowed (zero tolerance)
+- Positive number: Maximum allowed count
+- `-1`: Unlimited (disable check for that severity)
 
 **VSA Output Features:**
 
