@@ -17,6 +17,7 @@ import (
 	"github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/open-policy-agent/opa/v1/storage/inmem"
 	"github.com/sigstore/cosign/v2/pkg/oci"
 	"github.com/spf13/viper"
 )
@@ -42,7 +43,7 @@ type PolicyViolation struct {
 }
 
 // creates a new OPA evaluator instance
-func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath string) (*OPAEvaluator, error) {
+func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath string, dataPath string) (*OPAEvaluator, error) {
 	// download and extract bundle if it's a URL
 	var bundlePath string
 	if strings.HasPrefix(policyBundlePath, "http") {
@@ -114,6 +115,21 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 				if !viper.GetBool("quiet") {
 					fmt.Printf("Loaded %d schemas for validation\n", len(schemas))
 				}
+			}
+		}
+	}
+
+	// load additional data file if provided (e.g., vulnerability_thresholds.json)
+	if dataPath != "" {
+		dataContent, err := loadDataFromPath(dataPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load policy data from %s: %w", dataPath, err)
+		}
+		if dataContent != nil {
+			store := inmem.NewFromObject(dataContent)
+			modules = append(modules, rego.Store(store))
+			if !viper.GetBool("quiet") {
+				fmt.Printf("Loaded policy data from %s\n", dataPath)
 			}
 		}
 	}
@@ -347,6 +363,21 @@ func loadSchemasFromPath(path string) (map[string]interface{}, error) {
 	}
 
 	return schemas, nil
+}
+
+// loadDataFromPath loads a JSON file and returns it as a map for OPA data store
+func loadDataFromPath(path string) (map[string]interface{}, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read data file %s: %w", path, err)
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(content, &data); err != nil {
+		return nil, fmt.Errorf("failed to parse data file %s: %w", path, err)
+	}
+
+	return data, nil
 }
 
 // loads all .rego files from a directory

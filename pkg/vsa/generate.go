@@ -16,6 +16,7 @@ const (
 	flagVSAOutput         = "vsa-output"
 	flagPolicyBundlePath  = "policy-bundle-path"
 	flagPolicySchemasPath = "policy-schemas-path"
+	flagPolicyDataPath    = "policy-data-path"
 )
 
 // contains options for VSA generation
@@ -28,6 +29,7 @@ type GenerateOptions struct {
 	PolicyURI         string
 	VSAOutput         string
 	PolicyBundlePath  string
+	PolicyDataPath    string
 	Quiet             bool
 	Version           string
 	OpaVersion        string
@@ -49,6 +51,11 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 	schemasPath := viper.GetString(flagPolicySchemasPath)
 	if schemasPath == "" {
 		schemasPath = viper.GetString(flagPolicyBundlePath)
+	}
+
+	// get data path for OPA data (e.g., vulnerability_thresholds)
+	if opts.PolicyDataPath == "" {
+		opts.PolicyDataPath = viper.GetString(flagPolicyDataPath)
 	}
 
 	if opts.PolicyURI == "" {
@@ -97,7 +104,7 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 	// use local policy bundle for evaluation
 	policyBundlePath := opts.PolicyBundlePath
 
-	evaluator, err := policy.NewOPAEvaluator(ctx, policyBundlePath, schemasPath)
+	evaluator, err := policy.NewOPAEvaluator(ctx, policyBundlePath, schemasPath, opts.PolicyDataPath)
 	if err != nil {
 		return fmt.Errorf("failed to create OPA evaluator: %w", err)
 	}
