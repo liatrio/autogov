@@ -91,6 +91,7 @@ const (
 	flagDownloadOutput      = "output"
 	flagDownloadFormat      = "format"
 	flagRepo                = "repo"
+	flagPolicyDataPath      = "policy-data-path"
 	attestationURNFormat    = "urn:attestation:sha256:%s"
 )
 
@@ -112,6 +113,7 @@ func init() {
 	// OPA policy flags
 	rootCmd.Flags().String(flagPolicyBundlePath, "", "Path to OPA policy bundle directory or .tar.gz file for policy evaluation")
 	rootCmd.Flags().String(flagPolicySchemasPath, "", "Path to directory or .tar.gz file containing JSON schemas for OPA policy validation")
+	rootCmd.Flags().String(flagPolicyDataPath, "", "Path to JSON file containing additional OPA data (e.g., vulnerability_thresholds)")
 	rootCmd.Flags().Bool(flagFailOnPolicyError, false, "Exit with error when policy evaluation fails (default: false)")
 
 	// VSA generation flags
@@ -176,6 +178,7 @@ func init() {
 	offlineCmd.Flags().String(flagPolicyURI, "", "Policy URI for VSA generation (required if --generate-vsa is used)")
 	offlineCmd.Flags().String(flagPolicyBundlePath, "", "Path to OPA policy bundle directory or .tar.gz file for policy evaluation")
 	offlineCmd.Flags().String(flagPolicySchemasPath, "", "Path to directory or .tar.gz file containing JSON schemas for OPA policy validation")
+	offlineCmd.Flags().String(flagPolicyDataPath, "", "Path to JSON file containing additional OPA data (e.g., vulnerability_thresholds)")
 	offlineCmd.Flags().Bool(flagFailOnPolicyError, false, "Exit with error when policy evaluation fails (default: false)")
 	offlineCmd.Flags().String(flagSourceRef, "", "Source repository ref to verify against (e.g., refs/heads/main)")
 
@@ -221,6 +224,7 @@ func init() {
 		flagNoCache:           "NO_CACHE",
 		flagPolicyBundlePath:  "POLICY_BUNDLE_PATH",
 		flagPolicySchemasPath: "POLICY_SCHEMAS_PATH",
+		flagPolicyDataPath:    "POLICY_DATA_PATH",
 		flagFailOnPolicyError: "FAIL_ON_POLICY_ERROR",
 	}
 
@@ -480,7 +484,8 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 
 		policyBundlePath, _ := cmd.Flags().GetString(flagPolicyBundlePath)
-		if err := generateVSAWithOptions(context.Background(), vsaArtifactRef, vsaSubjects, inputAttestations, attestationTypes, sigs, quiet, vsaOutput, policyURI, policyBundlePath); err != nil {
+		policyDataPath, _ := cmd.Flags().GetString(flagPolicyDataPath)
+		if err := generateVSAWithOptions(context.Background(), vsaArtifactRef, vsaSubjects, inputAttestations, attestationTypes, sigs, quiet, vsaOutput, policyURI, policyBundlePath, policyDataPath); err != nil {
 			return fmt.Errorf("failed to generate VSA: %w", err)
 		}
 	}
@@ -489,7 +494,7 @@ func run(cmd *cobra.Command, args []string) error {
 }
 
 // creates a VSA after successful attestation verification
-func generateVSAWithOptions(ctx context.Context, artifactDigest string, vsaSubjects []vsa.VSASubject, inputAttestations []vsa.ResourceDescriptor, attestationTypes []string, sigs []oci.Signature, quiet bool, vsaOutput, policyURI, policyBundlePath string) error {
+func generateVSAWithOptions(ctx context.Context, artifactDigest string, vsaSubjects []vsa.VSASubject, inputAttestations []vsa.ResourceDescriptor, attestationTypes []string, sigs []oci.Signature, quiet bool, vsaOutput, policyURI, policyBundlePath, policyDataPath string) error {
 	return vsa.Generate(ctx, vsa.GenerateOptions{
 		ArtifactDigest:    artifactDigest,
 		VSASubjects:       vsaSubjects,
@@ -498,6 +503,7 @@ func generateVSAWithOptions(ctx context.Context, artifactDigest string, vsaSubje
 		Signatures:        sigs,
 		PolicyURI:         policyURI,
 		PolicyBundlePath:  policyBundlePath,
+		PolicyDataPath:    policyDataPath,
 		VSAOutput:         vsaOutput,
 		Quiet:             quiet,
 		Version:           version,

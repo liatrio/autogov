@@ -243,9 +243,11 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			policyBundlePath, _ := cmd.Flags().GetString("policy-bundle-path")
 			policySchemasPath, _ := cmd.Flags().GetString("policy-schemas-path")
+			policyDataPath, _ := cmd.Flags().GetString("policy-data-path")
 
 			vsaOptions := vsa.GenerateOptions{
 				PolicyBundlePath: policyBundlePath,
+				PolicyDataPath:   policyDataPath,
 				PolicyURI:        policyURI,
 				Quiet:            quiet,
 			}
