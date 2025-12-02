@@ -4,11 +4,6 @@
   "schedule": [
     "before 5am every weekday"
   ],
-  "go": {
-    "postUpdateOptions": [
-      "goModTidy"
-    ]
-  },
   "labels": [
     "renovate",
     "dependencies"
@@ -44,7 +39,7 @@
   "customManagers": [
     {
       "customType": "regex",
-      "managerFilePatterns": [
+      "fileMatch": [
         "/\\.github/workflows/.*\\.yaml$/"
       ],
       "matchStrings": [
