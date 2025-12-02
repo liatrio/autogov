@@ -28,11 +28,12 @@ type OfflineVerifier struct {
 
 // options for offline verification
 type VerifyOptions struct {
-	CertIdentity   string // expected certificate identity (workflow URL)
-	CertOIDCIssuer string // expected OIDC issuer
-	SkipTLogVerify bool   // skip transparency log verification (for compatibility)
-	Quiet          bool   // suppress output messages
-	SourceRef      string // expected source repository ref (e.g., refs/heads/main)
+	CertIdentity      string // expected certificate identity (workflow URL)
+	CertOIDCIssuer    string // expected OIDC issuer
+	SkipTLogVerify    bool   // skip transparency log verification (for compatibility)
+	Quiet             bool   // suppress output messages
+	SourceRef         string // expected source repository ref (e.g., refs/heads/main)
+	TrustedRootSource string // trusted root source: github, public, or auto
 }
 
 // attestation subject
@@ -69,27 +70,39 @@ type AttestationResult struct {
 	Warnings         []string `json:"warnings,omitempty"`
 }
 
-// loads trusted root from file or uses embedded default
-func loadTrustedRoot(path string) (*root.TrustedRoot, error) {
+// loads trusted root from file, source selection, or embedded default
+func loadTrustedRoot(path string, source string) (*root.TrustedRoot, error) {
+	// custom file takes precedence
 	if path != "" {
-		// load from file if provided
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read trusted root file: %w", err)
 		}
+		fmt.Println("✓ Using custom trusted root file")
 		return root.NewTrustedRootFromJSON(data)
 	}
 
-	// Use embedded trusted root from pkg/root as fallback
+	// use source selection if specified
+	if source != "" {
+		trustedRootSource := localroot.TrustedRootSource(source)
+		rootData, _, err := localroot.SelectTrustedRoot(trustedRootSource, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to select trusted root: %w", err)
+		}
+		return root.NewTrustedRootFromJSON(rootData)
+	}
+
+	// default to embedded github root
 	if len(localroot.GithubTrustedRoot) == 0 {
 		return nil, fmt.Errorf("embedded trusted root is empty")
 	}
+	fmt.Println("✓ Using GitHub trusted root (default)")
 	return root.NewTrustedRootFromJSON(localroot.GithubTrustedRoot)
 }
 
 // offline verifier with trusted root
 func NewOfflineVerifier(trustedRootPath string, options VerifyOptions) (*OfflineVerifier, error) {
-	tr, err := loadTrustedRoot(trustedRootPath)
+	tr, err := loadTrustedRoot(trustedRootPath, options.TrustedRootSource)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load trusted root: %w", err)
 	}

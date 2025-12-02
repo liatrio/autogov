@@ -92,6 +92,7 @@ const (
 	flagDownloadFormat      = "format"
 	flagRepo                = "repo"
 	flagPolicyDataPath      = "policy-data-path"
+	flagTrustedRootSource   = "trusted-root-source"
 	attestationURNFormat    = "urn:attestation:sha256:%s"
 )
 
@@ -170,7 +171,8 @@ func init() {
 	offlineCmd.Flags().String(flagCertIdentity, "", "Expected certificate identity (required)")
 	offlineCmd.Flags().String(flagCertIssuer, "https://token.actions.githubusercontent.com", "Expected certificate issuer")
 	offlineCmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final results")
-	offlineCmd.Flags().String(flagOfflineTrustedRoot, "", "Path to trusted root file (optional)")
+	offlineCmd.Flags().String(flagOfflineTrustedRoot, "", "Path to trusted root file (optional, takes precedence over --trusted-root-source)")
+	offlineCmd.Flags().String(flagTrustedRootSource, "auto", "Trusted root source: github, public, or auto (default: auto)")
 
 	// VSA generation flags for offline mode
 	offlineCmd.Flags().Bool(flagGenerateVSA, false, "Generate Verification Summary Attestation after successful verification")
@@ -226,6 +228,7 @@ func init() {
 		flagPolicySchemasPath: "POLICY_SCHEMAS_PATH",
 		flagPolicyDataPath:    "POLICY_DATA_PATH",
 		flagFailOnPolicyError: "FAIL_ON_POLICY_ERROR",
+		flagTrustedRootSource: "TRUSTED_ROOT_SOURCE",
 	}
 
 	for key, env := range envBinds {
