@@ -32,11 +32,11 @@ jobs:
       packages: write
       contents: write
       actions: read
-    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-build-blob.yaml@main
+    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-build-blob.yaml@3503c01e156f7e040f6595f970ae0222838a419f # v0.13.1
     secrets: inherit
     with:
       subject-path: autogov-verify
-      cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-attest-blob.yaml@refs/heads/main
+      cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-attest-blob.yaml@3503c01e156f7e040f6595f970ae0222838a419f # v0.13.1
       # Only release on push to main branch
       release-blob: ${{ github.ref == 'refs/heads/main' }}
       # Vulnerability thresholds: -1 = unlimited (no threshold)
