@@ -1,0 +1,54 @@
+name: Build Blob Composite Action
+
+description: >-
+  Builds the autogov-verify Go binary for attestation workflows.
+  This action is called by rw-*-attest-blob.yaml workflows.
+
+inputs:
+  go-version:
+    description: 'Go version to use for building'
+    required: false
+    default: '1.25.0'
+
+outputs:
+  binary-path:
+    description: 'Path to the built binary'
+    value: ${{ steps.build.outputs.binary-path }}
+  version:
+    description: 'Version of the built binary'
+    value: ${{ steps.build.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Go
+      uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: true
+        cache-dependency-path: go.sum
+
+    - name: Build Binary
+      id: build
+      shell: bash
+      run: |
+        # Determine version from git
+        VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')}"
+        COMMIT="${COMMIT:-$(git rev-parse HEAD 2>/dev/null || echo 'unknown')}"
+        DATE="${DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+        OPA_VERSION="${OPA_VERSION:-$(go list -m github.com/open-policy-agent/opa 2>/dev/null | awk '{print $2}' || echo 'unknown')}"
+
+        echo "Building autogov-verify version ${VERSION}"
+
+        # Build with ldflags
+        CGO_ENABLED=0 go build -trimpath \
+          -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE} -X main.OpaVersion=${OPA_VERSION}" \
+          -o autogov-verify .
+
+        # Output for downstream steps
+        echo "binary-path=autogov-verify" >> $GITHUB_OUTPUT
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+        # Verify binary was created
+        ls -la autogov-verify
+        ./autogov-verify --version || true

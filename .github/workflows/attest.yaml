@@ -1,0 +1,44 @@
+name: Build, Attest, and Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - README.md
+      - CONTRIBUTING.md
+      - catalog-info.yaml
+      - renovate.json
+      - docs/**
+      - .github/dependabot.yml
+
+# Only run attestation on push to main (not PRs)
+# Per SLSA best practices: sign on push/tag/release, not on PR
+# See: https://slsa.dev/spec/v1.2/
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  attest-blob:
+    permissions:
+      id-token: write
+      attestations: write
+      packages: write
+      contents: write
+      actions: read
+    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-build-blob.yaml@main
+    secrets: inherit
+    with:
+      subject-path: autogov-verify
+      cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-attest-blob.yaml@refs/heads/main
+      release-blob: true
+      # Vulnerability thresholds: -1 = unlimited (no threshold)
+      # Set to 0 to fail on any vulnerabilities of that severity
+      vuln-threshold-critical: '-1'
+      vuln-threshold-high: '-1'
+      vuln-threshold-medium: '-1'
+      vuln-threshold-low: '-1'
