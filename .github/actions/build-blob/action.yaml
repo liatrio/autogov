@@ -51,4 +51,4 @@ runs:
 
         # Verify binary was created
         ls -la autogov-verify
-        ./autogov-verify --version || true
+        ./autogov-verify version || true
