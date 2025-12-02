@@ -135,3 +135,167 @@ func TestTrustedRootContent(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicSigstoreTrustedRoot(t *testing.T) {
+	// verify public Sigstore trusted root is embedded
+	if len(PublicSigstoreTrustedRoot) == 0 {
+		t.Error("embedded PublicSigstoreTrustedRoot is empty")
+	}
+
+	// verify valid JSON
+	var trustedRoot map[string]interface{}
+	if err := json.Unmarshal(PublicSigstoreTrustedRoot, &trustedRoot); err != nil {
+		t.Errorf("embedded PublicSigstoreTrustedRoot is not valid JSON: %v", err)
+	}
+
+	// verify structure has certificate authorities
+	cas, ok := trustedRoot["certificateAuthorities"].([]interface{})
+	if !ok {
+		t.Error("embedded PublicSigstoreTrustedRoot missing certificateAuthorities array")
+		return
+	}
+
+	if len(cas) == 0 {
+		t.Error("embedded PublicSigstoreTrustedRoot has no certificate authorities")
+		return
+	}
+
+	// verify it contains fulcio.sigstore.dev (not GitHub's fulcio)
+	foundPublicFulcio := false
+	for _, caInterface := range cas {
+		ca, ok := caInterface.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if uri, ok := ca["uri"].(string); ok && uri == "https://fulcio.sigstore.dev" {
+			foundPublicFulcio = true
+			break
+		}
+	}
+	if !foundPublicFulcio {
+		t.Error("PublicSigstoreTrustedRoot does not contain fulcio.sigstore.dev CA")
+	}
+
+	// verify timestamp authorities exist
+	tsas, ok := trustedRoot["timestampAuthorities"].([]interface{})
+	if !ok || len(tsas) == 0 {
+		t.Error("PublicSigstoreTrustedRoot missing timestampAuthorities")
+	}
+}
+
+func TestSelectTrustedRoot(t *testing.T) {
+	tests := []struct {
+		name           string
+		source         TrustedRootSource
+		certPEM        []byte
+		expectedSource TrustedRootSource
+		expectError    bool
+	}{
+		{
+			name:           "explicit github source",
+			source:         TrustedRootSourceGitHub,
+			certPEM:        nil,
+			expectedSource: TrustedRootSourceGitHub,
+			expectError:    false,
+		},
+		{
+			name:           "explicit public source",
+			source:         TrustedRootSourcePublic,
+			certPEM:        nil,
+			expectedSource: TrustedRootSourcePublic,
+			expectError:    false,
+		},
+		{
+			name:           "auto without cert defaults to github",
+			source:         TrustedRootSourceAuto,
+			certPEM:        nil,
+			expectedSource: TrustedRootSourceGitHub,
+			expectError:    false,
+		},
+		{
+			name:           "invalid source",
+			source:         TrustedRootSource("invalid"),
+			certPEM:        nil,
+			expectedSource: "",
+			expectError:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootData, actualSource, err := SelectTrustedRoot(tt.source, tt.certPEM)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if actualSource != tt.expectedSource {
+				t.Errorf("expected source %s, got %s", tt.expectedSource, actualSource)
+			}
+
+			if len(rootData) == 0 {
+				t.Errorf("expected non-empty root data")
+			}
+
+			// Verify returned data is valid JSON
+			var trustedRoot map[string]interface{}
+			if err := json.Unmarshal(rootData, &trustedRoot); err != nil {
+				t.Errorf("returned root data is not valid JSON: %v", err)
+			}
+		})
+	}
+}
+
+func TestDetectFromIssuer(t *testing.T) {
+	tests := []struct {
+		issuer         string
+		expectedSource TrustedRootSource
+	}{
+		{GitHubActionsIssuer, TrustedRootSourceGitHub},
+		{GoogleOIDCIssuer, TrustedRootSourcePublic},
+		{GitHubOAuthIssuer, TrustedRootSourcePublic},
+		{GitLabIssuer, TrustedRootSourcePublic},
+		{"https://unknown-issuer.com", TrustedRootSourcePublic}, // default to public for unknown
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.issuer, func(t *testing.T) {
+			result := detectFromIssuer(tt.issuer)
+			if result != tt.expectedSource {
+				t.Errorf("issuer %s: expected %s, got %s", tt.issuer, tt.expectedSource, result)
+			}
+		})
+	}
+}
+
+func TestGetPublicTrustedRoot(t *testing.T) {
+	root := GetPublicTrustedRoot()
+	if len(root) == 0 {
+		t.Error("GetPublicTrustedRoot returned empty data")
+	}
+
+	// Should match embedded variable
+	if string(root) != string(PublicSigstoreTrustedRoot) {
+		t.Error("GetPublicTrustedRoot does not match PublicSigstoreTrustedRoot")
+	}
+}
+
+func TestGetGitHubTrustedRoot(t *testing.T) {
+	root := GetGitHubTrustedRoot()
+	if len(root) == 0 {
+		t.Error("GetGitHubTrustedRoot returned empty data")
+	}
+
+	// Should match embedded variable
+	if string(root) != string(GithubTrustedRoot) {
+		t.Error("GetGitHubTrustedRoot does not match GithubTrustedRoot")
+	}
+}

@@ -18,6 +18,7 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 	imageDigest, _ := cmd.Flags().GetString("image-digest")
 	attestationsPath, _ := cmd.Flags().GetString("attestations")
 	trustedRoot, _ := cmd.Flags().GetString("trusted-root")
+	trustedRootSource, _ := cmd.Flags().GetString("trusted-root-source")
 	certIdentity, _ := cmd.Flags().GetString("cert-identity")
 	certIssuer, _ := cmd.Flags().GetString("cert-issuer")
 	sourceRef, _ := cmd.Flags().GetString("source-ref")
@@ -55,11 +56,12 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 
 		// verification options
 		verifyOpts := VerifyOptions{
-			CertIdentity:   certIdentity,
-			CertOIDCIssuer: certIssuer,
-			SkipTLogVerify: true, // skip tlog verification in offline mode
-			Quiet:          quiet,
-			SourceRef:      sourceRef,
+			CertIdentity:      certIdentity,
+			CertOIDCIssuer:    certIssuer,
+			SkipTLogVerify:    true, // skip tlog verification in offline mode
+			Quiet:             quiet,
+			SourceRef:         sourceRef,
+			TrustedRootSource: trustedRootSource,
 		}
 
 		// log what we're verifying

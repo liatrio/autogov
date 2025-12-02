@@ -313,8 +313,23 @@ autogov-verify offline \
 - `--image-digest`: SHA256 digest for container image verification (optional, use when image cannot be pulled offline)
 - `--cert-identity`: Certificate identity (workflow URL with commit SHA) (required)
 - `--cert-issuer`: Certificate issuer (defaults to GitHub Actions)
-- `--trusted-root`: Path to trusted root JSON file (defaults to embedded GitHub trusted root if not provided)
+- `--trusted-root`: Path to custom trusted root JSON file (takes precedence over `--trusted-root-source`)
+- `--trusted-root-source`: Trusted root source selection: `github`, `public`, or `auto` (default: `auto`)
 - `-q, --quiet`: Only show errors and final results
+
+**Trusted Root Source Options:**
+
+| Source | Description |
+|--------|-------------|
+| `github` | Use GitHub's private Sigstore deployment (fulcio.githubapp.com) |
+| `public` | Use public Sigstore infrastructure (fulcio.sigstore.dev) |
+| `auto` | Auto-detect based on certificate issuer (default) |
+
+The `auto` mode examines the attestation certificate issuer to determine the appropriate trusted root:
+- GitHub Actions (`https://token.actions.githubusercontent.com`) → GitHub trusted root
+- Google OIDC (`https://accounts.google.com`) → Public Sigstore trusted root
+- GitHub OAuth (`https://github.com/login/oauth`) → Public Sigstore trusted root
+- GitLab (`https://gitlab.com`) → Public Sigstore trusted root
 
 **Implementation Notes**:
 - Uses sigstore-go for all verification
@@ -415,6 +430,7 @@ All command line flags can be set via environment variables:
 - `NO_CACHE`: Alternative to --no-cache flag
 - `FAIL_ON_POLICY_ERROR`: Alternative to --fail-on-policy-error flag (set to "true" to exit with error on policy failures)
 - `POLICY_DATA_PATH`: Alternative to --policy-data-path flag
+- `TRUSTED_ROOT_SOURCE`: Alternative to --trusted-root-source flag (values: `github`, `public`, `auto`)
 
 ## Examples
 
@@ -472,6 +488,24 @@ autogov-verify \
   --vsa-output ./verification-summary.json \
   --policy-uri "https://github.com/liatrio/liatrio-rego-policy-library" \
   --policy-bundle-path "ghcr.io/liatrio/liatrio-rego-policy-library:latest"
+```
+
+Verify a cosign-signed artifact using public Sigstore:
+
+```bash
+# Verify an artifact signed with cosign sign --yes (public Sigstore)
+autogov-verify offline \
+  --attestations attestations.jsonl \
+  --blob-path artifact.tar.gz \
+  --cert-identity "https://github.com/owner/repo/.github/workflows/release.yml@refs/heads/main" \
+  --cert-issuer "https://accounts.google.com" \
+  --trusted-root-source public
+
+# Or use auto-detection (recommended)
+autogov-verify offline \
+  --attestations attestations.jsonl \
+  --blob-path artifact.tar.gz \
+  --trusted-root-source auto
 ```
 
 Generate VSA with custom vulnerability thresholds:
