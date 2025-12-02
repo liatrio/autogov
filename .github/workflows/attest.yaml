@@ -23,23 +23,35 @@ jobs:
     permissions:
       id-token: write
       attestations: write
-      packages: write
-      contents: write
+      contents: read
       actions: read
-    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-build-blob.yaml@3503c01e156f7e040f6595f970ae0222838a419f # v0.13.1
+    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@3503c01e156f7e040f6595f970ae0222838a419f # v0.13.1
     secrets: inherit
     with:
       subject-path: autogov-verify
-      cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-attest-blob.yaml@3503c01e156f7e040f6595f970ae0222838a419f # v0.13.1
-      release-blob: false
+
+  verify-blob:
+    needs: [attest-blob]
+    permissions:
+      id-token: write
+      attestations: write
+      packages: write
+      contents: read
+      actions: read
+    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-verify.yaml@3503c01e156f7e040f6595f970ae0222838a419f # v0.13.1
+    secrets: inherit
+    with:
+      build-type: blob
+      blob-artifact-id: ${{ needs.attest-blob.outputs.blob-artifact-id }}
+      cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@3503c01e156f7e040f6595f970ae0222838a419f # v0.13.1
       vuln-threshold-critical: '0'
-      vuln-threshold-high: '2'
-      vuln-threshold-medium: '2'
+      vuln-threshold-high: '4'
+      vuln-threshold-medium: '7'
       vuln-threshold-low: '-1'
 
   release:
     if: ${{ github.ref == 'refs/heads/main' }}
-    needs: [attest-blob]
+    needs: [verify-blob]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -80,7 +92,7 @@ jobs:
         if: steps.go-semantic-release.outputs.version != ''
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
-          name: verification-summary-attestation-low-perms
+          name: verification-summary-attestation-high-perms
           path: ${{ env.VSA_FOLDER }}
       - name: Upload binary and VSA as release assets
         if: steps.go-semantic-release.outputs.version != ''
