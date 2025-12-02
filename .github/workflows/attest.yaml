@@ -12,12 +12,6 @@ on:
       - docs/**
       - .github/dependabot.yml
 
-# Per SLSA best practices: attest on every push (not PRs)
-# See: https://slsa.dev/spec/v1.2/
-#
-# - Attestation: Every push to any branch (provenance for all builds)
-# - Release: Only on push to main (controlled by release-blob conditional)
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -37,11 +31,63 @@ jobs:
     with:
       subject-path: autogov-verify
       cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-attest-blob.yaml@3503c01e156f7e040f6595f970ae0222838a419f # v0.13.1
-      # Only release on push to main branch
-      release-blob: ${{ github.ref == 'refs/heads/main' }}
-      # Vulnerability thresholds: -1 = unlimited (no threshold)
-      # Set to 0 to fail on any vulnerabilities of that severity
-      vuln-threshold-critical: '-1'
-      vuln-threshold-high: '-1'
-      vuln-threshold-medium: '-1'
+      release-blob: false
+      vuln-threshold-critical: '0'
+      vuln-threshold-high: '2'
+      vuln-threshold-medium: '2'
       vuln-threshold-low: '-1'
+
+  release:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    needs: [attest-blob]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    env:
+      VSA_FOLDER: ./vsa
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: 1.25.0
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Run go-semantic-release
+        uses: go-semantic-release/action@2e9dc4247a6004f8377781bef4cb9dad273a741f # v1.24.1
+        id: go-semantic-release
+        with:
+          github-token: ${{ github.token }}
+          changelog-generator-opt: emojis=true
+          allow-initial-development-versions: true
+          ghr: false
+      - name: Install Task
+        if: steps.go-semantic-release.outputs.version != ''
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build binary
+        if: steps.go-semantic-release.outputs.version != ''
+        run: task build
+        env:
+          VERSION: v${{ steps.go-semantic-release.outputs.version }}
+          COMMIT: ${{ github.sha }}
+          DATE: ${{ github.event.head_commit.timestamp }}
+      - name: Download VSA artifact
+        if: steps.go-semantic-release.outputs.version != ''
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: verification-summary-attestation-low-perms
+          path: ${{ env.VSA_FOLDER }}
+      - name: Upload binary and VSA as release assets
+        if: steps.go-semantic-release.outputs.version != ''
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          files: |
+            bin/autogov-verify
+            ${{ env.VSA_FOLDER }}/*
+          tag_name: v${{ steps.go-semantic-release.outputs.version }}
+          token: ${{ github.token }}
