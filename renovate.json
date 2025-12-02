@@ -14,7 +14,7 @@
   },
   "dependencyDashboard": false,
   "constraints": {
-    "go": "1.23"
+    "go": "1.25"
   },
   "labels": [
     "renovate",
@@ -57,13 +57,12 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/\\.github/workflows/.*\\.yaml$/"
+        "/^\\.github/workflows/.*\\.yaml$/"
       ],
       "matchStrings": [
-        "(?:https://github\\.com/|)liatrio/liatrio-gh-autogov-workflows/\\.github/workflows/.*?\\.yaml@(?<currentDigest>[a-f0-9]+) # v(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+        "liatrio/liatrio-gh-autogov-workflows/\\.github/workflows/[^@]+@(?<currentDigest>[a-f0-9]+)\\s*#\\s*v(?<currentValue>\\d+\\.\\d+\\.\\d+)"
       ],
       "depNameTemplate": "liatrio/liatrio-gh-autogov-workflows",
-      "packageNameTemplate": "liatrio/liatrio-gh-autogov-workflows",
       "datasourceTemplate": "github-tags"
     }
   ],
