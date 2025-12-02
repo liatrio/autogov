@@ -1,9 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "configMigration": true,
-  "extends": [
-    "config:recommended"
-  ],
   "schedule": [
     "before 5am every weekday"
   ],
@@ -12,31 +9,22 @@
       "goModTidy"
     ]
   },
-  "dependencyDashboard": false,
-  "constraints": {
-    "go": "1.25"
-  },
   "labels": [
     "renovate",
     "dependencies"
   ],
   "packageRules": [
     {
-      "matchManagers": [
-        "dockerfile"
-      ],
-      "groupName": "dockerfile deps"
-    },
-    {
       "extends": [
         ":semanticPrefixFixDepsChoreOthers",
         "helpers:pinGitHubActionDigests"
       ],
-      "matchManagers": [
-        "github-actions"
+      "matchDepTypes": [
+        "action"
       ],
       "pinDigests": true,
-      "groupName": "github-actions deps"
+      "groupName": "GitHub Actions",
+      "groupSlug": "github-actions"
     },
     {
       "matchManagers": [
@@ -57,17 +45,14 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/^\\.github/workflows/.*\\.yaml$/"
+        "/\\.github/workflows/.*\\.yaml$/"
       ],
       "matchStrings": [
-        "liatrio/liatrio-gh-autogov-workflows/\\.github/workflows/[^@]+@(?<currentDigest>[a-f0-9]+)\\s*#\\s*v(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+        "(?:https://github\\.com/|)liatrio/liatrio-gh-autogov-workflows/\\.github/workflows/.*?\\.yaml@(?<currentDigest>[a-f0-9]+) # v(?<currentValue>\\d+\\.\\d+\\.\\d+)"
       ],
       "depNameTemplate": "liatrio/liatrio-gh-autogov-workflows",
+      "packageNameTemplate": "liatrio/liatrio-gh-autogov-workflows",
       "datasourceTemplate": "github-tags"
     }
-  ],
-  "prConcurrentLimit": 10,
-  "suppressNotifications": [
-    "prEditedNotification"
   ]
 }
