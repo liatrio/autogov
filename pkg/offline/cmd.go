@@ -204,9 +204,6 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 				vsaSubjects = append(vsaSubjects, subject)
 			}
 
-			// repo might be needed for VSA reference later
-			_ = viper.GetString("repo")
-
 			// uses blob path or digest for main subject if no attestation subjects
 			if len(vsaSubjects) == 0 {
 				if artifactPath != "" {
@@ -251,6 +248,7 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 				PolicyBundlePath: policyBundlePath,
 				PolicyDataPath:   policyDataPath,
 				PolicyURI:        policyURI,
+				VSAOutput:        vsaOutput,
 				Quiet:            quiet,
 			}
 

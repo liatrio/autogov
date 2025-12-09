@@ -237,6 +237,9 @@ func init() {
 		}
 	}
 
+	// set opa version in viper for policy package to use
+	viper.Set("opa-version", OpaVersion)
+
 	// add subcommands
 	rootCmd.AddCommand(downloadCmd)
 	rootCmd.AddCommand(offlineCmd)

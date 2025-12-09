@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ import (
 // handles OPA policy evaluation using the Rego API
 type OPAEvaluator struct {
 	policyPath string
+	opaVersion string
 	prepared   *rego.PreparedEvalQuery
 }
 
@@ -86,7 +88,7 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 			// extract schemas archive
 			extractedPath, err := extractBundle(schemasPath)
 			if err != nil {
-				fmt.Printf("Warning: failed to extract schemas archive: %v\n", err)
+				log.Printf("warning: failed to extract schemas archive: %v", err)
 				actualSchemasPath = schemasPath // fallback to original path
 			} else {
 				actualSchemasPath = extractedPath
@@ -149,6 +151,7 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 
 	return &OPAEvaluator{
 		policyPath: policyBundlePath,
+		opaVersion: viper.GetString("opa-version"),
 		prepared:   &prepared,
 	}, nil
 }
@@ -179,7 +182,7 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			fmt.Printf("Warning: failed to close response body: %v\n", err)
+			log.Printf("warning: failed to close response body: %v", err)
 		}
 	}()
 
@@ -203,7 +206,7 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 	}
 	defer func() {
 		if err := gzr.Close(); err != nil {
-			fmt.Printf("Warning: failed to close gzip reader: %v\n", err)
+			log.Printf("warning: failed to close gzip reader: %v", err)
 		}
 	}()
 
@@ -240,12 +243,12 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 
 			if _, err := io.Copy(file, tr); err != nil {
 				if err := file.Close(); err != nil {
-					fmt.Printf("Warning: failed to close file: %v\n", err)
+					log.Printf("warning: failed to close file: %v", err)
 				}
 				return "", fmt.Errorf("failed to write file: %w", err)
 			}
 			if err := file.Close(); err != nil {
-				fmt.Printf("Warning: failed to close file: %v\n", err)
+				log.Printf("warning: failed to close file: %v", err)
 			}
 		}
 	}
@@ -262,7 +265,7 @@ func extractBundle(bundlePath string) (string, error) {
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			fmt.Printf("Warning: failed to close bundle file: %v\n", err)
+			log.Printf("warning: failed to close bundle file: %v", err)
 		}
 	}()
 
@@ -280,7 +283,7 @@ func extractBundle(bundlePath string) (string, error) {
 	}
 	defer func() {
 		if err := gzr.Close(); err != nil {
-			fmt.Printf("Warning: failed to close gzip reader: %v\n", err)
+			log.Printf("warning: failed to close gzip reader: %v", err)
 		}
 	}()
 
@@ -317,13 +320,13 @@ func extractBundle(bundlePath string) (string, error) {
 
 			if _, err := io.Copy(outFile, tr); err != nil {
 				if err := outFile.Close(); err != nil {
-					fmt.Printf("Warning: failed to close file: %v\n", err)
+					log.Printf("warning: failed to close file: %v", err)
 				}
 				cleanup()
 				return "", fmt.Errorf("failed to write file: %w", err)
 			}
 			if err := outFile.Close(); err != nil {
-				fmt.Printf("Warning: failed to close file: %v\n", err)
+				log.Printf("warning: failed to close file: %v", err)
 			}
 		}
 	}
@@ -572,7 +575,7 @@ func calculateRemoteDigest(url string) (string, error) {
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Printf("Warning: failed to close response body: %v\n", closeErr)
+			log.Printf("warning: failed to close response body: %v", closeErr)
 		}
 	}()
 
@@ -593,8 +596,12 @@ func calculateRemoteDigest(url string) (string, error) {
 
 // returns details about the loaded policy
 func (e *OPAEvaluator) GetPolicyDetails() map[string]interface{} {
+	version := e.opaVersion
+	if version == "" {
+		version = "unknown"
+	}
 	return map[string]interface{}{
 		"policy_path": e.policyPath,
-		"opa_version": "v1.8.0", // version managed in main.go constants
+		"opa_version": version,
 	}
 }

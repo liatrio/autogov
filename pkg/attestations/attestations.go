@@ -19,6 +19,7 @@ import (
 	"github.com/google/go-github/v77/github"
 	"github.com/liatrio/autogov-verify/pkg/certid"
 	"github.com/liatrio/autogov-verify/pkg/digest"
+	ghclient "github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/liatrio/autogov-verify/pkg/root"
 
 	"github.com/sigstore/cosign/v2/pkg/oci"
@@ -43,6 +44,9 @@ func (e *SourceRefMismatchError) Error() string {
 
 // default gha oidc token issuer
 const DefaultCertIssuer = "https://token.actions.githubusercontent.com"
+
+// timeout for fetching attestations from github api
+const attestationFetchTimeout = 2 * time.Minute
 
 // represents a SHA-256 digest of an artifact
 type Digest struct {
@@ -221,7 +225,7 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, attestationFetchTimeout)
 	defer cancel()
 
 	// validate inputs first
@@ -262,24 +266,10 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 		return nil, fmt.Errorf("failed to create repository: %w", err)
 	}
 
-	// get token from client's transport/env
-	var token string
-	if t, ok := client.Client().Transport.(*github.BasicAuthTransport); ok {
-		token = t.Password
-	}
-
-	// if no token from transport/env, try env vars
+	// get token from centralized github client
+	token := ghclient.GetToken()
 	if token == "" {
-		token = os.Getenv("GH_TOKEN")
-		if token == "" {
-			token = os.Getenv("GITHUB_TOKEN")
-		}
-		if token == "" {
-			token = os.Getenv("GITHUB_AUTH_TOKEN")
-		}
-		if token == "" {
-			return nil, fmt.Errorf("no token found in github client transport or environment")
-		}
+		return nil, fmt.Errorf("no token found in github client transport or environment")
 	}
 
 	// auth config
