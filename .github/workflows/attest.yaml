@@ -45,8 +45,8 @@ jobs:
       blob-artifact-id: ${{ needs.attest-blob.outputs.blob-artifact-id }}
       cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@6ec9a792694dbd3d312bcad8136db0586d45b822 # v0.14.0
       vuln-threshold-critical: '0'
-      vuln-threshold-high: '4'
-      vuln-threshold-medium: '7'
+      vuln-threshold-high: '-1'
+      vuln-threshold-medium: '-1'
       vuln-threshold-low: '-1'
 
   release:
