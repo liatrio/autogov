@@ -289,7 +289,7 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 	}
 	defer func() {
 		if closeErr := manifestReader.Close(); closeErr != nil {
-			log.Printf("Warning: failed to close manifest reader: %v", closeErr)
+			log.Printf("warning: failed to close manifest reader: %v", closeErr)
 		}
 	}()
 
@@ -321,7 +321,7 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 				var sourceRefErr *SourceRefMismatchError
 				if errors.As(err, &sourceRefErr) {
 					if !opts.Quiet {
-						fmt.Printf("⚠ Warning: %s (skipping attestation %d)\n", sourceRefErr.Error(), i+1)
+						fmt.Printf("⚠ warning: %s (skipping attestation %d)\n", sourceRefErr.Error(), i+1)
 					}
 					continue // skip this attestation and continue with the next one
 				}
@@ -417,8 +417,8 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 
 		// log warning for unknown predicate types (if not in quiet mode)
 		if !opts.Quiet {
-			fmt.Fprintf(os.Stderr, "⚠ Warning: Unknown predicate type: %s\n", statement.PredicateType)
-			fmt.Fprintf(os.Stderr, "  Consider updating PredicateTypeRegistry if this is a standard type.\n")
+			fmt.Fprintf(os.Stderr, "⚠ warning: unknown predicate type: %s\n", statement.PredicateType)
+			fmt.Fprintf(os.Stderr, "  consider updating PredicateTypeRegistry if this is a standard type\n")
 		}
 	}
 
@@ -573,7 +573,7 @@ func handleBlobVerification(ctx context.Context, artifactRef *Digest, org string
 				var sourceRefErr *SourceRefMismatchError
 				if errors.As(err, &sourceRefErr) {
 					if !opts.Quiet {
-						fmt.Printf("⚠ Warning: %s (skipping attestation %d)\n", sourceRefErr.Error(), i+1)
+						fmt.Printf("⚠ warning: %s (skipping attestation %d)\n", sourceRefErr.Error(), i+1)
 					}
 					continue // skip this attestation and continue with the next one
 				}

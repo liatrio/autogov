@@ -153,9 +153,9 @@ func (ad *AttestationDownloader) convertToBundles(attestations []*github.Attesta
 	for _, attestation := range attestations {
 		b, err := ad.convertAttestationToBundle(attestation)
 		if err != nil {
-			// Log warning but continue with other attestations
+			// log warning but continue with other attestations
 			if !ad.opts.Quiet {
-				fmt.Printf("Warning: failed to convert attestation to bundle: %v\n", err)
+				fmt.Printf("warning: failed to convert attestation to bundle: %v\n", err)
 			}
 			continue
 		}
