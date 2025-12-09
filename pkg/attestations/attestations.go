@@ -16,14 +16,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/go-github/v77/github"
+	"github.com/google/go-github/v80/github"
 	"github.com/liatrio/autogov-verify/pkg/certid"
 	"github.com/liatrio/autogov-verify/pkg/digest"
 	ghclient "github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/liatrio/autogov-verify/pkg/root"
 
-	"github.com/sigstore/cosign/v2/pkg/oci"
-	"github.com/sigstore/cosign/v2/pkg/oci/static"
+	"github.com/sigstore/cosign/v3/pkg/oci"
+	"github.com/sigstore/cosign/v3/pkg/oci/static"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	sigstorego_root "github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/verify"

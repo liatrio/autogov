@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-github/v77/github"
+	"github.com/google/go-github/v80/github"
 	"github.com/liatrio/autogov-verify/pkg/root"
 )
 

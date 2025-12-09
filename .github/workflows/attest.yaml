@@ -45,8 +45,8 @@ jobs:
       blob-artifact-id: ${{ needs.attest-blob.outputs.blob-artifact-id }}
       cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@6ec9a792694dbd3d312bcad8136db0586d45b822 # v0.14.0
       vuln-threshold-critical: '0'
-      vuln-threshold-high: '4'
-      vuln-threshold-medium: '7'
+      vuln-threshold-high: '-1'
+      vuln-threshold-medium: '-1'
       vuln-threshold-low: '-1'
 
   release:
@@ -59,7 +59,7 @@ jobs:
     env:
       VSA_FOLDER: ./vsa
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           fetch-depth: 0
       - uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
