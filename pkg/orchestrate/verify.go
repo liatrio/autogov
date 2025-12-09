@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/google/go-github/v77/github"
+	"github.com/google/go-github/v80/github"
 	"github.com/liatrio/autogov-verify/pkg/attestations"
 	"github.com/liatrio/autogov-verify/pkg/certid"
-	"github.com/sigstore/cosign/v2/pkg/oci"
+	"github.com/sigstore/cosign/v3/pkg/oci"
 )
 
 // contains all options for verification
