@@ -993,6 +993,7 @@ github.com/google/go-containerregistry v0.20.6 h1:cvWX87UxxLgaH76b4hIvya6Dzz9qHB
 github.com/google/go-containerregistry v0.20.6/go.mod h1:T0x8MuoAoKX/873bkeSfLD2FAkwCDf9/HZgsFJ02E2Y=
 github.com/google/go-github/v77 v77.0.0 h1:9DsKKbZqil5y/4Z9mNpZDQnpli6PJbqipSuuNdcbjwI=
 github.com/google/go-github/v77 v77.0.0/go.mod h1:c8VmGXRUmaZUqbctUcGEDWYnMrtzZfJhDSylEf1wfmA=
+github.com/google/go-github/v80 v80.0.0/go.mod h1:pRo4AIMdHW83HNMGfNysgSAv0vmu+/pkY8nZO9FT9Yo=
 github.com/google/go-querystring v1.1.0 h1:AnCroh3fv4ZBgVIf1Iwtovgjaw/GiKJo8M8yD/fhyJ8=
 github.com/google/go-querystring v1.1.0/go.mod h1:Kcdr2DB4koayq7X8pmAG4sNG59So17icRSOU623lUBU=
 github.com/google/gofuzz v1.2.0 h1:xRy4A+RhZaiKjJ1bPfwQ8sedCA+YS2YcCHW6ec7JMi0=
@@ -1256,6 +1257,7 @@ github.com/shibumi/go-pathspec v1.3.0 h1:QUyMZhFo0Md5B8zV8x2tesohbb5kfbpTi9rBnKh
 github.com/shibumi/go-pathspec v1.3.0/go.mod h1:Xutfslp817l2I1cZvgcfeMQJG5QnU2lh5tVaaMCl3jE=
 github.com/sigstore/cosign/v2 v2.6.1 h1:7Wf67ENNCjg+1fLqHRPgKUNaCCnCavnEfCe1LApOoIo=
 github.com/sigstore/cosign/v2 v2.6.1/go.mod h1:L37doL+7s6IeCXFODV2J7kds5Po/srlVzA//++YqAJ8=
+github.com/sigstore/cosign/v3 v3.0.2/go.mod h1:qz0RCzSoxiUu32z2jtyYRX/qXUyqmzK8O8PpMm+7wf4=
 github.com/sigstore/protobuf-specs v0.5.0 h1:F8YTI65xOHw70NrvPwJ5PhAzsvTnuJMGLkA4FIkofAY=
 github.com/sigstore/protobuf-specs v0.5.0/go.mod h1:+gXR+38nIa2oEupqDdzg4qSBT0Os+sP7oYv6alWewWc=
 github.com/sigstore/rekor v1.4.2 h1:Lx2xby7loviFYdg2C9pB1mESk2QU/LqcYSGsqqZwmg8=
