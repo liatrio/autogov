@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -130,8 +131,7 @@ func (v *Validator) LoadIdentities(ctx context.Context) error {
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
-			// Non-fatal error, just log it
-			fmt.Printf("Warning: failed to close response body: %v\n", closeErr)
+			log.Printf("warning: failed to close response body: %v", closeErr)
 		}
 	}()
 
@@ -154,8 +154,7 @@ func (v *Validator) LoadIdentities(ctx context.Context) error {
 	// update cache
 	if !v.options.DisableCache {
 		if err := v.updateCache(data); err != nil {
-			// non-fatal error
-			fmt.Printf("Warning: failed to update cache: %v\n", err)
+			log.Printf("warning: failed to update cache: %v", err)
 		}
 	}
 
@@ -305,15 +304,12 @@ func checkIfValid(id Identity, certIdentity, normalizedIdentity, certSHA string)
 		return false, nil
 	}
 
-	if id.Expires != "" {
-		expiryDate, err := time.Parse("2006-01-02", id.Expires)
-		if err != nil {
-			return false, fmt.Errorf("invalid expiry date format: %w", err)
-		}
-		expiryDate = expiryDate.AddDate(0, 0, 1)
-		if time.Now().After(expiryDate) {
-			return false, fmt.Errorf("certificate identity has expired")
-		}
+	expired, err := isExpired(id)
+	if err != nil {
+		return false, err
+	}
+	if expired {
+		return false, fmt.Errorf("certificate identity has expired")
 	}
 
 	return true, nil
@@ -329,6 +325,20 @@ func isHexString(s string) bool {
 	return true
 }
 
+// checks if an identity has expired based on its expiry date
+func isExpired(id Identity) (bool, error) {
+	if id.Expires == "" {
+		return false, nil
+	}
+	expiryDate, err := time.Parse("2006-01-02", id.Expires)
+	if err != nil {
+		return false, fmt.Errorf("invalid expiry date format: %w", err)
+	}
+	// add a day to consider it valid throughout the expiry date itself
+	expiryDate = expiryDate.AddDate(0, 0, 1)
+	return time.Now().After(expiryDate), nil
+}
+
 // returns the loaded cert-id list
 // returns all valid identities from both latest and approved lists
 func (v *Validator) GetValidIdentities() ([]Identity, error) {
@@ -340,21 +350,14 @@ func (v *Validator) GetValidIdentities() ([]Identity, error) {
 
 	// get valid identities (latest and non-expired approved)
 	for _, id := range v.list.Identities {
-		if id.Status == "latest" || id.Status == "approved" {
-			// check if approved / expired
-			if id.Status == "approved" && id.Expires != "" {
-				expiryDate, err := time.Parse("2006-01-02", id.Expires)
-				if err != nil {
-					continue // skip invalid expiry dates
-				}
-				// add a day to consider it valid throughout the expiry date itself
-				expiryDate = expiryDate.AddDate(0, 0, 1)
-				if time.Now().After(expiryDate) {
-					continue // skip expired identities
-				}
-			}
-			validIdentities = append(validIdentities, id)
+		if id.Status != "latest" && id.Status != "approved" {
+			continue
 		}
+		expired, err := isExpired(id)
+		if err != nil || expired {
+			continue // skip invalid or expired identities
+		}
+		validIdentities = append(validIdentities, id)
 	}
 
 	return validIdentities, nil

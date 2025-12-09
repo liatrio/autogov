@@ -249,7 +249,7 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 		}
 		// logs warning / return success
 		if !opts.Quiet {
-			fmt.Printf("⚠ Warning: Policy evaluation failed with %d violations (exit code 0 due to --fail-on-policy-error=false)\n", len(policyResult.Violations))
+			fmt.Printf("⚠ warning: policy evaluation failed with %d violations (exit code 0 due to --fail-on-policy-error=false)\n", len(policyResult.Violations))
 		}
 	}
 

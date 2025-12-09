@@ -75,7 +75,7 @@ func CalculateDirectory(dirPath string, extensions []string) (string, error) {
 		}
 		defer func() {
 			if closeErr := file.Close(); closeErr != nil {
-				fmt.Printf("Warning: failed to close file %s: %v\n", path, closeErr)
+				fmt.Printf("warning: failed to close file %s: %v\n", path, closeErr)
 			}
 		}()
 
@@ -169,7 +169,7 @@ func CreateTempDir(prefix string) (string, func(), error) {
 	cleanup := func() {
 		if err := CleanupTempDir(tmpDir); err != nil {
 			// log error, but don't fail since this is cleanup
-			fmt.Printf("Warning: failed to cleanup temp directory %s: %v\n", tmpDir, err)
+			fmt.Printf("warning: failed to cleanup temp directory %s: %v\n", tmpDir, err)
 		}
 	}
 	return tmpDir, cleanup, nil

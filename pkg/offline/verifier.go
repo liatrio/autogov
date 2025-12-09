@@ -237,8 +237,8 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 				predicateInfo = fmt.Sprintf("Unknown: %s", attType)
 
 				// log warning for unknown predicate types (already in !Quiet block)
-				fmt.Fprintf(os.Stderr, "⚠ Warning: Unknown predicate type: %s\n", attType)
-				fmt.Fprintf(os.Stderr, "  Consider updating PredicateTypeRegistry if this is a standard type.\n")
+				fmt.Fprintf(os.Stderr, "⚠ warning: unknown predicate type: %s\n", attType)
+				fmt.Fprintf(os.Stderr, "  consider updating PredicateTypeRegistry if this is a standard type\n")
 			}
 
 			fmt.Printf("Verifying attestation %d (%s)...\n", i+1, predicateInfo)

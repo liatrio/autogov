@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 const (
@@ -168,6 +170,10 @@ func TestGetPolicyDetails(t *testing.T) {
 			t.Logf("Warning: failed to clean up temp dir: %v", err)
 		}
 	}()
+
+	// set opa version for test
+	viper.Set("opa-version", "v1.8.0")
+	defer viper.Reset()
 
 	evaluator, err := NewOPAEvaluator(ctx, tempDir, "", "")
 	if err != nil {

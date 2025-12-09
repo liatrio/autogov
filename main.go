@@ -237,6 +237,9 @@ func init() {
 		}
 	}
 
+	// set opa version in viper for policy package to use
+	viper.Set("opa-version", OpaVersion)
+
 	// add subcommands
 	rootCmd.AddCommand(downloadCmd)
 	rootCmd.AddCommand(offlineCmd)
@@ -405,14 +408,14 @@ func run(cmd *cobra.Command, args []string) error {
 	for i, sig := range sigs {
 		payload, err := sig.Payload()
 		if err != nil {
-			log.Printf("Warning: failed to get payload for attestation %d: %v", i, err)
+			log.Printf("warning: failed to get payload for attestation %d: %v", i, err)
 			continue
 		}
 
 		// decode base64 payload
 		decodedPayload, err := base64.StdEncoding.DecodeString(string(payload))
 		if err != nil {
-			log.Printf("Warning: failed to decode payload for attestation %d: %v", i, err)
+			log.Printf("warning: failed to decode payload for attestation %d: %v", i, err)
 			continue
 		}
 
@@ -420,7 +423,7 @@ func run(cmd *cobra.Command, args []string) error {
 			PredicateType string `json:"predicateType"`
 		}
 		if err := json.Unmarshal(decodedPayload, &statement); err != nil {
-			log.Printf("Warning: failed to parse statement for attestation %d: %v", i, err)
+			log.Printf("warning: failed to parse statement for attestation %d: %v", i, err)
 			continue
 		}
 
