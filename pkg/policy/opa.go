@@ -19,7 +19,7 @@ import (
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/rego"
 	"github.com/open-policy-agent/opa/v1/storage/inmem"
-	"github.com/sigstore/cosign/v2/pkg/oci"
+	"github.com/sigstore/cosign/v3/pkg/oci"
 	"github.com/spf13/viper"
 )
 

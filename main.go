@@ -17,7 +17,7 @@ import (
 	"github.com/liatrio/autogov-verify/pkg/offline"
 	"github.com/liatrio/autogov-verify/pkg/orchestrate"
 	"github.com/liatrio/autogov-verify/pkg/vsa"
-	"github.com/sigstore/cosign/v2/pkg/oci"
+	"github.com/sigstore/cosign/v3/pkg/oci"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
