@@ -221,7 +221,12 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 			return "", fmt.Errorf("failed to read tar: %w", err)
 		}
 
+		// validate path to prevent path traversal attacks
 		path := filepath.Join(tempDir, header.Name)
+		if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(tempDir)+string(os.PathSeparator)) {
+			cleanup()
+			return "", fmt.Errorf("invalid path in archive (path traversal attempt): %s", header.Name)
+		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
@@ -235,7 +240,7 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 				return "", fmt.Errorf("failed to create parent directory: %w", err)
 			}
 
-			file, err := os.Create(filepath.Join(tempDir, header.Name))
+			file, err := os.Create(path)
 			if err != nil {
 				cleanup()
 				return "", fmt.Errorf("failed to create file: %w", err)
@@ -245,6 +250,7 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 				if err := file.Close(); err != nil {
 					log.Printf("warning: failed to close file: %v", err)
 				}
+				cleanup()
 				return "", fmt.Errorf("failed to write file: %w", err)
 			}
 			if err := file.Close(); err != nil {
@@ -298,7 +304,12 @@ func extractBundle(bundlePath string) (string, error) {
 			return "", fmt.Errorf("failed to read tar: %w", err)
 		}
 
+		// validate path to prevent path traversal attacks
 		path := filepath.Join(tempDir, header.Name)
+		if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(tempDir)+string(os.PathSeparator)) {
+			cleanup()
+			return "", fmt.Errorf("invalid path in archive (path traversal attempt): %s", header.Name)
+		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:

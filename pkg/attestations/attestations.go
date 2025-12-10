@@ -253,9 +253,9 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 		return nil, fmt.Errorf("failed to get trusted root: %w", err)
 	}
 
-	// write trusted root
+	// write trusted root with restrictive permissions (security-sensitive file)
 	trust := filepath.Join(cacheDir, "github-trusted-root.json")
-	if err := os.WriteFile(trust, trustedRootData, 0644); err != nil {
+	if err := os.WriteFile(trust, trustedRootData, 0600); err != nil {
 		return nil, fmt.Errorf("failed to write trusted root: %w", err)
 	}
 
@@ -549,9 +549,9 @@ func handleBlobVerification(ctx context.Context, artifactRef *Digest, org string
 		return nil, fmt.Errorf("failed to get trusted root: %w", err)
 	}
 
-	// write trusted root
+	// write trusted root with restrictive permissions (security-sensitive file)
 	trust := filepath.Join(cacheDir, "github-trusted-root.json")
-	if err := os.WriteFile(trust, trustedRootData, 0644); err != nil {
+	if err := os.WriteFile(trust, trustedRootData, 0600); err != nil {
 		return nil, fmt.Errorf("failed to write trusted root: %w", err)
 	}
 

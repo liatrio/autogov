@@ -382,14 +382,19 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 	policyOpts := []verify.PolicyOption{}
 
 	// certificate identity if specified
-	if ov.options.CertIdentity != "" && ov.options.CertOIDCIssuer != "" {
+	if ov.options.CertIdentity != "" {
+		if ov.options.CertOIDCIssuer == "" {
+			// cert identity specified but no issuer - use default GitHub Actions issuer
+			ov.options.CertOIDCIssuer = "https://token.actions.githubusercontent.com"
+			res.Warnings = append(res.Warnings, "no OIDC issuer specified, defaulting to GitHub Actions issuer")
+		}
 		certID, err := verify.NewShortCertificateIdentity(ov.options.CertOIDCIssuer, "", ov.options.CertIdentity, "")
 		if err == nil {
 			policyOpts = append(policyOpts, verify.WithCertificateIdentity(certID))
 		} else {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("failed to create identity policy: %v", err))
 		}
-	} else if ov.options.CertIdentity == "" {
+	} else {
 		// no cert identity specified / verify signature but not identity
 		// allows verification of attestation integrity without identity checks
 		policyOpts = append(policyOpts, verify.WithoutIdentitiesUnsafe())
