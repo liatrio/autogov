@@ -7,7 +7,7 @@ require (
 	github.com/google/go-github/v80 v80.0.0
 	github.com/open-policy-agent/opa v1.11.0
 	github.com/sigstore/cosign/v3 v3.0.3
-	github.com/sigstore/sigstore-go v1.1.4-0.20251201121426-2cdedea80894
+	github.com/sigstore/sigstore-go v1.1.4-0.20251208093458-cc0649044676
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
