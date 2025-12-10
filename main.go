@@ -428,7 +428,9 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 
 		attestationTypes = append(attestationTypes, statement.PredicateType)
-		fmt.Printf("%d. %s\n", i+1, statement.PredicateType)
+		if !quiet {
+			fmt.Printf("%d. %s\n", i+1, statement.PredicateType)
+		}
 
 		// prep input attestation for VSA generation
 		// calculate actual SHA256 digest of the attestation payload
