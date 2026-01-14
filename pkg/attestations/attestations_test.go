@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-github/v80/github"
+	"github.com/google/go-github/v81/github"
 	"github.com/liatrio/autogov-verify/pkg/root"
 )
 
@@ -690,5 +690,278 @@ func TestParseOrgRepoFromWorkflowURL(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSourceRefMismatchError(t *testing.T) {
+	err := &SourceRefMismatchError{
+		Found:    "refs/heads/feature",
+		Expected: "refs/heads/main",
+	}
+
+	expected := "source repository ref refs/heads/feature does not match expected refs/heads/main"
+	if err.Error() != expected {
+		t.Errorf("SourceRefMismatchError.Error() = %v, want %v", err.Error(), expected)
+	}
+}
+
+func TestDigestString(t *testing.T) {
+	tests := []struct {
+		name   string
+		digest *Digest
+		want   string
+	}{
+		{
+			name:   "valid digest",
+			digest: &Digest{value: validTestDigest},
+			want:   validTestDigest,
+		},
+		{
+			name:   "empty digest",
+			digest: &Digest{value: ""},
+			want:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.digest.String(); got != tt.want {
+				t.Errorf("Digest.String() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOptionsDefaults(t *testing.T) {
+	// Test that Options struct can be created with various fields
+	opts := Options{
+		BlobPath:     "/path/to/blob",
+		Repository:   "owner/repo",
+		SourceRef:    "refs/heads/main",
+		CertIdentity: testCertIdentity,
+		CertIssuer:   testCertIssuer,
+		Quiet:        true,
+	}
+
+	if opts.BlobPath != "/path/to/blob" {
+		t.Error("Options.BlobPath not set correctly")
+	}
+	if opts.Repository != "owner/repo" {
+		t.Error("Options.Repository not set correctly")
+	}
+	if opts.SourceRef != "refs/heads/main" {
+		t.Error("Options.SourceRef not set correctly")
+	}
+	if opts.CertIdentity != testCertIdentity {
+		t.Error("Options.CertIdentity not set correctly")
+	}
+	if opts.CertIssuer != testCertIssuer {
+		t.Error("Options.CertIssuer not set correctly")
+	}
+	if !opts.Quiet {
+		t.Error("Options.Quiet not set correctly")
+	}
+}
+
+func TestVerifyAttestationNilAttestationDirect(t *testing.T) {
+	// Test nil attestation directly
+	tmpDir := t.TempDir()
+	blobPath := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(blobPath, []byte(testFileData), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Get trusted root
+	trustedRootData, err := root.GetTrustedRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	trustPath := filepath.Join(tmpDir, "trusted-root.json")
+	if err := os.WriteFile(trustPath, trustedRootData, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := Options{
+		CertIdentity: testCertIdentity,
+		CertIssuer:   testCertIssuer,
+	}
+
+	_, err = verifyAttestation(nil, blobPath, trustPath, 0, opts)
+	if err == nil {
+		t.Error("verifyAttestation() with nil attestation expected error")
+	}
+	if !strings.Contains(err.Error(), "attestation is nil") {
+		t.Errorf("verifyAttestation() error = %v, want error containing 'attestation is nil'", err)
+	}
+}
+
+func TestVerifyAttestationEmptyBundle(t *testing.T) {
+	// Test empty bundle
+	tmpDir := t.TempDir()
+	blobPath := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(blobPath, []byte(testFileData), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Get trusted root
+	trustedRootData, err := root.GetTrustedRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	trustPath := filepath.Join(tmpDir, "trusted-root.json")
+	if err := os.WriteFile(trustPath, trustedRootData, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := Options{
+		CertIdentity: testCertIdentity,
+		CertIssuer:   testCertIssuer,
+	}
+
+	att := &github.Attestation{
+		Bundle: json.RawMessage(`{}`),
+	}
+
+	_, err = verifyAttestation(att, blobPath, trustPath, 0, opts)
+	if err == nil {
+		t.Error("verifyAttestation() with empty bundle expected error")
+	}
+}
+
+func TestVerifyAttestationNilBundle(t *testing.T) {
+	// Test nil bundle in attestation
+	tmpDir := t.TempDir()
+	blobPath := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(blobPath, []byte(testFileData), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Get trusted root
+	trustedRootData, err := root.GetTrustedRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	trustPath := filepath.Join(tmpDir, "trusted-root.json")
+	if err := os.WriteFile(trustPath, trustedRootData, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := Options{
+		CertIdentity: testCertIdentity,
+		CertIssuer:   testCertIssuer,
+	}
+
+	att := &github.Attestation{
+		Bundle: nil,
+	}
+
+	_, err = verifyAttestation(att, blobPath, trustPath, 0, opts)
+	if err == nil {
+		t.Error("verifyAttestation() with nil bundle expected error")
+	}
+}
+
+func TestParseImageRefAdditional(t *testing.T) {
+	// Additional test cases for ParseImageRef
+	tests := []struct {
+		name       string
+		ref        string
+		wantOrg    string
+		wantRepo   string
+		wantDigest string
+		wantErr    bool
+	}{
+		{
+			name:       "simple org/repo",
+			ref:        "myorg/myrepo@sha256:abc123",
+			wantOrg:    "myorg",
+			wantRepo:   "myrepo",
+			wantDigest: "sha256:abc123",
+			wantErr:    false,
+		},
+		{
+			name:    "nested path repo (not supported)",
+			ref:     "ghcr.io/org/repo/subpath@sha256:abc123",
+			wantErr: true,
+		},
+		{
+			name:    "missing @ separator",
+			ref:     "org/repo",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			org, repo, digest, err := ParseImageRef(tt.ref)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseImageRef() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				if org != tt.wantOrg {
+					t.Errorf("ParseImageRef() org = %v, want %v", org, tt.wantOrg)
+				}
+				if repo != tt.wantRepo {
+					t.Errorf("ParseImageRef() repo = %v, want %v", repo, tt.wantRepo)
+				}
+				if digest != tt.wantDigest {
+					t.Errorf("ParseImageRef() digest = %v, want %v", digest, tt.wantDigest)
+				}
+			}
+		})
+	}
+}
+
+func TestVerifyAttestationWithInvalidTrustedRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	blobPath := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(blobPath, []byte(testFileData), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create invalid trusted root
+	invalidTrustPath := filepath.Join(tmpDir, "invalid-root.json")
+	if err := os.WriteFile(invalidTrustPath, []byte("invalid json"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := Options{
+		CertIdentity: testCertIdentity,
+		CertIssuer:   testCertIssuer,
+	}
+
+	att := &github.Attestation{
+		Bundle: json.RawMessage(`{"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.1"}`),
+	}
+
+	_, err := verifyAttestation(att, blobPath, invalidTrustPath, 0, opts)
+	if err == nil {
+		t.Error("verifyAttestation() with invalid trusted root expected error")
+	}
+}
+
+func TestVerifyAttestationWithNonexistentTrustedRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	blobPath := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(blobPath, []byte(testFileData), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := Options{
+		CertIdentity: testCertIdentity,
+		CertIssuer:   testCertIssuer,
+	}
+
+	att := &github.Attestation{
+		Bundle: json.RawMessage(`{"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.1"}`),
+	}
+
+	_, err := verifyAttestation(att, blobPath, "/nonexistent/path/root.json", 0, opts)
+	if err == nil {
+		t.Error("verifyAttestation() with nonexistent trusted root expected error")
 	}
 }

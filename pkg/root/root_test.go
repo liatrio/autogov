@@ -299,3 +299,139 @@ func TestGetGitHubTrustedRoot(t *testing.T) {
 		t.Error("GetGitHubTrustedRoot does not match GithubTrustedRoot")
 	}
 }
+
+func TestGetTrustedRoot(t *testing.T) {
+	// GetTrustedRoot attempts to fetch dynamically, then falls back to embedded
+	// In most test environments, dynamic fetch will fail (no gh CLI auth)
+	root, err := GetTrustedRoot()
+	if err != nil {
+		t.Errorf("GetTrustedRoot() unexpected error: %v", err)
+	}
+
+	if len(root) == 0 {
+		t.Error("GetTrustedRoot() returned empty data")
+	}
+
+	// Verify it's valid JSON
+	var trustedRoot map[string]interface{}
+	if err := json.Unmarshal(root, &trustedRoot); err != nil {
+		t.Errorf("GetTrustedRoot() returned invalid JSON: %v", err)
+	}
+}
+
+func TestDetectTrustedRootFromCertInvalidPEM(t *testing.T) {
+	// Test with invalid PEM data
+	invalidPEM := []byte("not valid PEM data")
+
+	_, err := DetectTrustedRootFromCert(invalidPEM)
+	if err == nil {
+		t.Error("DetectTrustedRootFromCert() with invalid PEM expected error")
+	}
+}
+
+func TestDetectTrustedRootFromCertEmptyInput(t *testing.T) {
+	// Test with empty input
+	_, err := DetectTrustedRootFromCert([]byte{})
+	if err == nil {
+		t.Error("DetectTrustedRootFromCert() with empty input expected error")
+	}
+}
+
+func TestDetectTrustedRootFromCertValidPEM(t *testing.T) {
+	// Create a simple self-signed cert PEM for testing
+	// This is a minimal valid certificate structure
+	certPEM := `-----BEGIN CERTIFICATE-----
+MIIBkjCB/AIJAKHBfpWTbMdJMA0GCSqGSIb3DQEBCwUAMBExDzANBgNVBAMMBnRl
+c3RjYTAeFw0yMzAxMDEwMDAwMDBaFw0yNDAxMDEwMDAwMDBaMBExDzANBgNVBAMM
+BnRlc3RjYTBcMA0GCSqGSIb3DQEBAQUAA0sAMEgCQQC0WnHJXW0PZmHSxJJSAAIL
+MjxEFPzLPFRTvuCRWKkHKPxcJhQcVgDkGQYfkBzHK8A0LqHKKQHXN8HXFsVxjH/9
+AgMBAAGjUDBOMB0GA1UdDgQWBBQvZ8dIhO8kgXVqvH4S3D5W5ZYNKTAFBGMFAADB
+MB8GA1UdIwQYMBaAFC9nx0iE7ySBdWq8fhLcPlbllg0pMA0GCSqGSIb3DQEBCwUA
+A0EA
+-----END CERTIFICATE-----`
+
+	// This cert won't have the Fulcio OIDC extension, so it should try the fallback
+	source, err := DetectTrustedRootFromCert([]byte(certPEM))
+	if err == nil {
+		// If it succeeds, we got a source
+		t.Logf("DetectTrustedRootFromCert() detected source: %s", source)
+	} else {
+		// If it fails due to no OIDC issuer, that's expected
+		t.Logf("DetectTrustedRootFromCert() error (expected for test cert): %v", err)
+	}
+}
+
+func TestDetectFromIssuerWithGitHubVariants(t *testing.T) {
+	tests := []struct {
+		issuer         string
+		expectedSource TrustedRootSource
+	}{
+		// GitHub Actions
+		{GitHubActionsIssuer, TrustedRootSourceGitHub},
+		// Other GitHub-related patterns
+		{"https://github.com/actions/checkout", TrustedRootSourceGitHub},
+		// Non-GitHub
+		{GoogleOIDCIssuer, TrustedRootSourcePublic},
+		{GitHubOAuthIssuer, TrustedRootSourcePublic},
+		{GitLabIssuer, TrustedRootSourcePublic},
+		// Unknown defaults to public
+		{"https://example.com/oidc", TrustedRootSourcePublic},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.issuer, func(t *testing.T) {
+			result := detectFromIssuer(tt.issuer)
+			if result != tt.expectedSource {
+				t.Errorf("issuer %s: expected %s, got %s", tt.issuer, tt.expectedSource, result)
+			}
+		})
+	}
+}
+
+func TestSelectTrustedRootWithCertPEM(t *testing.T) {
+	// Test SelectTrustedRoot with auto source and a cert PEM that can't be parsed
+	invalidCertPEM := []byte("invalid cert data")
+
+	rootData, source, err := SelectTrustedRoot(TrustedRootSourceAuto, invalidCertPEM)
+	if err != nil {
+		t.Errorf("SelectTrustedRoot() with invalid cert should still work (default): %v", err)
+	}
+
+	// Should default to GitHub when cert parsing fails
+	if source != TrustedRootSourceGitHub {
+		t.Errorf("expected source %s (default), got %s", TrustedRootSourceGitHub, source)
+	}
+
+	if len(rootData) == 0 {
+		t.Error("expected non-empty root data")
+	}
+}
+
+func TestTrustedRootSourceConstants(t *testing.T) {
+	// Verify constants are as expected
+	if TrustedRootSourceGitHub != "github" {
+		t.Error("TrustedRootSourceGitHub should be 'github'")
+	}
+	if TrustedRootSourcePublic != "public" {
+		t.Error("TrustedRootSourcePublic should be 'public'")
+	}
+	if TrustedRootSourceAuto != "auto" {
+		t.Error("TrustedRootSourceAuto should be 'auto'")
+	}
+}
+
+func TestOIDCIssuerConstants(t *testing.T) {
+	// Verify OIDC issuer constants
+	if GitHubActionsIssuer != "https://token.actions.githubusercontent.com" {
+		t.Error("GitHubActionsIssuer constant incorrect")
+	}
+	if GoogleOIDCIssuer != "https://accounts.google.com" {
+		t.Error("GoogleOIDCIssuer constant incorrect")
+	}
+	if GitHubOAuthIssuer != "https://github.com/login/oauth" {
+		t.Error("GitHubOAuthIssuer constant incorrect")
+	}
+	if GitLabIssuer != "https://gitlab.com" {
+		t.Error("GitLabIssuer constant incorrect")
+	}
+}
