@@ -25,7 +25,7 @@ jobs:
       attestations: write
       contents: read
       actions: read
-    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@4e0226c523e8a76e57f5106c5a6ba1778d08c12d # v0.14.2
+    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@216e47e25c6e326f3a4e9e2de9ac97c69d49041b # v0.14.7
     secrets: inherit
     with:
       subject-path: autogov-verify
