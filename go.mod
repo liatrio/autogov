@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/cli/go-gh/v2 v2.13.0
-	github.com/google/go-github/v80 v80.0.0
+	github.com/google/go-github/v81 v81.0.0
 	github.com/open-policy-agent/opa v1.11.0
 	github.com/sigstore/cosign/v3 v3.0.3
 	github.com/sigstore/sigstore-go v1.1.4-0.20251208093458-cc0649044676
