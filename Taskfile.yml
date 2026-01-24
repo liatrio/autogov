@@ -1,7 +1,7 @@
 version: '3'
 
 vars:
-  BINARY_NAME: autogov-verify
+  BINARY_NAME: autogov
   BINARY_DIR: bin
   VERSION:
     sh: echo "${VERSION:-$(git describe --tags --always --dirty)}"

@@ -83,6 +83,8 @@ If testing locally, use a PAT (e.g., a [Classic Personal Token](https://docs.git
 
 ```bash
 go install github.com/liatrio/autogov-verify@latest
+
+# Binary will be installed as 'autogov'
 ```
 
 ## Development
@@ -227,7 +229,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for deta
 ### Online Verification
 
 ```bash
-autogov-verify -cert-identity <identity> [options]
+autogov verify --cert-identity <identity> [options]
 ```
 
 #### Required Flags
@@ -255,19 +257,19 @@ First, download attestations while online (requires GitHub token):
 
 ```bash
 # Download attestations for a blob artifact
-autogov-verify download \
+autogov download \
   --blob-path artifact.tar.gz \
   --repo owner/repo \
   --output attestations.jsonl
 
 # Download attestations for a container image by digest
-autogov-verify download \
+autogov download \
   --image-digest sha256:abc123... \
   --repo owner/repo \
   --output attestations.jsonl
 
 # Download attestations using digest directly as argument (works for both blobs and images)
-autogov-verify download \
+autogov download \
   --repo owner/repo \
   --output attestations.jsonl \
   sha256:abc123...
@@ -287,21 +289,21 @@ Then verify offline using the downloaded attestations:
 
 ```bash
 # Verify with blob file
-autogov-verify offline \
+autogov offline \
   --attestations attestations.jsonl \
   --blob-path artifact.tar.gz \
   --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@sha" \
   --cert-issuer "https://token.actions.githubusercontent.com"
 
 # Verify container image by digest
-autogov-verify offline \
+autogov offline \
   --attestations attestations.jsonl \
   --image-digest "sha256:46a0df552ddbd5bfb4cc738a0f316e4060cc5b06e5fc0a8dac3a8c7e33b6992f" \
   --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@sha" \
   --cert-issuer "https://token.actions.githubusercontent.com"
 
 # Attestation-only verification (no artifact)
-autogov-verify offline \
+autogov offline \
   --attestations attestations.jsonl \
   --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@sha" \
   --cert-issuer "https://token.actions.githubusercontent.com"
@@ -438,7 +440,7 @@ Verify a container image:
 
 ```bash
 export GITHUB_AUTH_TOKEN=your_token
-autogov-verify \
+autogov verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
   --repo liatrio/demo-gh-autogov-workflows \
   --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
@@ -449,7 +451,7 @@ Verify a blob file:
 
 ```bash
 export GITHUB_AUTH_TOKEN=your_token
-autogov-verify \
+autogov verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
   --repo owner/repo
   --blob-path path/to/your/file \
@@ -462,14 +464,14 @@ Using environment variables:
 export GITHUB_AUTH_TOKEN=your_token
 export CERT_IDENTITY="https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da"
 export CERT_ISSUER=https://token.actions.githubusercontent.com
-autogov-verify --repo liatrio/demo-gh-autogov-workflows -d "sha256:702bea33d240c2f0a1d87fe649a49b52f533bde2005b3c1bc0be7859dd5e4226"
+autogov verify --repo liatrio/demo-gh-autogov-workflows -d "sha256:702bea33d240c2f0a1d87fe649a49b52f533bde2005b3c1bc0be7859dd5e4226"
 ```
 
 Verify with certificate identity validation:
 
 ```bash
 export GITHUB_AUTH_TOKEN=your_token
-autogov-verify \
+autogov verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
   --repo liatrio/demo-gh-autogov-workflows \
   --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
@@ -480,7 +482,7 @@ Generate enhanced VSA with policy evaluation:
 
 ```bash
 export GITHUB_AUTH_TOKEN=your_token
-autogov-verify \
+autogov verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
   --repo liatrio/demo-gh-autogov-workflows \
   --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
@@ -494,7 +496,7 @@ Verify a cosign-signed artifact using public Sigstore:
 
 ```bash
 # Verify an artifact signed with cosign sign --yes (public Sigstore)
-autogov-verify offline \
+autogov offline \
   --attestations attestations.jsonl \
   --blob-path artifact.tar.gz \
   --cert-identity "https://github.com/owner/repo/.github/workflows/release.yml@refs/heads/main" \
@@ -502,7 +504,7 @@ autogov-verify offline \
   --trusted-root-source public
 
 # Or use auto-detection (recommended)
-autogov-verify offline \
+autogov offline \
   --attestations attestations.jsonl \
   --blob-path artifact.tar.gz \
   --trusted-root-source auto
@@ -524,7 +526,7 @@ cat > thresholds.json << 'EOF'
 EOF
 
 export GITHUB_AUTH_TOKEN=your_token
-autogov-verify \
+autogov verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
   --repo liatrio/demo-gh-autogov-workflows \
   --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
