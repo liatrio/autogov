@@ -197,33 +197,11 @@ func resolveRef(repo *git.Repository, ref string) (plumbing.Hash, error) {
 		return resolveTagToCommit(repo, tagRef.Hash())
 	}
 
-	// try as full commit hash (40 chars)
+	// try as full commit hash (40 chars only)
 	if len(ref) == 40 {
 		hash := plumbing.NewHash(ref)
 		if _, err := repo.CommitObject(hash); err == nil {
 			return hash, nil
-		}
-	}
-
-	// try as short commit hash (7+ chars) - iterate to find match
-	if len(ref) >= 7 && len(ref) < 40 {
-		commitIter, err := repo.CommitObjects()
-		if err == nil {
-			var match plumbing.Hash
-			matchCount := 0
-			_ = commitIter.ForEach(func(c *object.Commit) error {
-				if strings.HasPrefix(c.Hash.String(), ref) {
-					match = c.Hash
-					matchCount++
-					if matchCount > 1 {
-						return fmt.Errorf("ambiguous")
-					}
-				}
-				return nil
-			})
-			if matchCount == 1 {
-				return match, nil
-			}
 		}
 	}
 
