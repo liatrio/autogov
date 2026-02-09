@@ -5,7 +5,6 @@ import (
 
 	"github.com/liatrio/autogov-verify/pkg/offline"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 const (
@@ -65,10 +64,7 @@ func init() {
 	}
 
 	if err := offlineCmd.MarkFlagRequired(flagOfflineAttestations); err != nil {
-		panic(fmt.Sprintf("failed to bind offline flags: %v", err))
-	}
-	if err := viper.BindPFlags(offlineCmd.Flags()); err != nil {
-		panic(fmt.Sprintf("failed to bind offline flags: %v", err))
+		panic(fmt.Sprintf("failed to mark attestations flag required: %v", err))
 	}
 }
 

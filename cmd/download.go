@@ -5,7 +5,6 @@ import (
 
 	"github.com/liatrio/autogov-verify/pkg/download"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 const (
@@ -31,18 +30,18 @@ Examples:
 
 func init() {
 	downloadCmd.Flags().String(flagBlobPath, "", "Path to artifact file to download attestations for")
-	downloadCmd.Flags().String("image-digest", "", "Container image digest (e.g., sha256:...)")
+	downloadCmd.Flags().String(flagImageDigest, "", "Container image digest (e.g., sha256:...)")
 	downloadCmd.Flags().StringP(flagDownloadOutput, "o", "", "Output file path for attestation bundles (required)")
 	downloadCmd.Flags().String(flagDownloadFormat, "jsonl", "Output format: json or jsonl")
-	downloadCmd.Flags().StringP("repo", "R", "", "Repository to download attestations from (format: owner/repo)")
+	downloadCmd.Flags().StringP(flagRepo, "R", "", "Repository to download attestations from (format: owner/repo)")
 	downloadCmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final results")
 
 	downloadCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
 		blobPath, _ := cmd.Flags().GetString(flagBlobPath)
-		imageDigest, _ := cmd.Flags().GetString("image-digest")
+		imageDigest, _ := cmd.Flags().GetString(flagImageDigest)
 
 		if blobPath == "" && imageDigest == "" && len(args) == 0 {
-			return fmt.Errorf("must specify --%s, --%s, or provide artifact digest as argument", flagBlobPath, "image-digest")
+			return fmt.Errorf("must specify --%s, --%s, or provide artifact digest as argument", flagBlobPath, flagImageDigest)
 		}
 
 		return nil
@@ -50,9 +49,6 @@ func init() {
 
 	if err := downloadCmd.MarkFlagRequired(flagDownloadOutput); err != nil {
 		panic(fmt.Sprintf("failed to mark download output flag as required: %v", err))
-	}
-	if err := viper.BindPFlags(downloadCmd.Flags()); err != nil {
-		panic(fmt.Sprintf("failed to bind download flags: %v", err))
 	}
 }
 

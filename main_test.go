@@ -158,18 +158,19 @@ func TestVerify(t *testing.T) {
 			// reset viper state between tests
 			viper.Reset()
 
-			// reset command state by clearing parsed values on root and all subcommands
+			// reset command state by clearing parsed values on root and all subcommands (recursive)
 			rootCmd := cmd.GetRootCmd()
-			resetFlags := func(c *cobra.Command) {
+			var resetFlags func(c *cobra.Command)
+			resetFlags = func(c *cobra.Command) {
 				c.Flags().VisitAll(func(flag *pflag.Flag) {
 					_ = flag.Value.Set(flag.DefValue)
 					flag.Changed = false
 				})
+				for _, child := range c.Commands() {
+					resetFlags(child)
+				}
 			}
 			resetFlags(rootCmd)
-			for _, subCmd := range rootCmd.Commands() {
-				resetFlags(subCmd)
-			}
 
 			rootCmd.SetArgs(tt.args)
 			err := rootCmd.Execute()

@@ -115,14 +115,16 @@ func init() {
 	verifyCmd.Flags().String(flagPolicyURI, "", "Policy URI for VSA generation (required if --generate-vsa is used)")
 
 	verifyCmd.PreRunE = preRunVerify
-
-	if err := viper.BindPFlags(verifyCmd.Flags()); err != nil {
-		panic(fmt.Sprintf("failed to bind flags: %v", err))
-	}
 }
 
 func runVerify(cmd *cobra.Command, args []string) error {
 	quiet, _ := cmd.Flags().GetBool(flagQuiet)
+
+	// propagate CLI flags to viper for pkg code that reads directly from viper
+	viper.Set("quiet", quiet)
+	failOnPolicyError, _ := cmd.Flags().GetBool(flagFailOnPolicyError)
+	viper.Set("fail-on-policy-error", failOnPolicyError)
+
 	if !quiet {
 		fmt.Println("Starting verification process...")
 		fmt.Println("---")
@@ -367,8 +369,9 @@ func runVerify(cmd *cobra.Command, args []string) error {
 		}
 
 		policyBundlePath, _ := cmd.Flags().GetString(flagPolicyBundlePath)
+		policySchemasPath, _ := cmd.Flags().GetString(flagPolicySchemasPath)
 		policyDataPath, _ := cmd.Flags().GetString(flagPolicyDataPath)
-		if err := generateVSAWithOptions(context.Background(), vsaArtifactRef, vsaSubjects, inputAttestations, attestationTypes, sigs, quiet, vsaOutput, policyURI, policyBundlePath, policyDataPath); err != nil {
+		if err := generateVSAWithOptions(context.Background(), vsaArtifactRef, vsaSubjects, inputAttestations, attestationTypes, sigs, quiet, vsaOutput, policyURI, policyBundlePath, policySchemasPath, policyDataPath); err != nil {
 			return fmt.Errorf("failed to generate VSA: %w", err)
 		}
 	}
@@ -377,7 +380,7 @@ func runVerify(cmd *cobra.Command, args []string) error {
 }
 
 // creates a VSA after successful attestation verification
-func generateVSAWithOptions(ctx context.Context, artifactDigest string, vsaSubjects []vsa.VSASubject, inputAttestations []vsa.ResourceDescriptor, attestationTypes []string, sigs []oci.Signature, quiet bool, vsaOutput, policyURI, policyBundlePath, policyDataPath string) error {
+func generateVSAWithOptions(ctx context.Context, artifactDigest string, vsaSubjects []vsa.VSASubject, inputAttestations []vsa.ResourceDescriptor, attestationTypes []string, sigs []oci.Signature, quiet bool, vsaOutput, policyURI, policyBundlePath, policySchemasPath, policyDataPath string) error {
 	return vsa.Generate(ctx, vsa.GenerateOptions{
 		ArtifactDigest:    artifactDigest,
 		VSASubjects:       vsaSubjects,
@@ -386,6 +389,7 @@ func generateVSAWithOptions(ctx context.Context, artifactDigest string, vsaSubje
 		Signatures:        sigs,
 		PolicyURI:         policyURI,
 		PolicyBundlePath:  policyBundlePath,
+		PolicySchemasPath: policySchemasPath,
 		PolicyDataPath:    policyDataPath,
 		VSAOutput:         vsaOutput,
 		Quiet:             quiet,

@@ -150,6 +150,26 @@ go test -cover ./...
 go test -bench=. ./...
 ```
 
+### Debugging
+
+```bash
+# build with debug symbols
+go build -o bin/autogov-debug .
+
+# run with delve
+dlv debug . -- verify --cert-identity "..." --repo "..." -d "sha256:..."
+
+# run tests with race detector
+go test -race ./...
+
+# cpu/memory profiling
+go test -cpuprofile=cpu.prof -bench=. ./...
+go tool pprof cpu.prof
+
+go test -memprofile=mem.prof -bench=. ./...
+go tool pprof mem.prof
+```
+
 ### Architecture Overview
 
 The tool is organized into several key packages:

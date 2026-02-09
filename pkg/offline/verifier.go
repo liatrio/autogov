@@ -113,6 +113,11 @@ func NewOfflineVerifier(trustedRootPath string, options VerifyOptions) (*Offline
 	}, nil
 }
 
+// returns the loaded bundles (avoids reloading from file)
+func (ov *OfflineVerifier) Bundles() []*bundle.Bundle {
+	return ov.bundles
+}
+
 // loads bundles from a file
 func (ov *OfflineVerifier) LoadBundlesFromFile(bundlePath string) error {
 	bundles, err := LoadBundles(bundlePath)

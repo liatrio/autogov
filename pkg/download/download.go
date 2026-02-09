@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/go-github/v81/github"
 	"github.com/liatrio/autogov-verify/pkg/digest"
+	ghclient "github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/liatrio/autogov-verify/pkg/offline"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 )
@@ -42,12 +43,7 @@ type AttestationDownloader struct {
 
 // creates a new attestation downloader
 func NewAttestationDownloader(opts DownloadOptions) (*AttestationDownloader, error) {
-	var client *github.Client
-	if opts.GitHubToken != "" {
-		client = github.NewClient(nil).WithAuthToken(opts.GitHubToken)
-	} else {
-		client = github.NewClient(nil)
-	}
+	client := ghclient.NewClient()
 
 	// defaults
 	if opts.OutputFormat == "" {
