@@ -37,6 +37,7 @@ func init() {
 	planCmd.Flags().Bool("first-parent", false, "Only follow first parent commits in merge history")
 	planCmd.Flags().StringP("output", "o", "text", "Output format: text, json, yaml")
 	planCmd.Flags().String("repo", ".", "Path to git repository")
+	planCmd.Flags().String("mutations-config", "", "Path to mutations config file for file update preview")
 }
 
 // valid output formats
@@ -52,6 +53,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	firstParent, _ := cmd.Flags().GetBool("first-parent")
 	outputFormat, _ := cmd.Flags().GetString("output")
 	repoPath, _ := cmd.Flags().GetString("repo")
+	mutationsConfig, _ := cmd.Flags().GetString("mutations-config")
 
 	// validate output format
 	if !validOutputFormats[outputFormat] {
@@ -59,11 +61,12 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	opts := &release.PlanOptions{
-		FromRef:      fromRef,
-		ToRef:        toRef,
-		FirstParent:  firstParent,
-		RepoPath:     repoPath,
-		OutputFormat: outputFormat,
+		FromRef:         fromRef,
+		ToRef:           toRef,
+		FirstParent:     firstParent,
+		RepoPath:        repoPath,
+		OutputFormat:    outputFormat,
+		MutationsConfig: mutationsConfig,
 	}
 
 	plan, err := release.GeneratePlan(opts)

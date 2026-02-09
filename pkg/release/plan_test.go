@@ -2,6 +2,7 @@ package release
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
@@ -140,6 +141,116 @@ func TestParsedCommitFields(t *testing.T) {
 	assert.Equal(t, "add new command", commit.Subject)
 	assert.Equal(t, "detailed description", commit.Body)
 	assert.False(t, commit.Breaking)
+}
+
+func TestGeneratePlanIntegrationBasic(t *testing.T) {
+	// end-to-end: create a repo, tag v1.0.0, add conventional commits, generate plan
+	dir, repo := createTestRepo(t)
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	createTag(t, repo, "v1.0.0")
+	addCommit(t, repo, dir, "feat: add user authentication")
+	addCommit(t, repo, dir, "fix: correct login redirect")
+
+	plan, err := GeneratePlan(&PlanOptions{
+		RepoPath:     dir,
+		OutputFormat: "text",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	assert.True(t, plan.ReleaseNeeded)
+	assert.Equal(t, "v1.0.0", plan.CurrentVersion)
+	assert.Equal(t, "v1.1.0", plan.NextVersion, "feat should trigger minor bump")
+	assert.Equal(t, "minor", plan.BumpType)
+	assert.Len(t, plan.Commits, 2)
+	assert.NotEmpty(t, plan.ChangelogPreview)
+	assert.Empty(t, plan.Reason)
+}
+
+func TestGeneratePlanIntegrationBreaking(t *testing.T) {
+	dir, repo := createTestRepo(t)
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	createTag(t, repo, "v1.2.3")
+	addCommit(t, repo, dir, "feat!: redesign API endpoints")
+
+	plan, err := GeneratePlan(&PlanOptions{
+		RepoPath: dir,
+	})
+	require.NoError(t, err)
+
+	assert.True(t, plan.ReleaseNeeded)
+	assert.Equal(t, "v1.2.3", plan.CurrentVersion)
+	assert.Equal(t, "v2.0.0", plan.NextVersion, "breaking change should trigger major bump")
+	assert.Equal(t, "major", plan.BumpType)
+	assert.Len(t, plan.BreakingChanges, 1)
+}
+
+func TestGeneratePlanIntegrationNoRelease(t *testing.T) {
+	dir, repo := createTestRepo(t)
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	createTag(t, repo, "v1.0.0")
+	addCommit(t, repo, dir, "docs: update readme")
+	addCommit(t, repo, dir, "chore: tidy go.mod")
+
+	plan, err := GeneratePlan(&PlanOptions{
+		RepoPath: dir,
+	})
+	require.NoError(t, err)
+
+	assert.False(t, plan.ReleaseNeeded)
+	assert.Equal(t, "none", plan.BumpType)
+	assert.NotEmpty(t, plan.Reason)
+	assert.Contains(t, plan.Reason, "no releasable commits")
+}
+
+func TestGeneratePlanIntegrationNoTags(t *testing.T) {
+	dir, _ := createTestRepo(t)
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	plan, err := GeneratePlan(&PlanOptions{
+		RepoPath: dir,
+	})
+	require.NoError(t, err)
+
+	// no tags means zero version baseline, initial commit is not conventional
+	assert.Equal(t, "v0.0.0", plan.CurrentVersion)
+}
+
+func TestGeneratePlanIntegrationOutputFormats(t *testing.T) {
+	dir, repo := createTestRepo(t)
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	createTag(t, repo, "v1.0.0")
+	addCommit(t, repo, dir, "feat: new feature")
+
+	plan, err := GeneratePlan(&PlanOptions{
+		RepoPath: dir,
+	})
+	require.NoError(t, err)
+
+	// JSON
+	jsonData, err := plan.ToJSON()
+	require.NoError(t, err)
+	var jsonParsed map[string]interface{}
+	err = json.Unmarshal(jsonData, &jsonParsed)
+	require.NoError(t, err)
+	assert.Equal(t, true, jsonParsed["release_needed"])
+
+	// YAML
+	yamlData, err := plan.ToYAML()
+	require.NoError(t, err)
+	var yamlParsed map[string]interface{}
+	err = yaml.Unmarshal(yamlData, &yamlParsed)
+	require.NoError(t, err)
+	assert.Equal(t, true, yamlParsed["release_needed"])
+
+	// Text
+	text := plan.ToText()
+	assert.Contains(t, text, "Release Plan")
+	assert.Contains(t, text, "v1.1.0")
 }
 
 func TestFileMutationFields(t *testing.T) {

@@ -188,6 +188,109 @@ func TestGetCommitsSinceTagWithTag(t *testing.T) {
 	assert.Len(t, commits, 2)
 }
 
+// helper to create a merge commit combining two branch tips
+func createMergeCommit(t *testing.T, repo *git.Repository, dir string, parent1, parent2 plumbing.Hash, message string) plumbing.Hash {
+	t.Helper()
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+
+	// modify file so the tree differs from parents
+	testFile := filepath.Join(dir, "test.txt")
+	content, _ := os.ReadFile(testFile)
+	err = os.WriteFile(testFile, append(content, []byte("\n"+message)...), 0644)
+	require.NoError(t, err)
+
+	_, err = wt.Add("test.txt")
+	require.NoError(t, err)
+
+	sig := &object.Signature{
+		Name:  "Test User",
+		Email: "test@example.com",
+		When:  time.Now(),
+	}
+
+	hash, err := wt.Commit(message, &git.CommitOptions{
+		Author:  sig,
+		Parents: []plumbing.Hash{parent1, parent2},
+	})
+	require.NoError(t, err)
+
+	return hash
+}
+
+func TestGetCommitsSinceTagMergeFirstParentVsAll(t *testing.T) {
+	// build a repo with a merge commit:
+	//
+	//   initial -- A (tag v1.0.0) -- B -- merge (HEAD)
+	//                                   /
+	//                              C --D
+	//
+	// firstParent=true  should see: merge, B        (2 commits)
+	// firstParent=false should see: merge, B, D, C  (4 commits)
+
+	dir, repo := createTestRepo(t)
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	// A — tag it
+	addCommit(t, repo, dir, "feat: feature A")
+	createTag(t, repo, "v1.0.0")
+
+	// B on main branch
+	hashB := addCommit(t, repo, dir, "feat: feature B")
+
+	// create a side branch from A (parent of B)
+	// first, get A's hash (parent of B)
+	commitB, err := repo.CommitObject(hashB)
+	require.NoError(t, err)
+	parentA, err := commitB.Parent(0)
+	require.NoError(t, err)
+
+	// checkout the side branch at A
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+	err = wt.Checkout(&git.CheckoutOptions{
+		Hash:   parentA.Hash,
+		Create: false,
+		Force:  true,
+	})
+	require.NoError(t, err)
+
+	// C on side branch
+	_ = addCommit(t, repo, dir, "fix: fix C")
+	// D on side branch
+	hashD := addCommit(t, repo, dir, "fix: fix D")
+
+	// go back to B
+	err = wt.Checkout(&git.CheckoutOptions{
+		Hash:  hashB,
+		Force: true,
+	})
+	require.NoError(t, err)
+
+	// merge commit with parents B and D
+	createMergeCommit(t, repo, dir, hashB, hashD, "chore: merge side branch")
+
+	// firstParent=true: should only walk merge -> B (2 commits)
+	fpCommits, err := GetCommitsSinceTag(repo, "v1.0.0", "HEAD", true)
+	require.NoError(t, err)
+
+	// firstParent=false: should walk all reachable: merge, B, D, C (4 commits)
+	allCommits, err := GetCommitsSinceTag(repo, "v1.0.0", "HEAD", false)
+	require.NoError(t, err)
+
+	assert.Len(t, fpCommits, 2, "first-parent should see merge + B")
+	assert.Len(t, allCommits, 4, "all-parents should see merge + B + D + C")
+
+	// verify first-parent only has merge and B
+	fpMessages := make([]string, len(fpCommits))
+	for i, c := range fpCommits {
+		fpMessages[i] = c.Message
+	}
+	assert.Contains(t, fpMessages[0], "merge side branch")
+	assert.Contains(t, fpMessages[1], "feature B")
+}
+
 func TestGetRepositoryNameUnknown(t *testing.T) {
 	dir, repo := createTestRepo(t)
 	defer func() { _ = os.RemoveAll(dir) }()

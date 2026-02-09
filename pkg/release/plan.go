@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/liatrio/autogov-verify/pkg/mutate"
 	"gopkg.in/yaml.v3"
 )
 
@@ -66,6 +67,8 @@ type PlanOptions struct {
 	RepoPath string
 	// output format (text, json, yaml)
 	OutputFormat string
+	// path to mutations config file (optional)
+	MutationsConfig string
 }
 
 // DefaultPlanOptions returns options with sensible defaults
@@ -162,7 +165,51 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 		plan.ChangelogPreview = changelog
 	}
 
+	// populate file mutations if config provided
+	if opts.MutationsConfig != "" && plan.ReleaseNeeded {
+		mutations, err := previewMutations(opts.RepoPath, opts.MutationsConfig, nextVersion.String())
+		if err != nil {
+			// non-fatal: log warning but don't fail the plan
+			plan.FileMutations = []FileMutation{{
+				Path: opts.MutationsConfig, Type: "error", Field: "", OldValue: "", NewValue: err.Error(),
+			}}
+		} else {
+			plan.FileMutations = mutations
+		}
+	}
+
 	return plan, nil
+}
+
+// previewMutations loads mutation config and performs a dry-run
+func previewMutations(repoPath, configPath, version string) ([]FileMutation, error) {
+	config, err := mutate.LoadConfig(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	results, err := mutate.DryRunMutations(repoPath, config, version)
+	if err != nil {
+		return nil, err
+	}
+
+	var mutations []FileMutation
+	for _, r := range results {
+		fm := FileMutation{
+			Path:     r.Rule.Path,
+			Type:     r.Rule.Type,
+			Field:    r.Rule.Field,
+			OldValue: r.OldValue,
+			NewValue: r.NewValue,
+		}
+		// propagate per-rule errors so the plan shows failures
+		if r.Error != "" {
+			fm.Type = "error"
+			fm.NewValue = r.Error
+		}
+		mutations = append(mutations, fm)
+	}
+	return mutations, nil
 }
 
 // ToJSON converts the plan to JSON format

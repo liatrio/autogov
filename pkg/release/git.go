@@ -113,6 +113,7 @@ func filterAncestorTags(repo *git.Repository, tags []*tagInfo) ([]*tagInfo, erro
 		// need to resolve tag to commit hash (could be lightweight or annotated)
 		commitHash, err := resolveTagToCommit(repo, tag.hash)
 		if err != nil {
+			fmt.Printf("warning: skipping tag %s: failed to resolve to commit: %v\n", tag.name, err)
 			continue
 		}
 		if ancestors[commitHash] {
