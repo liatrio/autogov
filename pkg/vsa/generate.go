@@ -11,14 +11,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-const (
-	flagPolicyURI         = "policy-uri"
-	flagVSAOutput         = "vsa-output"
-	flagPolicyBundlePath  = "policy-bundle-path"
-	flagPolicySchemasPath = "policy-schemas-path"
-	flagPolicyDataPath    = "policy-data-path"
-)
-
 // contains options for VSA generation
 type GenerateOptions struct {
 	ArtifactDigest    string
@@ -29,6 +21,7 @@ type GenerateOptions struct {
 	PolicyURI         string
 	VSAOutput         string
 	PolicyBundlePath  string
+	PolicySchemasPath string
 	PolicyDataPath    string
 	Quiet             bool
 	Version           string
@@ -37,33 +30,18 @@ type GenerateOptions struct {
 
 // creates a VSA after successful attestation verification
 func Generate(ctx context.Context, opts GenerateOptions) error {
-	if opts.PolicyURI == "" {
-		opts.PolicyURI = viper.GetString(flagPolicyURI)
-	}
-	if opts.VSAOutput == "" {
-		opts.VSAOutput = viper.GetString(flagVSAOutput)
-	}
-	if opts.PolicyBundlePath == "" {
-		opts.PolicyBundlePath = viper.GetString(flagPolicyBundlePath)
-	}
-
-	// get schemas path for policy validation
-	schemasPath := viper.GetString(flagPolicySchemasPath)
+	// resolve schemas path: explicit > policy bundle path
+	schemasPath := opts.PolicySchemasPath
 	if schemasPath == "" {
-		schemasPath = viper.GetString(flagPolicyBundlePath)
-	}
-
-	// get data path for OPA data (e.g., vulnerability_thresholds)
-	if opts.PolicyDataPath == "" {
-		opts.PolicyDataPath = viper.GetString(flagPolicyDataPath)
+		schemasPath = opts.PolicyBundlePath
 	}
 
 	if opts.PolicyURI == "" {
-		return fmt.Errorf("policy URI is required for VSA generation (use --%s)", flagPolicyURI)
+		return fmt.Errorf("policy URI is required for VSA generation (use --policy-uri)")
 	}
 
 	if opts.VSAOutput == "" {
-		return fmt.Errorf("VSA output path is required (use --%s)", flagVSAOutput)
+		return fmt.Errorf("VSA output path is required (use --vsa-output)")
 	}
 
 	if !opts.Quiet {
@@ -214,7 +192,11 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 			"policy_compliance_rate": 100.0,
 		}
 		if len(policyResult.Violations) > 0 && len(opts.AttestationTypes) > 0 {
-			metrics["policy_compliance_rate"] = float64(len(opts.AttestationTypes)-len(policyResult.Violations)) / float64(len(opts.AttestationTypes)) * 100.0
+			rate := float64(len(opts.AttestationTypes)-len(policyResult.Violations)) / float64(len(opts.AttestationTypes)) * 100.0
+			if rate < 0 {
+				rate = 0
+			}
+			metrics["policy_compliance_rate"] = rate
 		}
 		generatedVSA.Metadata["autogov.policy.metrics"] = metrics
 	}

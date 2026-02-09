@@ -30,3 +30,18 @@ build-errors.log
 !.vscode/extensions.json
 !.vscode/launch.json.example
 .air.toml
+
+# agent config dirs
+.agentvibes/
+.claude/
+.clinerules/
+.gemini/
+.mcp.json
+.windsurf/
+
+# bmad framework and output
+_bmad/
+_bmad-output/
+
+# build output
+bin/

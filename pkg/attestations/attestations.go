@@ -299,7 +299,7 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 	}
 
 	manifestPath := filepath.Join(cacheDir, "manifest.json")
-	if err := os.WriteFile(manifestPath, manifest, 0644); err != nil {
+	if err := os.WriteFile(manifestPath, manifest, 0600); err != nil {
 		return nil, fmt.Errorf("failed to write manifest: %w", err)
 	}
 
@@ -518,7 +518,9 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 }
 
 func handleBlobVerification(ctx context.Context, artifactRef *Digest, org string, client *github.Client, opts Options, cacheDir string) ([]oci.Signature, error) {
-	fmt.Println("Verifying blob attestations...")
+	if !opts.Quiet {
+		fmt.Println("Verifying blob attestations...")
+	}
 
 	// validate inputs
 	if err := validateInputs(client, org, artifactRef); err != nil {
@@ -540,7 +542,9 @@ func handleBlobVerification(ctx context.Context, artifactRef *Digest, org string
 		h := sha256.New()
 		h.Write(blobData)
 		artifactRef, _ = NewDigest(fmt.Sprintf("sha256:%x", h.Sum(nil)))
-		fmt.Printf("Using calculated blob digest: %s\n", artifactRef)
+		if !opts.Quiet {
+			fmt.Printf("Using calculated blob digest: %s\n", artifactRef)
+		}
 	}
 
 	// get trusted root with fallback

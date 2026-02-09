@@ -14,6 +14,11 @@ import (
 func RunCommand(cmd *cobra.Command, args []string) error {
 	// gets config values
 	quiet, _ := cmd.Flags().GetBool("quiet")
+
+	// propagate CLI flags to viper for pkg code that reads directly from viper
+	viper.Set("quiet", quiet)
+	failOnPolicyError, _ := cmd.Flags().GetBool("fail-on-policy-error")
+	viper.Set("fail-on-policy-error", failOnPolicyError)
 	blobPath, _ := cmd.Flags().GetString("blob-path")
 	imageDigest, _ := cmd.Flags().GetString("image-digest")
 	attestationsPath, _ := cmd.Flags().GetString("attestations")
@@ -154,11 +159,8 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 			var vsaSubjects []vsa.VSASubject
 			var bundlesForOPA []map[string]interface{}
 
-			// loads raw bundles to extract payload for OPA
-			bundles, err := LoadBundles(attestationsPath)
-			if err != nil {
-				return fmt.Errorf("failed to reload bundles for OPA: %w", err)
-			}
+			// reuse already-loaded bundles from verifier (avoids reloading from file)
+			bundles := verifier.Bundles()
 
 			// builds VSA subjects from verified attestations and convert for OPA
 			subjectsMap := make(map[string]vsa.VSASubject)
@@ -245,21 +247,17 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 			policyDataPath, _ := cmd.Flags().GetString("policy-data-path")
 
 			vsaOptions := vsa.GenerateOptions{
-				PolicyBundlePath: policyBundlePath,
-				PolicyDataPath:   policyDataPath,
-				PolicyURI:        policyURI,
-				VSAOutput:        vsaOutput,
-				Quiet:            quiet,
+				PolicyBundlePath:  policyBundlePath,
+				PolicySchemasPath: policySchemasPath,
+				PolicyDataPath:    policyDataPath,
+				PolicyURI:         policyURI,
+				VSAOutput:         vsaOutput,
+				Quiet:             quiet,
 			}
 
 			// pass attestations to viper for OPA evaluation
 			if len(bundlesForOPA) > 0 {
 				viper.Set("offline-attestations", bundlesForOPA)
-			}
-
-			// sets schemas path in viper for VSA generation to use
-			if policySchemasPath != "" {
-				viper.Set("policy-schemas-path", policySchemasPath)
 			}
 
 			vsaOptions.ArtifactDigest = resourceURI

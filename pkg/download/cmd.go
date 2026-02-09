@@ -43,7 +43,16 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		blobPaths = expandedPaths
 	}
 
-	// process each blob file
+	// if no blob paths but image-digest is provided, download for digest directly
+	if len(blobPaths) == 0 && imageDigest != "" {
+		blobPaths = []string{""}
+	}
+
+	if len(blobPaths) == 0 {
+		return fmt.Errorf("no files found to process")
+	}
+
+	// process each blob file (or digest-only download)
 	for i, artifactPath := range blobPaths {
 		if len(blobPaths) > 1 {
 			fmt.Printf("Processing file %d/%d: %s\n", i+1, len(blobPaths), artifactPath)
@@ -84,10 +93,6 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		if !quiet {
 			fmt.Printf("\n✓ Attestations saved to: %s\n", outputPath)
 		}
-	}
-
-	if len(blobPaths) == 0 {
-		return fmt.Errorf("no files found to process")
 	}
 
 	return nil
