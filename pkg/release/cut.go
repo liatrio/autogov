@@ -410,20 +410,24 @@ func createReleaseCommitViaAPI(ctx context.Context, repo *git.Repository, opts *
 		})
 	}
 
-	// create tree via API
-	tree, resp, err := opts.ReleaseAPI.CreateTree(ctx, owner, repoName, baseTreeSHA, entries)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	if err != nil {
-		return "", fmt.Errorf("failed to create tree: %w", err)
+	// determine tree SHA: create new tree if files changed, otherwise reuse HEAD tree
+	treeSHA := baseTreeSHA
+	if len(entries) > 0 {
+		tree, resp, err := opts.ReleaseAPI.CreateTree(ctx, owner, repoName, baseTreeSHA, entries)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		if err != nil {
+			return "", fmt.Errorf("failed to create tree: %w", err)
+		}
+		treeSHA = tree.GetSHA()
 	}
 
 	// create commit via API (auto-signed by GitHub)
 	now := time.Now()
 	commit := gogithub.Commit{
 		Message: gogithub.Ptr(buildCommitMessage(plan)),
-		Tree:    &gogithub.Tree{SHA: tree.SHA},
+		Tree:    &gogithub.Tree{SHA: gogithub.Ptr(treeSHA)},
 		Parents: []*gogithub.Commit{{SHA: gogithub.Ptr(headSHA)}},
 		Author: &gogithub.CommitAuthor{
 			Name:  gogithub.Ptr(opts.CommitAuthor),
