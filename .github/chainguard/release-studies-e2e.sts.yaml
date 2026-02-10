@@ -1,4 +1,0 @@
-issuer: https://token.actions.githubusercontent.com
-subject_pattern: "repo:liatrio/release-studies:ref:refs/heads/*"
-permissions:
-  contents: read
