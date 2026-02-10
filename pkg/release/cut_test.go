@@ -19,28 +19,65 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func mockResp(code int) *gogithub.Response {
+	return &gogithub.Response{Response: &http.Response{StatusCode: code, Body: http.NoBody}}
+}
+
 // mockReleaseService implements ReleaseService for testing
 type mockReleaseService struct {
+	// release operations
 	getRelease    *gogithub.RepositoryRelease
 	getReleaseErr error
 	createRelease *gogithub.RepositoryRelease
 	createErr     error
+
+	// git data operations
+	createTreeResult   *gogithub.Tree
+	createTreeErr      error
+	createCommitResult *gogithub.Commit
+	createCommitErr    error
+	createTagResult    *gogithub.Tag
+	createTagErr       error
+	createRefResult    *gogithub.Reference
+	createRefErr       error
+	updateRefResult    *gogithub.Reference
+	updateRefErr       error
 }
 
 func (m *mockReleaseService) GetReleaseByTag(_ context.Context, _, _, _ string) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
-	resp := &gogithub.Response{Response: &http.Response{StatusCode: 200, Body: http.NoBody}}
+	code := 200
 	if m.getReleaseErr != nil {
-		resp.StatusCode = 404
+		code = 404
 	}
-	return m.getRelease, resp, m.getReleaseErr
+	return m.getRelease, mockResp(code), m.getReleaseErr
 }
 
 func (m *mockReleaseService) CreateRelease(_ context.Context, _, _ string, _ *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
-	resp := &gogithub.Response{Response: &http.Response{StatusCode: 201, Body: http.NoBody}}
+	code := 201
 	if m.createErr != nil {
-		resp.StatusCode = 500
+		code = 500
 	}
-	return m.createRelease, resp, m.createErr
+	return m.createRelease, mockResp(code), m.createErr
+}
+
+func (m *mockReleaseService) CreateTree(_ context.Context, _, _, _ string, _ []*gogithub.TreeEntry) (*gogithub.Tree, *gogithub.Response, error) {
+	return m.createTreeResult, mockResp(201), m.createTreeErr
+}
+
+func (m *mockReleaseService) CreateCommit(_ context.Context, _, _ string, _ gogithub.Commit, _ *gogithub.CreateCommitOptions) (*gogithub.Commit, *gogithub.Response, error) {
+	return m.createCommitResult, mockResp(201), m.createCommitErr
+}
+
+func (m *mockReleaseService) CreateTag(_ context.Context, _, _ string, _ gogithub.CreateTag) (*gogithub.Tag, *gogithub.Response, error) {
+	return m.createTagResult, mockResp(201), m.createTagErr
+}
+
+func (m *mockReleaseService) CreateRef(_ context.Context, _, _ string, _ gogithub.CreateRef) (*gogithub.Reference, *gogithub.Response, error) {
+	return m.createRefResult, mockResp(201), m.createRefErr
+}
+
+func (m *mockReleaseService) UpdateRef(_ context.Context, _, _, _ string, _ gogithub.UpdateRef) (*gogithub.Reference, *gogithub.Response, error) {
+	return m.updateRefResult, mockResp(200), m.updateRefErr
 }
 
 // helper to create a test repo with an initial commit and tag
@@ -329,7 +366,7 @@ func TestExecuteCutDirtyWorktree(t *testing.T) {
 	assert.Contains(t, err.Error(), "worktree validation failed")
 }
 
-func TestExecuteCutFullFlowLocal(t *testing.T) {
+func TestExecuteCutFullFlowViaAPI(t *testing.T) {
 	dir, repo := setupTestRepo(t)
 
 	wt, err := repo.Worktree()
@@ -343,23 +380,74 @@ func TestExecuteCutFullFlowLocal(t *testing.T) {
 	_, err = wt.Commit("feat: add feature", &git.CommitOptions{Author: sig})
 	require.NoError(t, err)
 
-	// execute cut without remote push (no remote configured, will fail at push)
+	// add remote so parseOwnerRepo works
+	_, err = repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{"https://github.com/test/repo.git"},
+	})
+	require.NoError(t, err)
+
+	commitSHA := "abc123def456789012345678901234567890abcd"
+	tagSHA := "def456789012345678901234567890abcdef1234"
+
+	mock := &mockReleaseService{
+		createTreeResult:   &gogithub.Tree{SHA: gogithub.Ptr("tree-sha-123")},
+		createCommitResult: &gogithub.Commit{SHA: gogithub.Ptr(commitSHA)},
+		createTagResult:    &gogithub.Tag{SHA: gogithub.Ptr(tagSHA)},
+		createRefResult:    &gogithub.Reference{},
+		updateRefResult:    &gogithub.Reference{},
+		createRelease: &gogithub.RepositoryRelease{
+			ID:      gogithub.Ptr(int64(42)),
+			HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
+		},
+		getReleaseErr: fmt.Errorf("not found"),
+	}
+
 	opts := &CutOptions{
 		RepoPath:     dir,
 		Branch:       "master",
 		Remote:       "origin",
 		CommitAuthor: "testbot",
 		CommitEmail:  "testbot@test.com",
+		Token:        "test-token",
+		ReleaseAPI:   mock,
+	}
+
+	result, err := ExecuteCut(opts)
+	require.NoError(t, err)
+
+	assert.Equal(t, "v1.1.0", result.TagName)
+	assert.Equal(t, "1.1.0", result.Version)
+	assert.Equal(t, commitSHA, result.CommitSHA)
+	assert.True(t, result.Draft)
+	assert.Equal(t, int64(42), result.ReleaseID)
+	assert.Equal(t, "https://github.com/test/repo/releases/tag/v1.1.0", result.ReleaseURL)
+}
+
+func TestExecuteCutRequiresTokenForNonDryRun(t *testing.T) {
+	dir, repo := setupTestRepo(t)
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+
+	sig := &object.Signature{Name: "test", Email: "test@example.com", When: time.Now()}
+
+	writeFile(t, dir, "feature.txt", "new feature")
+	_, err = wt.Add("feature.txt")
+	require.NoError(t, err)
+	_, err = wt.Commit("feat: add feature", &git.CommitOptions{Author: sig})
+	require.NoError(t, err)
+
+	// no token, no ReleaseAPI — should fail
+	opts := &CutOptions{
+		RepoPath: dir,
+		Branch:   "master",
+		Remote:   "origin",
 	}
 
 	_, err = ExecuteCut(opts)
-	// should fail at push since no remote configured
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to push")
-
-	// the commit and tag should have been created locally before push failure
-	_, err = repo.Tag("v1.1.0")
-	assert.NoError(t, err, "tag v1.1.0 should exist after cut (before push failure)")
+	assert.Contains(t, err.Error(), "GitHub token is required")
 }
 
 func TestExecuteCutWithPlanFile(t *testing.T) {

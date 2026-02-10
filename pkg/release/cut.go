@@ -10,9 +10,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	gogithub "github.com/google/go-github/v81/github"
 	"github.com/liatrio/autogov-verify/pkg/mutate"
@@ -56,10 +54,17 @@ func DefaultCutOptions() *CutOptions {
 	}
 }
 
-// ReleaseService abstracts GitHub release operations for testability
+// ReleaseService abstracts GitHub API operations for testability
 type ReleaseService interface {
+	// release operations
 	GetReleaseByTag(ctx context.Context, owner, repo, tag string) (*gogithub.RepositoryRelease, *gogithub.Response, error)
 	CreateRelease(ctx context.Context, owner, repo string, release *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error)
+	// git data operations (commits/tags created via API are auto-signed by GitHub per SLSA v1.2)
+	CreateTree(ctx context.Context, owner, repo, baseTree string, entries []*gogithub.TreeEntry) (*gogithub.Tree, *gogithub.Response, error)
+	CreateCommit(ctx context.Context, owner, repo string, commit gogithub.Commit, opts *gogithub.CreateCommitOptions) (*gogithub.Commit, *gogithub.Response, error)
+	CreateTag(ctx context.Context, owner, repo string, tag gogithub.CreateTag) (*gogithub.Tag, *gogithub.Response, error)
+	CreateRef(ctx context.Context, owner, repo string, ref gogithub.CreateRef) (*gogithub.Reference, *gogithub.Response, error)
+	UpdateRef(ctx context.Context, owner, repo, ref string, updateRef gogithub.UpdateRef) (*gogithub.Reference, *gogithub.Response, error)
 }
 
 type githubReleaseService struct {
@@ -72,6 +77,26 @@ func (s *githubReleaseService) GetReleaseByTag(ctx context.Context, owner, repo,
 
 func (s *githubReleaseService) CreateRelease(ctx context.Context, owner, repo string, release *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
 	return s.client.Repositories.CreateRelease(ctx, owner, repo, release)
+}
+
+func (s *githubReleaseService) CreateTree(ctx context.Context, owner, repo, baseTree string, entries []*gogithub.TreeEntry) (*gogithub.Tree, *gogithub.Response, error) {
+	return s.client.Git.CreateTree(ctx, owner, repo, baseTree, entries)
+}
+
+func (s *githubReleaseService) CreateCommit(ctx context.Context, owner, repo string, commit gogithub.Commit, opts *gogithub.CreateCommitOptions) (*gogithub.Commit, *gogithub.Response, error) {
+	return s.client.Git.CreateCommit(ctx, owner, repo, commit, opts)
+}
+
+func (s *githubReleaseService) CreateTag(ctx context.Context, owner, repo string, tag gogithub.CreateTag) (*gogithub.Tag, *gogithub.Response, error) {
+	return s.client.Git.CreateTag(ctx, owner, repo, tag)
+}
+
+func (s *githubReleaseService) CreateRef(ctx context.Context, owner, repo string, ref gogithub.CreateRef) (*gogithub.Reference, *gogithub.Response, error) {
+	return s.client.Git.CreateRef(ctx, owner, repo, ref)
+}
+
+func (s *githubReleaseService) UpdateRef(ctx context.Context, owner, repo, ref string, updateRef gogithub.UpdateRef) (*gogithub.Reference, *gogithub.Response, error) {
+	return s.client.Git.UpdateRef(ctx, owner, repo, ref, updateRef)
 }
 
 func newGitHubReleaseService(token string) ReleaseService {
@@ -145,34 +170,42 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 		return result, nil
 	}
 
-	// step 5: create release commit
-	commitHash, err := createReleaseCommit(repo, opts, plan)
+	// require GitHub API for non-dry-run (commits/tags must be API-signed per SLSA v1.2)
+	if opts.ReleaseAPI == nil {
+		return nil, fmt.Errorf("GitHub token is required for release cut (API-signed commits per SLSA v1.2)")
+	}
+
+	owner, repoName, err := parseOwnerRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx := context.Background()
+
+	// step 5: create release commit via GitHub API (auto-signed/verified)
+	commitSHA, err := createReleaseCommitViaAPI(ctx, repo, opts, plan, owner, repoName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create release commit: %w", err)
 	}
-	result.CommitSHA = commitHash.String()
+	result.CommitSHA = commitSHA
 
-	// step 6: create annotated tag
-	if err := createAnnotatedTag(repo, tagName, commitHash, opts, plan); err != nil {
+	// step 6: create annotated tag via GitHub API (auto-signed/verified)
+	if err := createAnnotatedTagViaAPI(ctx, opts, tagName, commitSHA, plan, owner, repoName); err != nil {
 		return nil, fmt.Errorf("failed to create tag %s: %w", tagName, err)
 	}
 
-	// step 7: push commit and tag to remote
-	if err := pushToRemote(repo, opts, tagName); err != nil {
-		return nil, fmt.Errorf("failed to push to remote: %w", err)
+	// step 7: update branch ref to point at new commit
+	if err := updateBranchRef(ctx, opts, owner, repoName, opts.Branch, commitSHA); err != nil {
+		return nil, fmt.Errorf("failed to update branch ref: %w", err)
 	}
 
 	// step 8: create draft GitHub release
-	if opts.ReleaseAPI != nil {
-		releaseURL, releaseID, err := createDraftRelease(repo, opts, plan)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create draft release: %w", err)
-		}
-		result.ReleaseURL = releaseURL
-		result.ReleaseID = releaseID
-	} else {
-		fmt.Fprintf(os.Stderr, "warning: no GitHub token provided, skipping draft release creation\n")
+	releaseURL, releaseID, err := createDraftRelease(repo, opts, plan)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create draft release: %w", err)
 	}
+	result.ReleaseURL = releaseURL
+	result.ReleaseID = releaseID
 
 	return result, nil
 }
@@ -327,41 +360,87 @@ func applyMutations(repoPath, configPath, version string, dryRun bool) ([]string
 	return modified, nil
 }
 
-// createReleaseCommit stages mutated files and creates a conventional commit
-func createReleaseCommit(repo *git.Repository, opts *CutOptions, plan *ReleasePlan) (plumbing.Hash, error) {
+// parseOwnerRepo extracts owner and repo name from remote URL
+func parseOwnerRepo(repo *git.Repository) (string, string, error) {
+	repoName := GetRepositoryName(repo)
+	parts := strings.SplitN(repoName, "/", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("cannot determine owner/repo from remote URL")
+	}
+	return parts[0], parts[1], nil
+}
+
+// createReleaseCommitViaAPI creates a commit via GitHub's Git Data API (auto-signed/verified)
+func createReleaseCommitViaAPI(ctx context.Context, repo *git.Repository, opts *CutOptions, plan *ReleasePlan, owner, repoName string) (string, error) {
+	head, err := repo.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD: %w", err)
+	}
+	headSHA := head.Hash().String()
+
+	// get the base tree from current HEAD
+	headCommit, err := repo.CommitObject(head.Hash())
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD commit: %w", err)
+	}
+	baseTreeSHA := headCommit.TreeHash.String()
+
+	// read mutated files from worktree
 	wt, err := repo.Worktree()
 	if err != nil {
-		return plumbing.ZeroHash, fmt.Errorf("failed to get worktree: %w", err)
+		return "", fmt.Errorf("failed to get worktree: %w", err)
 	}
 
-	// stage all modified files
 	status, err := wt.Status()
 	if err != nil {
-		return plumbing.ZeroHash, fmt.Errorf("failed to get status: %w", err)
+		return "", fmt.Errorf("failed to get worktree status: %w", err)
 	}
 
+	var entries []*gogithub.TreeEntry
 	for filePath := range status {
-		if _, err := wt.Add(filePath); err != nil {
-			return plumbing.ZeroHash, fmt.Errorf("failed to stage %s: %w", filePath, err)
+		content, err := os.ReadFile(filepath.Join(opts.RepoPath, filePath))
+		if err != nil {
+			return "", fmt.Errorf("failed to read mutated file %s: %w", filePath, err)
 		}
+		entries = append(entries, &gogithub.TreeEntry{
+			Path:    gogithub.Ptr(filePath),
+			Mode:    gogithub.Ptr("100644"),
+			Type:    gogithub.Ptr("blob"),
+			Content: gogithub.Ptr(string(content)),
+		})
 	}
 
-	// build commit message
-	msg := buildCommitMessage(plan)
-
-	commitHash, err := wt.Commit(msg, &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  opts.CommitAuthor,
-			Email: opts.CommitEmail,
-			When:  time.Now(),
-		},
-		AllowEmptyCommits: true,
-	})
+	// create tree via API
+	tree, resp, err := opts.ReleaseAPI.CreateTree(ctx, owner, repoName, baseTreeSHA, entries)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
-		return plumbing.ZeroHash, fmt.Errorf("failed to create commit: %w", err)
+		return "", fmt.Errorf("failed to create tree: %w", err)
 	}
 
-	return commitHash, nil
+	// create commit via API (auto-signed by GitHub)
+	now := time.Now()
+	commit := gogithub.Commit{
+		Message: gogithub.Ptr(buildCommitMessage(plan)),
+		Tree:    &gogithub.Tree{SHA: tree.SHA},
+		Parents: []*gogithub.Commit{{SHA: gogithub.Ptr(headSHA)}},
+		Author: &gogithub.CommitAuthor{
+			Name:  gogithub.Ptr(opts.CommitAuthor),
+			Email: gogithub.Ptr(opts.CommitEmail),
+			Date:  &gogithub.Timestamp{Time: now},
+		},
+	}
+
+	created, resp, err := opts.ReleaseAPI.CreateCommit(ctx, owner, repoName, commit, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to create commit via API: %w", err)
+	}
+
+	return created.GetSHA(), nil
 }
 
 // buildCommitMessage creates a conventional commit message for the release
@@ -381,42 +460,61 @@ func buildCommitMessage(plan *ReleasePlan) string {
 	return sb.String()
 }
 
-// createAnnotatedTag creates an annotated tag at the given commit
-func createAnnotatedTag(repo *git.Repository, tagName string, commitHash plumbing.Hash, opts *CutOptions, plan *ReleasePlan) error {
+// createAnnotatedTagViaAPI creates an annotated tag via GitHub's Git Data API (auto-signed/verified)
+func createAnnotatedTagViaAPI(ctx context.Context, opts *CutOptions, tagName, commitSHA string, plan *ReleasePlan, owner, repoName string) error {
 	tagMessage := fmt.Sprintf("Release %s\n\n%s", tagName, plan.ChangelogPreview)
 
-	_, err := repo.CreateTag(tagName, commitHash, &git.CreateTagOptions{
-		Tagger: &object.Signature{
-			Name:  opts.CommitAuthor,
-			Email: opts.CommitEmail,
-			When:  time.Now(),
-		},
+	now := time.Now()
+	tag := gogithub.CreateTag{
+		Tag:     tagName,
 		Message: tagMessage,
-	})
-	return err
+		Object:  commitSHA,
+		Type:    "commit",
+		Tagger: &gogithub.CommitAuthor{
+			Name:  gogithub.Ptr(opts.CommitAuthor),
+			Email: gogithub.Ptr(opts.CommitEmail),
+			Date:  &gogithub.Timestamp{Time: now},
+		},
+	}
+
+	tagObj, resp, err := opts.ReleaseAPI.CreateTag(ctx, owner, repoName, tag)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil {
+		return fmt.Errorf("failed to create tag object: %w", err)
+	}
+
+	// create ref pointing to the tag object
+	ref := gogithub.CreateRef{
+		Ref: "refs/tags/" + tagName,
+		SHA: tagObj.GetSHA(),
+	}
+
+	_, resp, err = opts.ReleaseAPI.CreateRef(ctx, owner, repoName, ref)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil {
+		return fmt.Errorf("failed to create tag ref: %w", err)
+	}
+
+	return nil
 }
 
-// pushToRemote pushes the current branch and the new tag to the remote in a single operation
-func pushToRemote(repo *git.Repository, opts *CutOptions, tagName string) error {
-	head, err := repo.Head()
+// updateBranchRef fast-forwards the branch to the new commit via GitHub API
+func updateBranchRef(ctx context.Context, opts *CutOptions, owner, repoName, branch, commitSHA string) error {
+	updateRef := gogithub.UpdateRef{
+		SHA:   commitSHA,
+		Force: gogithub.Ptr(false),
+	}
+
+	_, resp, err := opts.ReleaseAPI.UpdateRef(ctx, owner, repoName, "refs/heads/"+branch, updateRef)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
-		return fmt.Errorf("failed to get HEAD: %w", err)
-	}
-
-	branchRefSpec := config.RefSpec(fmt.Sprintf("%s:%s", head.Name(), head.Name()))
-	tagRefSpec := config.RefSpec(fmt.Sprintf("refs/tags/%s:refs/tags/%s", tagName, tagName))
-
-	var auth *http.BasicAuth
-	if opts.Token != "" {
-		auth = &http.BasicAuth{Username: "x-access-token", Password: opts.Token}
-	}
-
-	if err := repo.Push(&git.PushOptions{
-		RemoteName: opts.Remote,
-		RefSpecs:   []config.RefSpec{branchRefSpec, tagRefSpec},
-		Auth:       auth,
-	}); err != nil {
-		return fmt.Errorf("failed to push: %w", err)
+		return fmt.Errorf("failed to update branch ref: %w", err)
 	}
 
 	return nil
