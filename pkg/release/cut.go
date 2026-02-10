@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -423,17 +422,12 @@ func createReleaseCommitViaAPI(ctx context.Context, repo *git.Repository, opts *
 		treeSHA = tree.GetSHA()
 	}
 
-	// create commit via API (auto-signed by GitHub)
-	now := time.Now()
+	// create commit via API; omit author/committer so GitHub auto-signs as the
+	// authenticated identity (SLSA v1.2 verified commits for bots)
 	commit := gogithub.Commit{
 		Message: gogithub.Ptr(buildCommitMessage(plan)),
 		Tree:    &gogithub.Tree{SHA: gogithub.Ptr(treeSHA)},
 		Parents: []*gogithub.Commit{{SHA: gogithub.Ptr(headSHA)}},
-		Author: &gogithub.CommitAuthor{
-			Name:  gogithub.Ptr(opts.CommitAuthor),
-			Email: gogithub.Ptr(opts.CommitEmail),
-			Date:  &gogithub.Timestamp{Time: now},
-		},
 	}
 
 	created, resp, err := opts.ReleaseAPI.CreateCommit(ctx, owner, repoName, commit, nil)
@@ -468,17 +462,12 @@ func buildCommitMessage(plan *ReleasePlan) string {
 func createAnnotatedTagViaAPI(ctx context.Context, opts *CutOptions, tagName, commitSHA string, plan *ReleasePlan, owner, repoName string) error {
 	tagMessage := fmt.Sprintf("Release %s\n\n%s", tagName, plan.ChangelogPreview)
 
-	now := time.Now()
+	// omit tagger so GitHub auto-signs as the authenticated identity
 	tag := gogithub.CreateTag{
 		Tag:     tagName,
 		Message: tagMessage,
 		Object:  commitSHA,
 		Type:    "commit",
-		Tagger: &gogithub.CommitAuthor{
-			Name:  gogithub.Ptr(opts.CommitAuthor),
-			Email: gogithub.Ptr(opts.CommitEmail),
-			Date:  &gogithub.Timestamp{Time: now},
-		},
 	}
 
 	tagObj, resp, err := opts.ReleaseAPI.CreateTag(ctx, owner, repoName, tag)
