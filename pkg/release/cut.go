@@ -11,7 +11,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
-	gogithub "github.com/google/go-github/v81/github"
+	gogithub "github.com/google/go-github/v82/github"
 	"github.com/liatrio/autogov-verify/pkg/mutate"
 	"gopkg.in/yaml.v3"
 )

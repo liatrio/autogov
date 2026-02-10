@@ -13,7 +13,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	gogithub "github.com/google/go-github/v81/github"
+	gogithub "github.com/google/go-github/v82/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"

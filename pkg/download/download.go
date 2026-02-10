@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/google/go-github/v81/github"
+	"github.com/google/go-github/v82/github"
 	"github.com/liatrio/autogov-verify/pkg/digest"
 	ghclient "github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/liatrio/autogov-verify/pkg/offline"
