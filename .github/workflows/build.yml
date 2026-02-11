@@ -83,13 +83,13 @@ jobs:
             VERSION="${VERSION}-${GITHUB_SHA::8}"
           fi
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
-          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o bin/autogov-verify .
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o bin/autogov .
       - name: Install Binary
         run: |
-          sudo cp bin/autogov-verify /usr/local/bin/
-          autogov-verify --help
+          sudo cp bin/autogov /usr/local/bin/
+          autogov --help
       - name: Upload binary
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: autogov-verify
-          path: bin/autogov-verify
+          name: autogov
+          path: bin/autogov
