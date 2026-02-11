@@ -4,11 +4,11 @@ import "fmt"
 
 // MutationRule defines a single file mutation to perform
 type MutationRule struct {
-	Path    string `json:"path" yaml:"path"`                               // file path relative to repo root
-	Type    string `json:"type" yaml:"type"`                               // jsonPath, yamlPath, tomlKey, regexReplace
-	Field   string `json:"field" yaml:"field"`                             // path expression (dot-notation or regex pattern)
-	Replace string `json:"replace,omitempty" yaml:"replace,omitempty"`     // replacement template (for regex)
-	Global  bool   `json:"global,omitempty" yaml:"global,omitempty"`       // replace all matches (regex only)
+	Path    string `json:"path" yaml:"path"`                           // file path relative to repo root
+	Type    string `json:"type" yaml:"type"`                           // jsonPath, yamlPath, tomlKey, regexReplace
+	Field   string `json:"field" yaml:"field"`                         // path expression (dot-notation or regex pattern)
+	Replace string `json:"replace,omitempty" yaml:"replace,omitempty"` // replacement template (for regex)
+	Global  bool   `json:"global,omitempty" yaml:"global,omitempty"`   // replace all matches (regex only)
 }
 
 // MutationConfig holds the full mutation configuration
