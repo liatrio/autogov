@@ -28,7 +28,7 @@ jobs:
     uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@4e0226c523e8a76e57f5106c5a6ba1778d08c12d # v0.14.2
     secrets: inherit
     with:
-      subject-path: autogov-verify
+      subject-path: autogov
 
   verify-blob:
     needs: [attest-blob]
@@ -99,7 +99,7 @@ jobs:
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           files: |
-            bin/autogov-verify
+            bin/autogov
             ${{ env.VSA_FOLDER }}/*
           tag_name: v${{ steps.go-semantic-release.outputs.version }}
           token: ${{ github.token }}

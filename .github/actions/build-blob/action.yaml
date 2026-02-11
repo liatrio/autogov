@@ -1,7 +1,7 @@
 name: Build Blob Composite Action
 
 description: >-
-  Builds the autogov-verify Go binary for attestation workflows.
+  Builds the autogov Go binary for attestation workflows.
   This action is called by rw-*-attest-blob.yaml workflows.
 
 inputs:
@@ -38,17 +38,17 @@ runs:
         DATE="${DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
         OPA_VERSION="${OPA_VERSION:-$(go list -m github.com/open-policy-agent/opa 2>/dev/null | awk '{print $2}' || echo 'unknown')}"
 
-        echo "Building autogov-verify version ${VERSION}"
+        echo "Building autogov version ${VERSION}"
 
         # Build with ldflags
         CGO_ENABLED=0 go build -trimpath \
           -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE} -X main.OpaVersion=${OPA_VERSION}" \
-          -o autogov-verify .
+          -o autogov .
 
         # Output for downstream steps
-        echo "binary-path=autogov-verify" >> $GITHUB_OUTPUT
+        echo "binary-path=autogov" >> $GITHUB_OUTPUT
         echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
         # Verify binary was created
-        ls -la autogov-verify
-        ./autogov-verify version || true
+        ls -la autogov
+        ./autogov version || true
