@@ -1372,7 +1372,7 @@ func TestVerifyBundleDigestParsing(t *testing.T) {
 
 	// Test various digest formats
 	testDigests := []string{
-		"abcd1234",                                                         // no algorithm prefix
+		"abcd1234", // no algorithm prefix
 		"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", // with algorithm
 		"sha512:cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce", // different algorithm
 	}
