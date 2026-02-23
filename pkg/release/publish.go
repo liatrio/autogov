@@ -4,7 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	gogithub "github.com/google/go-github/v82/github"
 )
 
@@ -50,16 +55,22 @@ func ExecutePublish(opts *PublishOptions) (*PublishResult, error) {
 	}
 
 	repoName := GetRepositoryName(repo)
-	owner, repoNameOnly, err := parseOwnerRepoFromName(repoName)
-	if err != nil {
-		return nil, err
+	parts := strings.SplitN(repoName, "/", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("cannot parse owner/repo from: %s", repoName)
 	}
+	owner, repoNameOnly := parts[0], parts[1]
 
 	ctx := context.Background()
 
 	// find the draft release (by tag or latest)
 	release, err := findDraftRelease(ctx, opts, owner, repoNameOnly)
 	if err != nil {
+		return nil, err
+	}
+
+	// verify the git tag exists on the remote before publishing
+	if err := verifyTagExists(repo, opts, release.GetTagName()); err != nil {
 		return nil, err
 	}
 
@@ -151,6 +162,36 @@ func findLatestDraftRelease(ctx context.Context, opts *PublishOptions, owner, re
 	return nil, fmt.Errorf("no draft releases found (use --tag to specify)")
 }
 
+// verifyTagExists confirms the git tag exists on the remote before publishing.
+// Non-fatal on network failures: logs a warning and proceeds.
+func verifyTagExists(repo *git.Repository, opts *PublishOptions, tagName string) error {
+	remote, err := repo.Remote("origin")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not access remote for tag verification: %v\n", err)
+		return nil
+	}
+
+	listOpts := &git.ListOptions{}
+	if opts.Token != "" {
+		listOpts.Auth = &http.BasicAuth{Username: "x-access-token", Password: opts.Token}
+	}
+
+	refs, err := remote.List(listOpts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not verify remote tag %s (skipping): %v\n", tagName, err)
+		return nil
+	}
+
+	tagRef := plumbing.NewTagReferenceName(tagName)
+	for _, ref := range refs {
+		if ref.Name() == tagRef {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("tag %s does not exist on remote", tagName)
+}
+
 // publishRelease flips draft → false via GitHub API
 func publishRelease(ctx context.Context, opts *PublishOptions, owner, repo string, release *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, error) {
 	update := &gogithub.RepositoryRelease{
@@ -166,34 +207,6 @@ func publishRelease(ctx context.Context, opts *PublishOptions, owner, repo strin
 	}
 
 	return published, nil
-}
-
-// parseOwnerRepoFromName extracts owner and repo from "owner/repo" string
-func parseOwnerRepoFromName(repoName string) (string, string, error) {
-	parts := splitOwnerRepo(repoName)
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("cannot parse owner/repo from: %s", repoName)
-	}
-	return parts[0], parts[1], nil
-}
-
-// splitOwnerRepo splits "owner/repo" into parts
-func splitOwnerRepo(repoName string) []string {
-	// simple split on "/"
-	result := []string{}
-	start := 0
-	for i := 0; i < len(repoName); i++ {
-		if repoName[i] == '/' {
-			if i > start {
-				result = append(result, repoName[start:i])
-			}
-			start = i + 1
-		}
-	}
-	if start < len(repoName) {
-		result = append(result, repoName[start:])
-	}
-	return result
 }
 
 // ToJSON serializes the publish result to JSON

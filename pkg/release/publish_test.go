@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
 	gogithub "github.com/google/go-github/v82/github"
 	"github.com/stretchr/testify/assert"
@@ -396,6 +397,75 @@ func TestExecutePublish(t *testing.T) {
 				if tt.validate != nil {
 					tt.validate(t, result)
 				}
+			}
+		})
+	}
+}
+
+// TestVerifyTagExists tests remote tag verification using a local bare repo
+func TestVerifyTagExists(t *testing.T) {
+	// create a local bare repo to serve as the remote
+	bareDir := t.TempDir()
+	_, err := git.PlainInit(bareDir, true)
+	require.NoError(t, err)
+
+	// create a local repo and push the v1.0.0 tag to the bare repo
+	localDir, localRepo := setupTestRepo(t) // has v1.0.0 tag
+	_ = localDir
+	_, err = localRepo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{bareDir},
+	})
+	require.NoError(t, err)
+
+	err = localRepo.Push(&git.PushOptions{
+		RemoteName: "origin",
+		RefSpecs:   []gitconfig.RefSpec{"refs/tags/v1.0.0:refs/tags/v1.0.0"},
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		repoFn      func() *git.Repository
+		tagName     string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "tag exists on remote",
+			repoFn:  func() *git.Repository { return localRepo },
+			tagName: "v1.0.0",
+			wantErr: false,
+		},
+		{
+			name:        "tag not found on remote",
+			repoFn:      func() *git.Repository { return localRepo },
+			tagName:     "v9.9.9",
+			wantErr:     true,
+			errContains: "does not exist on remote",
+		},
+		{
+			name: "no remote configured - warn and proceed",
+			repoFn: func() *git.Repository {
+				_, repo := setupTestRepo(t)
+				return repo
+			},
+			tagName: "v1.0.0",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := &PublishOptions{}
+			err := verifyTagExists(tt.repoFn(), opts, tt.tagName)
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
