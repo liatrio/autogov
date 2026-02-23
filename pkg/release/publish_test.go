@@ -13,51 +13,63 @@ import (
 )
 
 
-// TestFindDraftReleaseByTag tests finding a draft release by explicit tag
+// TestFindDraftReleaseByTag tests finding a draft release by explicit tag.
+// Uses ListReleases mock because GetReleaseByTag does not return draft releases.
 func TestFindDraftReleaseByTag(t *testing.T) {
 	tests := []struct {
-		name        string
-		tag         string
-		mockRelease *gogithub.RepositoryRelease
-		mockErr     error
-		wantErr     bool
-		errContains string
+		name         string
+		tag          string
+		mockReleases []*gogithub.RepositoryRelease
+		mockErr      error
+		wantErr      bool
+		errContains  string
 	}{
 		{
-			name: "found draft release",
+			name: "found draft release by tag",
 			tag:  "v1.2.0",
-			mockRelease: &gogithub.RepositoryRelease{
-				ID:      gogithub.Ptr(int64(42)),
-				TagName: gogithub.Ptr("v1.2.0"),
-				Draft:   gogithub.Ptr(true),
+			mockReleases: []*gogithub.RepositoryRelease{
+				{
+					ID:      gogithub.Ptr(int64(42)),
+					TagName: gogithub.Ptr("v1.2.0"),
+					Draft:   gogithub.Ptr(true),
+				},
 			},
 			wantErr: false,
 		},
 		{
-			name:        "release not found",
+			name:        "tag not in release list",
 			tag:         "v9.9.9",
-			mockErr:     fmt.Errorf("not found"),
+			mockReleases: []*gogithub.RepositoryRelease{},
 			wantErr:     true,
-			errContains: "not found",
+			errContains: "no draft release found for tag v9.9.9",
 		},
 		{
-			name: "release found but not draft",
+			name: "release found but already published",
 			tag:  "v1.0.0",
-			mockRelease: &gogithub.RepositoryRelease{
-				ID:      gogithub.Ptr(int64(10)),
-				TagName: gogithub.Ptr("v1.0.0"),
-				Draft:   gogithub.Ptr(false),
+			mockReleases: []*gogithub.RepositoryRelease{
+				{
+					ID:      gogithub.Ptr(int64(10)),
+					TagName: gogithub.Ptr("v1.0.0"),
+					Draft:   gogithub.Ptr(false),
+				},
 			},
 			wantErr:     true,
 			errContains: "already published",
+		},
+		{
+			name:        "API error",
+			tag:         "v1.0.0",
+			mockErr:     fmt.Errorf("API rate limit"),
+			wantErr:     true,
+			errContains: "failed to list releases",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &mockReleaseService{}
-			mock.getRelease = tt.mockRelease
-			mock.getReleaseErr = tt.mockErr
+			mock.listReleases = tt.mockReleases
+			mock.listReleasesErr = tt.mockErr
 
 			opts := &PublishOptions{
 				Tag:        tt.tag,
@@ -252,10 +264,12 @@ func TestExecutePublish(t *testing.T) {
 				Token: "test-token",
 			},
 			setupMock: func(m *mockReleaseService) {
-				m.getRelease = &gogithub.RepositoryRelease{
-					ID:      gogithub.Ptr(int64(42)),
-					TagName: gogithub.Ptr("v1.2.0"),
-					Draft:   gogithub.Ptr(true),
+				m.listReleases = []*gogithub.RepositoryRelease{
+					{
+						ID:      gogithub.Ptr(int64(42)),
+						TagName: gogithub.Ptr("v1.2.0"),
+						Draft:   gogithub.Ptr(true),
+					},
 				}
 				m.updateRelease = &gogithub.RepositoryRelease{
 					ID:      gogithub.Ptr(int64(42)),
@@ -307,10 +321,12 @@ func TestExecutePublish(t *testing.T) {
 				DryRun: true,
 			},
 			setupMock: func(m *mockReleaseService) {
-				m.getRelease = &gogithub.RepositoryRelease{
-					ID:      gogithub.Ptr(int64(10)),
-					TagName: gogithub.Ptr("v1.0.0"),
-					Draft:   gogithub.Ptr(true),
+				m.listReleases = []*gogithub.RepositoryRelease{
+					{
+						ID:      gogithub.Ptr(int64(10)),
+						TagName: gogithub.Ptr("v1.0.0"),
+						Draft:   gogithub.Ptr(true),
+					},
 				}
 			},
 			validate: func(t *testing.T, result *PublishResult) {
@@ -326,10 +342,10 @@ func TestExecutePublish(t *testing.T) {
 				Token: "test-token",
 			},
 			setupMock: func(m *mockReleaseService) {
-				m.getReleaseErr = fmt.Errorf("not found")
+				m.listReleases = []*gogithub.RepositoryRelease{}
 			},
 			wantErr:     true,
-			errContains: "not found",
+			errContains: "no draft release found for tag v9.9.9",
 		},
 		{
 			name: "release already published",
@@ -338,10 +354,12 @@ func TestExecutePublish(t *testing.T) {
 				Token: "test-token",
 			},
 			setupMock: func(m *mockReleaseService) {
-				m.getRelease = &gogithub.RepositoryRelease{
-					ID:      gogithub.Ptr(int64(10)),
-					TagName: gogithub.Ptr("v1.0.0"),
-					Draft:   gogithub.Ptr(false),
+				m.listReleases = []*gogithub.RepositoryRelease{
+					{
+						ID:      gogithub.Ptr(int64(10)),
+						TagName: gogithub.Ptr("v1.0.0"),
+						Draft:   gogithub.Ptr(false),
+					},
 				}
 			},
 			wantErr:     true,
@@ -354,10 +372,12 @@ func TestExecutePublish(t *testing.T) {
 				Token: "test-token",
 			},
 			setupMock: func(m *mockReleaseService) {
-				m.getRelease = &gogithub.RepositoryRelease{
-					ID:      gogithub.Ptr(int64(10)),
-					TagName: gogithub.Ptr("v1.0.0"),
-					Draft:   gogithub.Ptr(true),
+				m.listReleases = []*gogithub.RepositoryRelease{
+					{
+						ID:      gogithub.Ptr(int64(10)),
+						TagName: gogithub.Ptr("v1.0.0"),
+						Draft:   gogithub.Ptr(true),
+					},
 				}
 				m.updateErr = fmt.Errorf("API error")
 			},

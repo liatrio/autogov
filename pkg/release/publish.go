@@ -125,21 +125,29 @@ func findDraftRelease(ctx context.Context, opts *PublishOptions, owner, repo str
 	return findLatestDraftRelease(ctx, opts, owner, repo)
 }
 
-// findDraftReleaseByTag looks up a specific tag and verifies it's a draft
+// findDraftReleaseByTag finds a draft release matching the given tag.
+// Uses ListReleases because GetReleaseByTag only returns published releases;
+// draft releases are only visible through the list endpoint.
 func findDraftReleaseByTag(ctx context.Context, opts *PublishOptions, owner, repo string) (*gogithub.RepositoryRelease, error) {
-	release, resp, err := opts.ReleaseAPI.GetReleaseByTag(ctx, owner, repo, opts.Tag)
+	listOpts := &gogithub.ListOptions{PerPage: 50}
+	releases, resp, err := opts.ReleaseAPI.ListReleases(ctx, owner, repo, listOpts)
 	if resp != nil {
 		_ = resp.Body.Close()
 	}
 	if err != nil {
-		return nil, fmt.Errorf("release not found for tag %s: %w", opts.Tag, err)
+		return nil, fmt.Errorf("failed to list releases: %w", err)
 	}
 
-	if !release.GetDraft() {
-		return nil, fmt.Errorf("release %s is already published (immutable)", opts.Tag)
+	for _, release := range releases {
+		if release.GetTagName() == opts.Tag {
+			if !release.GetDraft() {
+				return nil, fmt.Errorf("release %s is already published (immutable)", opts.Tag)
+			}
+			return release, nil
+		}
 	}
 
-	return release, nil
+	return nil, fmt.Errorf("no draft release found for tag %s", opts.Tag)
 }
 
 // findLatestDraftRelease finds the first draft release in the list
