@@ -2,7 +2,6 @@ package release
 
 import (
 	"fmt"
-	"os"
 
 	ghpkg "github.com/liatrio/autogov-verify/pkg/github"
 	"github.com/liatrio/autogov-verify/pkg/release"
@@ -62,22 +61,24 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("release publish failed: %w", err)
 	}
 
+	out := cmd.OutOrStdout()
+
 	switch outputFormat {
 	case "json":
 		data, err := result.ToJSON()
 		if err != nil {
 			return fmt.Errorf("failed to serialize result: %w", err)
 		}
-		_, _ = fmt.Fprintln(os.Stdout, string(data))
+		fmt.Fprintln(out, string(data))
 	default:
 		if result.DryRun {
-			fmt.Printf("dry-run: would publish release %s (ID: %d)\n", result.TagName, result.ReleaseID)
+			fmt.Fprintf(out, "dry-run: would publish release %s (ID: %d)\n", result.TagName, result.ReleaseID)
 		} else {
-			fmt.Printf("Release %s published successfully\n", result.TagName)
+			fmt.Fprintf(out, "Release %s published successfully\n", result.TagName)
 			if result.ReleaseURL != "" {
-				fmt.Printf("  URL: %s\n", result.ReleaseURL)
+				fmt.Fprintf(out, "  URL: %s\n", result.ReleaseURL)
 			}
-			fmt.Printf("  Release ID: %d\n", result.ReleaseID)
+			fmt.Fprintf(out, "  Release ID: %d\n", result.ReleaseID)
 		}
 	}
 

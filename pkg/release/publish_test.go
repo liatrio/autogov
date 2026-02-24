@@ -490,3 +490,50 @@ func TestVerifyTagExists(t *testing.T) {
 		})
 	}
 }
+
+// TestExecutePublishVerifyTagExistsError exercises the integration path where
+// verifyTagExists returns a real error (tag not on remote) through ExecutePublish.
+// Uses a local bare repo so remote.List() succeeds but the tag is absent.
+func TestExecutePublishVerifyTagExistsError(t *testing.T) {
+	// bare repo as remote — push v1.0.0 so it's non-empty, but v2.0.0 is absent
+	bareDir := t.TempDir()
+	_, err := git.PlainInit(bareDir, true)
+	require.NoError(t, err)
+
+	// local repo with origin pointing at the bare repo
+	dir, repo := setupTestRepo(t) // has v1.0.0 tag
+	_, err = repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{bareDir},
+	})
+	require.NoError(t, err)
+
+	// push v1.0.0 so the bare repo has refs (avoids "remote repository is empty")
+	err = repo.Push(&git.PushOptions{
+		RemoteName: "origin",
+		RefSpecs:   []gitconfig.RefSpec{"refs/tags/v1.0.0:refs/tags/v1.0.0"},
+	})
+	require.NoError(t, err)
+
+	// mock returns a draft for v2.0.0, but that tag does not exist on the bare remote
+	mock := &mockReleaseService{
+		listReleases: []*gogithub.RepositoryRelease{
+			{
+				ID:      gogithub.Ptr(int64(99)),
+				TagName: gogithub.Ptr("v2.0.0"),
+				Draft:   gogithub.Ptr(true),
+			},
+		},
+	}
+
+	opts := &PublishOptions{
+		Tag:        "v2.0.0",
+		Token:      "test-token",
+		RepoPath:   dir,
+		ReleaseAPI: mock,
+	}
+
+	_, err = ExecutePublish(opts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "v2.0.0 does not exist on remote")
+}

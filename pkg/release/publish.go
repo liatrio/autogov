@@ -81,9 +81,8 @@ func ExecutePublish(opts *PublishOptions) (*PublishResult, error) {
 		Published: false,
 	}
 
-	// dry-run: show what would happen
+	// dry-run: return result without publishing; caller handles output
 	if opts.DryRun {
-		fmt.Printf("dry-run: would publish release %s (ID: %d)\n", result.TagName, result.ReleaseID)
 		return result, nil
 	}
 
@@ -129,22 +128,31 @@ func findDraftRelease(ctx context.Context, opts *PublishOptions, owner, repo str
 // Uses ListReleases because GetReleaseByTag only returns published releases;
 // draft releases are only visible through the list endpoint.
 func findDraftReleaseByTag(ctx context.Context, opts *PublishOptions, owner, repo string) (*gogithub.RepositoryRelease, error) {
+	const maxPages = 10
 	listOpts := &gogithub.ListOptions{PerPage: 50}
-	releases, resp, err := opts.ReleaseAPI.ListReleases(ctx, owner, repo, listOpts)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to list releases: %w", err)
-	}
 
-	for _, release := range releases {
-		if release.GetTagName() == opts.Tag {
-			if !release.GetDraft() {
-				return nil, fmt.Errorf("release %s is already published (immutable)", opts.Tag)
-			}
-			return release, nil
+	for page := 0; page < maxPages; page++ {
+		releases, resp, err := opts.ReleaseAPI.ListReleases(ctx, owner, repo, listOpts)
+		if resp != nil {
+			_ = resp.Body.Close()
 		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to list releases: %w", err)
+		}
+
+		for _, release := range releases {
+			if release.GetTagName() == opts.Tag {
+				if !release.GetDraft() {
+					return nil, fmt.Errorf("release %s is already published (immutable)", opts.Tag)
+				}
+				return release, nil
+			}
+		}
+
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		listOpts.Page = resp.NextPage
 	}
 
 	return nil, fmt.Errorf("no draft release found for tag %s", opts.Tag)
@@ -152,19 +160,28 @@ func findDraftReleaseByTag(ctx context.Context, opts *PublishOptions, owner, rep
 
 // findLatestDraftRelease finds the first draft release in the list
 func findLatestDraftRelease(ctx context.Context, opts *PublishOptions, owner, repo string) (*gogithub.RepositoryRelease, error) {
+	const maxPages = 10
 	listOpts := &gogithub.ListOptions{PerPage: 50}
-	releases, resp, err := opts.ReleaseAPI.ListReleases(ctx, owner, repo, listOpts)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to list releases: %w", err)
-	}
 
-	for _, release := range releases {
-		if release.GetDraft() {
-			return release, nil
+	for page := 0; page < maxPages; page++ {
+		releases, resp, err := opts.ReleaseAPI.ListReleases(ctx, owner, repo, listOpts)
+		if resp != nil {
+			_ = resp.Body.Close()
 		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to list releases: %w", err)
+		}
+
+		for _, release := range releases {
+			if release.GetDraft() {
+				return release, nil
+			}
+		}
+
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		listOpts.Page = resp.NextPage
 	}
 
 	return nil, fmt.Errorf("no draft releases found (use --tag to specify)")
