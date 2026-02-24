@@ -2,7 +2,6 @@ package release
 
 import (
 	"bytes"
-	"os"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -91,10 +90,8 @@ func TestPublishCmdOutputCaptured(t *testing.T) {
 	// which is covered by the pkg/release unit tests instead.
 	//
 	// Here we just verify that Cobra error output IS captured (not lost to raw stdout).
-	old := os.Getenv("GITHUB_TOKEN")
-	t.Cleanup(func() { os.Setenv("GITHUB_TOKEN", old) })
-	os.Setenv("GITHUB_TOKEN", "")
-	os.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
 
 	out, err := executePublishCmd(t, []string{"--tag", "v1.0.0"})
 	require.Error(t, err)

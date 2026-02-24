@@ -69,16 +69,16 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to serialize result: %w", err)
 		}
-		fmt.Fprintln(out, string(data))
+		_, _ = fmt.Fprintln(out, string(data))
 	default:
 		if result.DryRun {
-			fmt.Fprintf(out, "dry-run: would publish release %s (ID: %d)\n", result.TagName, result.ReleaseID)
+			_, _ = fmt.Fprintf(out, "dry-run: would publish release %s (ID: %d)\n", result.TagName, result.ReleaseID)
 		} else {
-			fmt.Fprintf(out, "Release %s published successfully\n", result.TagName)
+			_, _ = fmt.Fprintf(out, "Release %s published successfully\n", result.TagName)
 			if result.ReleaseURL != "" {
-				fmt.Fprintf(out, "  URL: %s\n", result.ReleaseURL)
+				_, _ = fmt.Fprintf(out, "  URL: %s\n", result.ReleaseURL)
 			}
-			fmt.Fprintf(out, "  Release ID: %d\n", result.ReleaseID)
+			_, _ = fmt.Fprintf(out, "  Release ID: %d\n", result.ReleaseID)
 		}
 	}
 
