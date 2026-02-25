@@ -317,6 +317,192 @@ func TestIntegrationToRefSupport(t *testing.T) {
 	assert.Equal(t, hash2, commits[0].Hash)
 }
 
+func TestIntegrationChangelogMarkdownEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+
+	repo, err := git.PlainInit(dir, false)
+	require.NoError(t, err)
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+
+	baseTime := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	// create commits with various types
+	messages := []string{
+		"feat: add user authentication",
+		"fix: correct password hashing",
+		"docs: update API reference",
+		"feat!: redesign login flow",
+		"chore: update dependencies",
+	}
+
+	for i, msg := range messages {
+		writeFile(t, dir, "file.txt", msg)
+		_, err = wt.Add("file.txt")
+		require.NoError(t, err)
+
+		hash, err := wt.Commit(msg, &git.CommitOptions{
+			Author: &object.Signature{
+				Name: "test", Email: "test@example.com",
+				When: baseTime.Add(time.Duration(i) * time.Hour),
+			},
+		})
+		require.NoError(t, err)
+
+		if i == 1 {
+			_, err = repo.CreateTag("v1.0.0", hash, nil)
+			require.NoError(t, err)
+		}
+	}
+
+	// get commits since v1.0.0
+	gitCommits, err := GetCommitsSinceTag(repo, "v1.0.0", "HEAD", false)
+	require.NoError(t, err)
+	assert.Len(t, gitCommits, 3)
+
+	parsed := ParseCommits(gitCommits)
+
+	// generate markdown with include-all
+	changelog, err := GenerateChangelog(parsed, &ChangelogOptions{
+		Version:    "v2.0.0",
+		IncludeAll: true,
+	})
+	require.NoError(t, err)
+
+	assert.Contains(t, changelog, "## v2.0.0")
+	assert.Contains(t, changelog, "Breaking Changes")
+	assert.Contains(t, changelog, "redesign login flow")
+	assert.Contains(t, changelog, "Documentation")
+	assert.Contains(t, changelog, "Chores")
+
+	// generate without include-all — docs and chore excluded
+	changelogFiltered, err := GenerateChangelog(parsed, &ChangelogOptions{
+		Version:    "v2.0.0",
+		IncludeAll: false,
+	})
+	require.NoError(t, err)
+
+	assert.Contains(t, changelogFiltered, "redesign login flow")
+	assert.NotContains(t, changelogFiltered, "update API reference")
+	assert.NotContains(t, changelogFiltered, "update dependencies")
+}
+
+func TestIntegrationChangelogJSONEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+
+	repo, err := git.PlainInit(dir, false)
+	require.NoError(t, err)
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+
+	sig := &object.Signature{Name: "test", Email: "test@example.com", When: time.Now()}
+
+	messages := []string{
+		"feat(api): add endpoint",
+		"fix(auth): fix token refresh",
+		"feat!: breaking api change",
+	}
+
+	for _, msg := range messages {
+		writeFile(t, dir, "file.txt", msg)
+		_, err = wt.Add("file.txt")
+		require.NoError(t, err)
+		_, err = wt.Commit(msg, &git.CommitOptions{Author: sig})
+		require.NoError(t, err)
+	}
+
+	gitCommits, err := GetCommitsSinceTag(repo, "", "HEAD", false)
+	require.NoError(t, err)
+	parsed := ParseCommits(gitCommits)
+
+	result := GenerateChangelogJSON(parsed, &ChangelogOptions{
+		Version:    "v2.0.0",
+		IncludeAll: true,
+	})
+
+	assert.Equal(t, "v2.0.0", result.Version)
+
+	// verify stats
+	assert.Equal(t, 3, result.Stats["total"])
+	assert.Equal(t, 2, result.Stats["feat"])
+	assert.Equal(t, 1, result.Stats["fix"])
+	assert.Equal(t, 1, result.Stats["breaking"])
+
+	// verify breaking changes extracted
+	assert.NotEmpty(t, result.BreakingChanges)
+
+	// verify groups contain expected data
+	var foundFeat, foundFix bool
+	for _, g := range result.Groups {
+		if g.Type == "feat" {
+			foundFeat = true
+			assert.Equal(t, "Features", g.Name)
+			assert.Len(t, g.Commits, 2)
+		}
+		if g.Type == "fix" {
+			foundFix = true
+			assert.Equal(t, "Bug Fixes", g.Name)
+			assert.Len(t, g.Commits, 1)
+			assert.Equal(t, "auth", g.Commits[0].Scope)
+		}
+	}
+	assert.True(t, foundFeat, "expected feat group")
+	assert.True(t, foundFix, "expected fix group")
+}
+
+func TestIntegrationChangelogDeterministic(t *testing.T) {
+	dir := t.TempDir()
+
+	repo, err := git.PlainInit(dir, false)
+	require.NoError(t, err)
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+
+	baseTime := time.Date(2025, 3, 1, 12, 0, 0, 0, time.UTC)
+	messages := []string{
+		"feat: feature alpha",
+		"fix: fix bravo",
+		"docs: docs charlie",
+		"feat(scope): feature delta",
+	}
+
+	for i, msg := range messages {
+		writeFile(t, dir, "file.txt", msg)
+		_, err = wt.Add("file.txt")
+		require.NoError(t, err)
+		_, err = wt.Commit(msg, &git.CommitOptions{
+			Author: &object.Signature{
+				Name: "test", Email: "test@example.com",
+				When: baseTime.Add(time.Duration(i) * time.Hour),
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	gitCommits, err := GetCommitsSinceTag(repo, "", "HEAD", true)
+	require.NoError(t, err)
+	parsed := ParseCommits(gitCommits)
+
+	opts := &ChangelogOptions{Version: "v1.0.0", IncludeAll: true}
+
+	// generate twice, verify identical
+	changelog1, err := GenerateChangelog(parsed, opts)
+	require.NoError(t, err)
+
+	changelog2, err := GenerateChangelog(parsed, opts)
+	require.NoError(t, err)
+
+	assert.Equal(t, changelog1, changelog2, "changelog output must be deterministic")
+
+	// also verify JSON determinism
+	json1 := GenerateChangelogJSON(parsed, opts)
+	json2 := GenerateChangelogJSON(parsed, opts)
+	assert.Equal(t, json1, json2, "JSON output must be deterministic")
+}
+
 // helper to write file
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()

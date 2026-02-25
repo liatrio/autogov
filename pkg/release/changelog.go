@@ -2,7 +2,6 @@ package release
 
 import (
 	"bytes"
-	"sort"
 	"text/template"
 )
 
@@ -59,6 +58,21 @@ type ChangelogData struct {
 	Groups          []ChangelogGroup
 }
 
+// shouldIncludeGroup returns true if a commit group should be included in changelog output
+func shouldIncludeGroup(commitType string, commitList []ParsedCommit, includeAll bool) bool {
+	info := GetCommitTypeInfo(commitType)
+	if includeAll || info.BumpType != BumpNone || commitType == "other" {
+		return true
+	}
+	// include non-releasable types only if they contain breaking changes
+	for _, c := range commitList {
+		if c.Breaking {
+			return true
+		}
+	}
+	return false
+}
+
 // GenerateChangelog creates a changelog preview from commits
 func GenerateChangelog(commits []ParsedCommit, opts *ChangelogOptions) (string, error) {
 	if opts == nil {
@@ -76,25 +90,13 @@ func GenerateChangelog(commits []ParsedCommit, opts *ChangelogOptions) (string, 
 			continue
 		}
 
-		// skip non-releasable types unless IncludeAll is set
-		info := GetCommitTypeInfo(commitType)
-		if !opts.IncludeAll && info.BumpType == BumpNone && commitType != "other" {
-			// still include if any commits are breaking
-			hasBreaking := false
-			for _, c := range commitList {
-				if c.Breaking {
-					hasBreaking = true
-					break
-				}
-			}
-			if !hasBreaking {
-				continue
-			}
+		if !shouldIncludeGroup(commitType, commitList, opts.IncludeAll) {
+			continue
 		}
 
 		orderedGroups = append(orderedGroups, ChangelogGroup{
 			Type:    commitType,
-			Info:    info,
+			Info:    GetCommitTypeInfo(commitType),
 			Commits: commitList,
 		})
 	}
@@ -164,29 +166,75 @@ func GetCommitStats(commits []ParsedCommit) map[string]int {
 	return stats
 }
 
-// SortCommitsByType sorts commits by type according to changelog order
-func SortCommitsByType(commits []ParsedCommit) []ParsedCommit {
-	typeOrder := make(map[string]int)
-	for i, t := range changelogTypeOrder {
-		typeOrder[t] = i
+// ChangelogJSON represents the JSON output format for changelog generation
+type ChangelogJSON struct {
+	Version         string             `json:"version,omitempty"`
+	BreakingChanges []string           `json:"breaking_changes,omitempty"`
+	Groups          []ChangelogGroupJSON `json:"groups"`
+	Stats           map[string]int     `json:"stats"`
+}
+
+// ChangelogGroupJSON represents a commit group in JSON output
+type ChangelogGroupJSON struct {
+	Type    string       `json:"type"`
+	Name    string       `json:"name"`
+	Commits []CommitJSON `json:"commits"`
+}
+
+// CommitJSON represents a single commit in JSON output
+type CommitJSON struct {
+	Hash     string `json:"hash"`
+	Type     string `json:"type"`
+	Scope    string `json:"scope,omitempty"`
+	Subject  string `json:"subject"`
+	Breaking bool   `json:"breaking,omitempty"`
+}
+
+// GenerateChangelogJSON creates a structured JSON changelog from commits
+func GenerateChangelogJSON(commits []ParsedCommit, opts *ChangelogOptions) *ChangelogJSON {
+	if opts == nil {
+		opts = &ChangelogOptions{}
 	}
 
-	sorted := make([]ParsedCommit, len(commits))
-	copy(sorted, commits)
+	groups := GroupCommitsByType(commits)
 
-	sort.SliceStable(sorted, func(i, j int) bool {
-		orderI, okI := typeOrder[sorted[i].Type]
-		orderJ, okJ := typeOrder[sorted[j].Type]
-
-		if !okI {
-			orderI = len(changelogTypeOrder)
-		}
-		if !okJ {
-			orderJ = len(changelogTypeOrder)
+	jsonGroups := make([]ChangelogGroupJSON, 0)
+	for _, commitType := range changelogTypeOrder {
+		commitList, ok := groups[commitType]
+		if !ok || len(commitList) == 0 {
+			continue
 		}
 
-		return orderI < orderJ
-	})
+		if !shouldIncludeGroup(commitType, commitList, opts.IncludeAll) {
+			continue
+		}
 
-	return sorted
+		info := GetCommitTypeInfo(commitType)
+		jsonCommits := make([]CommitJSON, 0, len(commitList))
+		for _, c := range commitList {
+			jc := CommitJSON{
+				Hash:    c.Hash,
+				Type:    c.Type,
+				Scope:   c.Scope,
+				Subject: c.Subject,
+			}
+			if c.Breaking {
+				jc.Breaking = true
+			}
+			jsonCommits = append(jsonCommits, jc)
+		}
+
+		jsonGroups = append(jsonGroups, ChangelogGroupJSON{
+			Type:    commitType,
+			Name:    info.ChangelogName,
+			Commits: jsonCommits,
+		})
+	}
+
+	return &ChangelogJSON{
+		Version:         opts.Version,
+		BreakingChanges: ExtractBreakingChanges(commits),
+		Groups:          jsonGroups,
+		Stats:           GetCommitStats(commits),
+	}
 }

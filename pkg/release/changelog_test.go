@@ -98,22 +98,6 @@ func TestGetCommitStats(t *testing.T) {
 	assert.Equal(t, 1, stats["breaking"])
 }
 
-func TestSortCommitsByType(t *testing.T) {
-	commits := []ParsedCommit{
-		{Type: "docs", Subject: "docs commit"},
-		{Type: "feat", Subject: "feat commit"},
-		{Type: "fix", Subject: "fix commit"},
-		{Type: "chore", Subject: "chore commit"},
-	}
-
-	sorted := SortCommitsByType(commits)
-
-	// order should be: feat, fix, docs, chore
-	assert.Equal(t, "feat", sorted[0].Type)
-	assert.Equal(t, "fix", sorted[1].Type)
-	assert.Equal(t, "docs", sorted[2].Type)
-	assert.Equal(t, "chore", sorted[3].Type)
-}
 
 func TestGenerateChangelogNilOpts(t *testing.T) {
 	commits := []ParsedCommit{
@@ -138,4 +122,114 @@ func TestGenerateChangelogCustomTemplate(t *testing.T) {
 	changelog, err := GenerateChangelog(commits, opts)
 	require.NoError(t, err)
 	assert.Equal(t, "Release v1.0.0: 1 groups", changelog)
+}
+
+func TestGenerateChangelogJSON(t *testing.T) {
+	commits := []ParsedCommit{
+		{Hash: "abc1234567890", Type: "feat", Scope: "api", Subject: "add endpoint", Breaking: true},
+		{Hash: "def1234567890", Type: "fix", Subject: "fix crash"},
+		{Hash: "ghi1234567890", Type: "docs", Subject: "update readme"},
+	}
+
+	result := GenerateChangelogJSON(commits, &ChangelogOptions{
+		Version:    "v2.0.0",
+		IncludeAll: true,
+	})
+
+	assert.Equal(t, "v2.0.0", result.Version)
+	assert.NotEmpty(t, result.BreakingChanges)
+	assert.Contains(t, result.BreakingChanges, "api: add endpoint")
+
+	// verify groups
+	assert.NotEmpty(t, result.Groups)
+	var groupTypes []string
+	for _, g := range result.Groups {
+		groupTypes = append(groupTypes, g.Type)
+	}
+	assert.Contains(t, groupTypes, "feat")
+	assert.Contains(t, groupTypes, "fix")
+	assert.Contains(t, groupTypes, "docs")
+
+	// verify stats
+	assert.Equal(t, 3, result.Stats["total"])
+	assert.Equal(t, 1, result.Stats["feat"])
+	assert.Equal(t, 1, result.Stats["fix"])
+	assert.Equal(t, 1, result.Stats["docs"])
+	assert.Equal(t, 1, result.Stats["breaking"])
+}
+
+func TestGenerateChangelogJSONWithoutIncludeAll(t *testing.T) {
+	commits := []ParsedCommit{
+		{Hash: "abc1234567890", Type: "feat", Subject: "feature"},
+		{Hash: "def1234567890", Type: "docs", Subject: "docs change"},
+		{Hash: "ghi1234567890", Type: "chore", Subject: "chore task"},
+	}
+
+	result := GenerateChangelogJSON(commits, &ChangelogOptions{
+		Version:    "v1.0.0",
+		IncludeAll: false,
+	})
+
+	var groupTypes []string
+	for _, g := range result.Groups {
+		groupTypes = append(groupTypes, g.Type)
+	}
+	assert.Contains(t, groupTypes, "feat")
+	assert.NotContains(t, groupTypes, "docs")
+	assert.NotContains(t, groupTypes, "chore")
+}
+
+func TestGenerateChangelogJSONNilOpts(t *testing.T) {
+	commits := []ParsedCommit{
+		{Hash: "abc1234567890", Type: "feat", Subject: "feature"},
+	}
+
+	result := GenerateChangelogJSON(commits, nil)
+	assert.NotNil(t, result)
+	assert.Empty(t, result.Version)
+	assert.NotEmpty(t, result.Groups)
+}
+
+func TestGenerateChangelogJSONCommitFields(t *testing.T) {
+	commits := []ParsedCommit{
+		{Hash: "abc1234567890", Type: "feat", Scope: "auth", Subject: "add login", Breaking: true},
+	}
+
+	result := GenerateChangelogJSON(commits, &ChangelogOptions{Version: "v1.0.0"})
+
+	require.Len(t, result.Groups, 1)
+	require.Len(t, result.Groups[0].Commits, 1)
+
+	c := result.Groups[0].Commits[0]
+	assert.Equal(t, "abc1234567890", c.Hash)
+	assert.Equal(t, "feat", c.Type)
+	assert.Equal(t, "auth", c.Scope)
+	assert.Equal(t, "add login", c.Subject)
+	assert.True(t, c.Breaking)
+}
+
+func TestGenerateChangelogJSONGroupNames(t *testing.T) {
+	commits := []ParsedCommit{
+		{Hash: "a", Type: "feat", Subject: "f"},
+		{Hash: "b", Type: "fix", Subject: "x"},
+	}
+
+	result := GenerateChangelogJSON(commits, &ChangelogOptions{IncludeAll: true})
+
+	nameMap := make(map[string]string)
+	for _, g := range result.Groups {
+		nameMap[g.Type] = g.Name
+	}
+
+	assert.Equal(t, "Features", nameMap["feat"])
+	assert.Equal(t, "Bug Fixes", nameMap["fix"])
+}
+
+func TestGenerateChangelogJSONEmptyCommits(t *testing.T) {
+	result := GenerateChangelogJSON(nil, &ChangelogOptions{Version: "v1.0.0"})
+
+	assert.Equal(t, "v1.0.0", result.Version)
+	assert.Empty(t, result.Groups)
+	assert.Empty(t, result.BreakingChanges)
+	assert.Equal(t, 0, result.Stats["total"])
 }
