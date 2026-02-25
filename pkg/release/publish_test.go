@@ -2,6 +2,7 @@ package release
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -11,6 +12,26 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// paginatedMock wraps mockReleaseService with multi-page ListReleases support.
+type paginatedMock struct {
+	mockReleaseService
+	pages   [][]*gogithub.RepositoryRelease
+	callNum int
+}
+
+func (m *paginatedMock) ListReleases(_ context.Context, _, _ string, _ *gogithub.ListOptions) ([]*gogithub.RepositoryRelease, *gogithub.Response, error) {
+	if m.callNum >= len(m.pages) {
+		return nil, mockResp(200), nil
+	}
+	releases := m.pages[m.callNum]
+	resp := mockResp(200)
+	m.callNum++
+	if m.callNum < len(m.pages) {
+		resp.NextPage = m.callNum + 1
+	}
+	return releases, resp, nil
+}
 
 
 // TestFindDraftReleaseByTag tests finding a draft release by explicit tag.
@@ -536,4 +557,80 @@ func TestExecutePublishVerifyTagExistsError(t *testing.T) {
 	_, err = ExecutePublish(opts)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "v2.0.0 does not exist on remote")
+}
+
+// TestFindDraftReleaseByTagPaginated verifies that findDraftReleaseByTag
+// follows NextPage across multiple API calls.
+func TestFindDraftReleaseByTagPaginated(t *testing.T) {
+	mock := &paginatedMock{
+		pages: [][]*gogithub.RepositoryRelease{
+			// page 1: no match
+			{
+				{ID: gogithub.Ptr(int64(1)), TagName: gogithub.Ptr("v1.0.0"), Draft: gogithub.Ptr(false)},
+			},
+			// page 2: target draft found
+			{
+				{ID: gogithub.Ptr(int64(2)), TagName: gogithub.Ptr("v2.0.0"), Draft: gogithub.Ptr(true)},
+			},
+		},
+	}
+
+	opts := &PublishOptions{Tag: "v2.0.0", ReleaseAPI: mock}
+	release, err := findDraftRelease(context.Background(), opts, "owner", "repo")
+	require.NoError(t, err)
+	assert.Equal(t, "v2.0.0", release.GetTagName())
+	assert.Equal(t, 2, mock.callNum, "should have fetched 2 pages")
+}
+
+// TestFindLatestDraftReleasePaginated verifies that findLatestDraftRelease
+// follows NextPage when the first page has no drafts.
+func TestFindLatestDraftReleasePaginated(t *testing.T) {
+	mock := &paginatedMock{
+		pages: [][]*gogithub.RepositoryRelease{
+			// page 1: all published
+			{
+				{ID: gogithub.Ptr(int64(1)), TagName: gogithub.Ptr("v1.0.0"), Draft: gogithub.Ptr(false)},
+			},
+			// page 2: draft found
+			{
+				{ID: gogithub.Ptr(int64(2)), TagName: gogithub.Ptr("v1.1.0"), Draft: gogithub.Ptr(true)},
+			},
+		},
+	}
+
+	opts := &PublishOptions{Latest: true, ReleaseAPI: mock}
+	release, err := findDraftRelease(context.Background(), opts, "owner", "repo")
+	require.NoError(t, err)
+	assert.Equal(t, "v1.1.0", release.GetTagName())
+	assert.Equal(t, 2, mock.callNum, "should have fetched 2 pages")
+}
+
+// TestPublishResultToJSON validates JSON serialization of PublishResult.
+func TestPublishResultToJSON(t *testing.T) {
+	result := &PublishResult{
+		TagName:    "v1.2.0",
+		ReleaseURL: "https://github.com/owner/repo/releases/tag/v1.2.0",
+		ReleaseID:  42,
+		Published:  true,
+		DryRun:     false,
+	}
+
+	data, err := result.ToJSON()
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	err = json.Unmarshal(data, &parsed)
+	require.NoError(t, err)
+
+	assert.Equal(t, "v1.2.0", parsed["tag_name"])
+	assert.Equal(t, float64(42), parsed["release_id"])
+	assert.Equal(t, true, parsed["published"])
+	assert.Equal(t, false, parsed["dry_run"])
+}
+
+// TestExecutePublishNilOpts validates that nil options return a clear error.
+func TestExecutePublishNilOpts(t *testing.T) {
+	_, err := ExecutePublish(nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PublishOptions cannot be nil")
 }

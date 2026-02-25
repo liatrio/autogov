@@ -131,7 +131,7 @@ func findDraftReleaseByTag(ctx context.Context, opts *PublishOptions, owner, rep
 	const maxPages = 10
 	listOpts := &gogithub.ListOptions{PerPage: 50}
 
-	for page := 0; page < maxPages; page++ {
+	for attempt := 0; attempt < maxPages; attempt++ {
 		releases, resp, err := opts.ReleaseAPI.ListReleases(ctx, owner, repo, listOpts)
 		if resp != nil {
 			_ = resp.Body.Close()
@@ -163,7 +163,7 @@ func findLatestDraftRelease(ctx context.Context, opts *PublishOptions, owner, re
 	const maxPages = 10
 	listOpts := &gogithub.ListOptions{PerPage: 50}
 
-	for page := 0; page < maxPages; page++ {
+	for attempt := 0; attempt < maxPages; attempt++ {
 		releases, resp, err := opts.ReleaseAPI.ListReleases(ctx, owner, repo, listOpts)
 		if resp != nil {
 			_ = resp.Body.Close()
