@@ -26,10 +26,14 @@ func mockResp(code int) *gogithub.Response {
 // mockReleaseService implements ReleaseService for testing
 type mockReleaseService struct {
 	// release operations
-	getRelease    *gogithub.RepositoryRelease
-	getReleaseErr error
-	createRelease *gogithub.RepositoryRelease
-	createErr     error
+	getRelease      *gogithub.RepositoryRelease
+	getReleaseErr   error
+	createRelease   *gogithub.RepositoryRelease
+	createErr       error
+	updateRelease   *gogithub.RepositoryRelease
+	updateErr       error
+	listReleases    []*gogithub.RepositoryRelease
+	listReleasesErr error
 
 	// git data operations
 	createTreeResult   *gogithub.Tree
@@ -58,6 +62,22 @@ func (m *mockReleaseService) CreateRelease(_ context.Context, _, _ string, _ *go
 		code = 500
 	}
 	return m.createRelease, mockResp(code), m.createErr
+}
+
+func (m *mockReleaseService) UpdateRelease(_ context.Context, _, _ string, _ int64, _ *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
+	code := 200
+	if m.updateErr != nil {
+		code = 500
+	}
+	return m.updateRelease, mockResp(code), m.updateErr
+}
+
+func (m *mockReleaseService) ListReleases(_ context.Context, _, _ string, _ *gogithub.ListOptions) ([]*gogithub.RepositoryRelease, *gogithub.Response, error) {
+	code := 200
+	if m.listReleasesErr != nil {
+		code = 500
+	}
+	return m.listReleases, mockResp(code), m.listReleasesErr
 }
 
 func (m *mockReleaseService) CreateTree(_ context.Context, _, _, _ string, _ []*gogithub.TreeEntry) (*gogithub.Tree, *gogithub.Response, error) {

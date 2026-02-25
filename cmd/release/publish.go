@@ -3,33 +3,84 @@ package release
 import (
 	"fmt"
 
+	ghpkg "github.com/liatrio/autogov-verify/pkg/github"
+	"github.com/liatrio/autogov-verify/pkg/release"
 	"github.com/spf13/cobra"
 )
 
 var publishCmd = &cobra.Command{
 	Use:   "publish",
-	Short: "Publish a draft release",
-	Long: `Publish a previously created draft release.
+	Short: "Publish a draft GitHub release (flip draft → published)",
+	Long: `Publish a draft GitHub release by flipping the draft flag to false.
 
-This command publishes a draft release that was created with 'release cut --draft'.
-It performs final validation and makes the release publicly available.
+This command finds a draft release (by tag or latest) and publishes it.
+It enforces immutability: once a release is published, it cannot be re-published.
 
 Examples:
-  # Publish a specific release
+  # Publish a specific draft release by tag
   autogov release publish --tag v1.2.0
 
-  # Publish the latest draft
-  autogov release publish --latest`,
+  # Publish the latest draft release
+  autogov release publish --latest
+
+  # Dry-run to preview what would happen
+  autogov release publish --tag v1.2.0 --dry-run
+
+  # JSON output for downstream tools
+  autogov release publish --tag v1.2.0 -o json`,
 	RunE: runPublish,
 }
 
 func init() {
-	publishCmd.Flags().String("tag", "", "Release tag to publish")
-	publishCmd.Flags().Bool("latest", false, "Publish the most recent draft release")
+	publishCmd.Flags().String("tag", "", "Specific tag to publish (mutually exclusive with --latest)")
+	publishCmd.Flags().Bool("latest", false, "Publish latest draft release (mutually exclusive with --tag)")
+	publishCmd.Flags().Bool("dry-run", false, "Show what would be done without publishing")
+	publishCmd.Flags().String("repo", ".", "Path to git repository")
+	publishCmd.Flags().StringP("output", "o", "text", "Output format: text, json")
 }
 
 func runPublish(cmd *cobra.Command, args []string) error {
-	fmt.Println("release publish: not yet implemented")
-	fmt.Println("This command will publish a draft release.")
+	tag, _ := cmd.Flags().GetString("tag")
+	latest, _ := cmd.Flags().GetBool("latest")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	repoPath, _ := cmd.Flags().GetString("repo")
+	outputFormat, _ := cmd.Flags().GetString("output")
+
+	token := ghpkg.GetToken()
+
+	opts := &release.PublishOptions{
+		RepoPath: repoPath,
+		Tag:      tag,
+		Latest:   latest,
+		Token:    token,
+		DryRun:   dryRun,
+	}
+
+	result, err := release.ExecutePublish(opts)
+	if err != nil {
+		return fmt.Errorf("release publish failed: %w", err)
+	}
+
+	out := cmd.OutOrStdout()
+
+	switch outputFormat {
+	case "json":
+		data, err := result.ToJSON()
+		if err != nil {
+			return fmt.Errorf("failed to serialize result: %w", err)
+		}
+		_, _ = fmt.Fprintln(out, string(data))
+	default:
+		if result.DryRun {
+			_, _ = fmt.Fprintf(out, "dry-run: would publish release %s (ID: %d)\n", result.TagName, result.ReleaseID)
+		} else {
+			_, _ = fmt.Fprintf(out, "Release %s published successfully\n", result.TagName)
+			if result.ReleaseURL != "" {
+				_, _ = fmt.Fprintf(out, "  URL: %s\n", result.ReleaseURL)
+			}
+			_, _ = fmt.Fprintf(out, "  Release ID: %d\n", result.ReleaseID)
+		}
+	}
+
 	return nil
 }
