@@ -116,23 +116,7 @@ task clean        # Clean build artifacts
 
 ## Architecture Guidelines
 
-The project follows a modular architecture:
-
-- **`pkg/attestations/`**: GitHub API integration, sigstore verification, certificate validation
-- **`pkg/bundle/`**: Common utilities for working with Sigstore bundles
-- **`pkg/certid/`**: Certificate identity validation against approved lists with caching
-- **`pkg/cli/`**: CLI-specific helpers for argument processing and digest handling
-- **`pkg/digest/`**: Digest calculation utilities for files, directories, and streams
-- **`pkg/download/`**: Attestation download from GitHub for offline workflows
-- **`pkg/github/`**: GitHub client and token management
-- **`pkg/mutate/`**: Configuration file mutations (JSON, YAML, TOML) for release versioning
-- **`pkg/offline/`**: Offline attestation verification using pre-downloaded bundles
-- **`pkg/orchestrate/`**: Verification workflow orchestration
-- **`pkg/policy/`**: OPA integration for policy evaluation
-- **`pkg/release/`**: Release management (plan, cut, publish, changelog, version bumping)
-- **`pkg/root/`**: Trusted root management with dynamic fetching and fallback
-- **`pkg/storage/`**: ORAS-Go integration for VSA storage in OCI registries
-- **`pkg/vsa/`**: SLSA v1.1 VSA generation with comprehensive validation
+The project follows a modular architecture. See the [Architecture Overview](README.md#architecture-overview) in the README for a full list of packages and their responsibilities.
 
 ### Design Principles
 
