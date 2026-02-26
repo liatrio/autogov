@@ -197,14 +197,17 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 	ctx := context.Background()
 
 	// step 5: create release commit via GitHub API (auto-signed/verified)
-	commitSHA, err := createReleaseCommitViaAPI(ctx, repo, opts, plan, owner, repoName)
+	headSHA, commitSHA, err := createReleaseCommitViaAPI(ctx, repo, opts, plan, owner, repoName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create release commit: %w", err)
 	}
 	result.CommitSHA = commitSHA
 
-	// step 6: create annotated tag via GitHub API (auto-signed/verified)
-	if err := createAnnotatedTagViaAPI(ctx, opts, tagName, commitSHA, plan, owner, repoName); err != nil {
+	// step 6: create annotated tag on the parent (trigger) commit, not the release commit.
+	// This matches semantic-release behavior: the tag points to the code commit, and the
+	// release commit (with mutations) sits on top. Consumers pin to the tag SHA which then
+	// matches cert-identities entries.
+	if err := createAnnotatedTagViaAPI(ctx, opts, tagName, headSHA, plan, owner, repoName); err != nil {
 		return nil, fmt.Errorf("failed to create tag %s: %w", tagName, err)
 	}
 
@@ -415,37 +418,38 @@ func parseOwnerRepo(repo *git.Repository) (string, string, error) {
 	return parts[0], parts[1], nil
 }
 
-// createReleaseCommitViaAPI creates a commit via GitHub's Git Data API (auto-signed/verified)
-func createReleaseCommitViaAPI(ctx context.Context, repo *git.Repository, opts *CutOptions, plan *ReleasePlan, owner, repoName string) (string, error) {
+// createReleaseCommitViaAPI creates a commit via GitHub's Git Data API (auto-signed/verified).
+// Returns (parentSHA, commitSHA, error) — parentSHA is the trigger commit, commitSHA is the release commit.
+func createReleaseCommitViaAPI(ctx context.Context, repo *git.Repository, opts *CutOptions, plan *ReleasePlan, owner, repoName string) (string, string, error) {
 	head, err := repo.Head()
 	if err != nil {
-		return "", fmt.Errorf("failed to get HEAD: %w", err)
+		return "", "", fmt.Errorf("failed to get HEAD: %w", err)
 	}
 	headSHA := head.Hash().String()
 
 	// get the base tree from current HEAD
 	headCommit, err := repo.CommitObject(head.Hash())
 	if err != nil {
-		return "", fmt.Errorf("failed to get HEAD commit: %w", err)
+		return "", "", fmt.Errorf("failed to get HEAD commit: %w", err)
 	}
 	baseTreeSHA := headCommit.TreeHash.String()
 
 	// read mutated files from worktree
 	wt, err := repo.Worktree()
 	if err != nil {
-		return "", fmt.Errorf("failed to get worktree: %w", err)
+		return "", "", fmt.Errorf("failed to get worktree: %w", err)
 	}
 
 	status, err := wt.Status()
 	if err != nil {
-		return "", fmt.Errorf("failed to get worktree status: %w", err)
+		return "", "", fmt.Errorf("failed to get worktree status: %w", err)
 	}
 
 	var entries []*gogithub.TreeEntry
 	for filePath := range status {
 		content, err := os.ReadFile(filepath.Join(opts.RepoPath, filePath))
 		if err != nil {
-			return "", fmt.Errorf("failed to read mutated file %s: %w", filePath, err)
+			return "", "", fmt.Errorf("failed to read mutated file %s: %w", filePath, err)
 		}
 		entries = append(entries, &gogithub.TreeEntry{
 			Path:    gogithub.Ptr(filePath),
@@ -463,7 +467,7 @@ func createReleaseCommitViaAPI(ctx context.Context, repo *git.Repository, opts *
 			_ = resp.Body.Close()
 		}
 		if err != nil {
-			return "", fmt.Errorf("failed to create tree: %w", err)
+			return "", "", fmt.Errorf("failed to create tree: %w", err)
 		}
 		treeSHA = tree.GetSHA()
 	}
@@ -481,10 +485,10 @@ func createReleaseCommitViaAPI(ctx context.Context, repo *git.Repository, opts *
 		_ = resp.Body.Close()
 	}
 	if err != nil {
-		return "", fmt.Errorf("failed to create commit via API: %w", err)
+		return "", "", fmt.Errorf("failed to create commit via API: %w", err)
 	}
 
-	return created.GetSHA(), nil
+	return headSHA, created.GetSHA(), nil
 }
 
 // buildCommitMessage creates a conventional commit message for the release
