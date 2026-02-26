@@ -39,7 +39,7 @@ const defaultChangelogTemplate = `## {{.Version}}
 {{range .BreakingChanges}}- {{.}}
 {{end}}
 {{end}}{{range .Groups}}{{if .Commits}}
-### {{.Info.Emoji}} {{.Info.ChangelogName}}
+### {{.Info.ChangelogName}}
 
 {{range .Commits}}- {{if .Scope}}**{{.Scope}}:** {{end}}{{.Subject}} ({{shortHash .Hash}})
 {{end}}{{end}}{{end}}`
