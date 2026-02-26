@@ -312,6 +312,7 @@ autogov download \
 - `--repo, -R`: Repository to download attestations from (format: `owner/repo`) (required)
 - `--output, -o`: Output file path for attestation bundles (required)
 - `--format`: Output format: `json` or `jsonl` (default: `jsonl`)
+- `-q, --quiet`: Only show errors and final results
 
 #### Verify Offline
 
@@ -337,6 +338,7 @@ autogov offline \
   --attestations attestations.jsonl \
   --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@sha" \
   --cert-issuer "https://token.actions.githubusercontent.com"
+```
 
 #### Offline Verification Flags
 
@@ -345,8 +347,16 @@ autogov offline \
 - `--image-digest`: SHA256 digest for container image verification (optional, use when image cannot be pulled offline)
 - `--cert-identity`: Certificate identity (workflow URL with commit SHA) (required)
 - `--cert-issuer`: Certificate issuer (defaults to GitHub Actions)
+- `--source-ref`: Source repository ref to verify against (e.g., `refs/heads/main`)
 - `--trusted-root`: Path to custom trusted root JSON file (takes precedence over `--trusted-root-source`)
 - `--trusted-root-source`: Trusted root source selection: `github`, `public`, or `auto` (default: `auto`)
+- `--generate-vsa`: Generate Verification Summary Attestation after successful verification
+- `--vsa-output`: Output path for generated VSA (required if `--generate-vsa` is used)
+- `--policy-uri`: Policy URI for VSA generation (required if `--generate-vsa` is used)
+- `--policy-bundle-path`: Path to OPA policy bundle directory or `.tar.gz` file
+- `--policy-data-path`: Path to JSON file containing additional OPA data (e.g., vulnerability thresholds)
+- `--policy-schemas-path`: Path to directory or `.tar.gz` file containing JSON schemas for OPA policy validation
+- `--fail-on-policy-error`: Exit with error when policy evaluation fails (default: false)
 - `-q, --quiet`: Only show errors and final results
 
 **Trusted Root Source Options:**
