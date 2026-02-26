@@ -40,6 +40,8 @@ type CutResult struct {
 	Draft         bool     `json:"draft"`
 	FilesModified []string `json:"files_modified,omitempty"`
 	DryRun        bool     `json:"dry_run"`
+	NoRelease     bool     `json:"no_release"`
+	Reason        string   `json:"reason,omitempty"`
 }
 
 // DefaultCutOptions returns options with sensible defaults
@@ -141,7 +143,10 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 	}
 
 	if !plan.ReleaseNeeded {
-		return nil, fmt.Errorf("no release needed: %s", plan.Reason)
+		return &CutResult{
+			NoRelease: true,
+			Reason:    plan.Reason,
+		}, nil
 	}
 
 	tagName := plan.NextVersion // already has v prefix from Version.String()

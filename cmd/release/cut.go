@@ -78,6 +78,20 @@ func runCut(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("release cut failed: %w", err)
 	}
 
+	if result.NoRelease {
+		switch outputFormat {
+		case "json":
+			data, err := result.ToJSON()
+			if err != nil {
+				return fmt.Errorf("failed to serialize result: %w", err)
+			}
+			_, _ = fmt.Fprintln(os.Stdout, string(data))
+		default:
+			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "No release needed: %s\n", result.Reason)
+		}
+		return nil
+	}
+
 	switch outputFormat {
 	case "json":
 		data, err := result.ToJSON()
@@ -86,21 +100,21 @@ func runCut(cmd *cobra.Command, args []string) error {
 		}
 		_, _ = fmt.Fprintln(os.Stdout, string(data))
 	default:
-		fmt.Printf("Release %s created successfully\n", result.TagName)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Release %s created successfully\n", result.TagName)
 		if result.CommitSHA != "" {
-			fmt.Printf("  Commit: %s\n", result.CommitSHA)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Commit: %s\n", result.CommitSHA)
 		}
 		if result.ReleaseURL != "" {
-			fmt.Printf("  Release: %s\n", result.ReleaseURL)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Release: %s\n", result.ReleaseURL)
 		}
 		if len(result.FilesModified) > 0 {
-			fmt.Printf("  Files modified: %d\n", len(result.FilesModified))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Files modified: %d\n", len(result.FilesModified))
 			for _, f := range result.FilesModified {
-				fmt.Printf("    - %s\n", f)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    - %s\n", f)
 			}
 		}
 		if result.DryRun {
-			fmt.Println("  (dry-run: no changes were made)")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  (dry-run: no changes were made)")
 		}
 	}
 
