@@ -32,8 +32,9 @@ Examples:
 }
 
 func init() {
-	publishCmd.Flags().String("tag", "", "Specific tag to publish (mutually exclusive with --latest)")
-	publishCmd.Flags().Bool("latest", false, "Publish latest draft release (mutually exclusive with --tag)")
+	publishCmd.Flags().String("tag", "", "Specific tag to publish (requires user token; GitHub App tokens cannot discover drafts)")
+	publishCmd.Flags().Bool("latest", false, "Publish latest draft release (requires user token; GitHub App tokens cannot discover drafts)")
+	publishCmd.Flags().Int64("release-id", 0, "Publish by release ID — works with GitHub App tokens (octo-sts)")
 	publishCmd.Flags().Bool("dry-run", false, "Show what would be done without publishing")
 	publishCmd.Flags().String("repo", ".", "Path to git repository")
 	publishCmd.Flags().StringP("output", "o", "text", "Output format: text, json")
@@ -42,6 +43,7 @@ func init() {
 func runPublish(cmd *cobra.Command, args []string) error {
 	tag, _ := cmd.Flags().GetString("tag")
 	latest, _ := cmd.Flags().GetBool("latest")
+	releaseID, _ := cmd.Flags().GetInt64("release-id")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	repoPath, _ := cmd.Flags().GetString("repo")
 	outputFormat, _ := cmd.Flags().GetString("output")
@@ -49,11 +51,12 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	token := ghpkg.GetToken()
 
 	opts := &release.PublishOptions{
-		RepoPath: repoPath,
-		Tag:      tag,
-		Latest:   latest,
-		Token:    token,
-		DryRun:   dryRun,
+		RepoPath:  repoPath,
+		Tag:       tag,
+		Latest:    latest,
+		ReleaseID: releaseID,
+		Token:     token,
+		DryRun:    dryRun,
 	}
 
 	result, err := release.ExecutePublish(opts)

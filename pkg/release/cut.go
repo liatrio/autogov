@@ -16,6 +16,25 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ReleaseMode controls how autogov performs git read operations
+type ReleaseMode string
+
+const (
+	ModeAuto  ReleaseMode = "auto"  // use API if token present; fall back to local on error
+	ModeAPI   ReleaseMode = "api"   // require GitHub API, fail hard on error
+	ModeLocal ReleaseMode = "local" // use local go-git only (offline)
+)
+
+// ValidateMode checks that a ReleaseMode string is one of the allowed values.
+func ValidateMode(mode ReleaseMode) error {
+	switch mode {
+	case ModeAuto, ModeAPI, ModeLocal, "":
+		return nil
+	default:
+		return fmt.Errorf("invalid --mode %q: must be one of auto, api, local", mode)
+	}
+}
+
 // CutOptions contains configuration for executing a release cut
 type CutOptions struct {
 	RepoPath        string         // path to git repo (default ".")
@@ -24,6 +43,8 @@ type CutOptions struct {
 	PlanFile        string         // path to pre-generated plan JSON/YAML
 	MutationsConfig string         // path to mutations config file
 	DryRun          bool           // show what would happen without side effects
+	Publish         bool           // create published release directly (no draft)
+	Mode            ReleaseMode    // "auto" (default), "api", "local"
 	CommitAuthor    string         // bot commit author name
 	CommitEmail     string         // bot commit author email
 	Token           string         // GitHub token for API and push
@@ -38,6 +59,7 @@ type CutResult struct {
 	ReleaseURL    string   `json:"release_url,omitempty"`
 	ReleaseID     int64    `json:"release_id,omitempty"`
 	Draft         bool     `json:"draft"`
+	Published     bool     `json:"published"`
 	FilesModified []string `json:"files_modified,omitempty"`
 	DryRun        bool     `json:"dry_run"`
 	NoRelease     bool     `json:"no_release"`
@@ -59,9 +81,14 @@ func DefaultCutOptions() *CutOptions {
 type ReleaseService interface {
 	// release operations
 	GetReleaseByTag(ctx context.Context, owner, repo, tag string) (*gogithub.RepositoryRelease, *gogithub.Response, error)
+	GetRelease(ctx context.Context, owner, repo string, id int64) (*gogithub.RepositoryRelease, *gogithub.Response, error)
 	CreateRelease(ctx context.Context, owner, repo string, release *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error)
 	UpdateRelease(ctx context.Context, owner, repo string, id int64, release *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error)
 	ListReleases(ctx context.Context, owner, repo string, opts *gogithub.ListOptions) ([]*gogithub.RepositoryRelease, *gogithub.Response, error)
+	// read operations (tag discovery, commit comparison, branch validation)
+	ListTags(ctx context.Context, owner, repo string, opts *gogithub.ListOptions) ([]*gogithub.RepositoryTag, *gogithub.Response, error)
+	CompareCommits(ctx context.Context, owner, repo, base, head string, opts *gogithub.ListOptions) (*gogithub.CommitsComparison, *gogithub.Response, error)
+	GetBranch(ctx context.Context, owner, repo, branch string, maxRedirects int) (*gogithub.Branch, *gogithub.Response, error)
 	// git data operations (commits/tags created via API are auto-signed by GitHub per SLSA v1.2)
 	CreateTree(ctx context.Context, owner, repo, baseTree string, entries []*gogithub.TreeEntry) (*gogithub.Tree, *gogithub.Response, error)
 	CreateCommit(ctx context.Context, owner, repo string, commit gogithub.Commit, opts *gogithub.CreateCommitOptions) (*gogithub.Commit, *gogithub.Response, error)
@@ -78,6 +105,10 @@ func (s *githubReleaseService) GetReleaseByTag(ctx context.Context, owner, repo,
 	return s.client.Repositories.GetReleaseByTag(ctx, owner, repo, tag)
 }
 
+func (s *githubReleaseService) GetRelease(ctx context.Context, owner, repo string, id int64) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
+	return s.client.Repositories.GetRelease(ctx, owner, repo, id)
+}
+
 func (s *githubReleaseService) CreateRelease(ctx context.Context, owner, repo string, release *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
 	return s.client.Repositories.CreateRelease(ctx, owner, repo, release)
 }
@@ -88,6 +119,18 @@ func (s *githubReleaseService) UpdateRelease(ctx context.Context, owner, repo st
 
 func (s *githubReleaseService) ListReleases(ctx context.Context, owner, repo string, opts *gogithub.ListOptions) ([]*gogithub.RepositoryRelease, *gogithub.Response, error) {
 	return s.client.Repositories.ListReleases(ctx, owner, repo, opts)
+}
+
+func (s *githubReleaseService) ListTags(ctx context.Context, owner, repo string, opts *gogithub.ListOptions) ([]*gogithub.RepositoryTag, *gogithub.Response, error) {
+	return s.client.Repositories.ListTags(ctx, owner, repo, opts)
+}
+
+func (s *githubReleaseService) CompareCommits(ctx context.Context, owner, repo, base, head string, opts *gogithub.ListOptions) (*gogithub.CommitsComparison, *gogithub.Response, error) {
+	return s.client.Repositories.CompareCommits(ctx, owner, repo, base, head, opts)
+}
+
+func (s *githubReleaseService) GetBranch(ctx context.Context, owner, repo, branch string, maxRedirects int) (*gogithub.Branch, *gogithub.Response, error) {
+	return s.client.Repositories.GetBranch(ctx, owner, repo, branch, maxRedirects)
 }
 
 func (s *githubReleaseService) CreateTree(ctx context.Context, owner, repo, baseTree string, entries []*gogithub.TreeEntry) (*gogithub.Tree, *gogithub.Response, error) {
@@ -121,6 +164,10 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 		opts = DefaultCutOptions()
 	}
 
+	if err := ValidateMode(opts.Mode); err != nil {
+		return nil, err
+	}
+
 	repo, err := OpenRepository(opts.RepoPath)
 	if err != nil {
 		return nil, err
@@ -131,9 +178,26 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 		opts.ReleaseAPI = newGitHubReleaseService(opts.Token)
 	}
 
-	// step 1: validate working tree is clean and on correct branch
-	if err := validateWorktree(repo, opts.Branch); err != nil {
-		return nil, fmt.Errorf("worktree validation failed: %w", err)
+	// fail early if api mode requires a token
+	if opts.Mode == ModeAPI && opts.ReleaseAPI == nil {
+		return nil, fmt.Errorf("--mode=api requires a GitHub token")
+	}
+
+	// step 1: validate working tree / branch
+	if opts.Mode == ModeAPI && opts.ReleaseAPI != nil {
+		// in API mode skip local worktree clean check — verify branch exists via API
+		owner, repoName, parseErr := parseOwnerRepo(repo)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		ctx := context.Background()
+		if err := validateBranchViaAPI(ctx, opts.ReleaseAPI, owner, repoName, opts.Branch); err != nil {
+			return nil, fmt.Errorf("branch validation failed: %w", err)
+		}
+	} else {
+		if err := validateWorktree(repo, opts.Branch); err != nil {
+			return nil, fmt.Errorf("worktree validation failed: %w", err)
+		}
 	}
 
 	// step 2: generate or load the release plan
@@ -157,10 +221,11 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 	}
 
 	result := &CutResult{
-		TagName: tagName,
-		Version: strings.TrimPrefix(plan.NextVersion, "v"),
-		Draft:   true,
-		DryRun:  opts.DryRun,
+		TagName:   tagName,
+		Version:   strings.TrimPrefix(plan.NextVersion, "v"),
+		Draft:     !opts.Publish,
+		Published: opts.Publish,
+		DryRun:    opts.DryRun,
 	}
 
 	// step 4: apply file mutations (if configured)
@@ -180,7 +245,11 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 		if len(mutationSummary) > 0 {
 			fmt.Fprintf(os.Stderr, "dry-run: would modify files: %s\n", strings.Join(mutationSummary, ", "))
 		}
-		fmt.Fprintf(os.Stderr, "dry-run: would create commit, tag, push, and create draft GitHub release\n")
+		action := "draft"
+		if opts.Publish {
+			action = "published"
+		}
+		fmt.Fprintf(os.Stderr, "dry-run: would create commit, tag, push, and create %s GitHub release\n", action)
 		return result, nil
 	}
 
@@ -216,10 +285,10 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 		return nil, fmt.Errorf("failed to update branch ref: %w", err)
 	}
 
-	// step 8: create draft GitHub release
-	releaseURL, releaseID, err := createDraftRelease(repo, opts, plan)
+	// step 8: create GitHub release (draft or published based on --publish flag)
+	releaseURL, releaseID, err := createGitHubRelease(repo, opts, plan, !opts.Publish)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create draft release: %w", err)
+		return nil, fmt.Errorf("failed to create GitHub release: %w", err)
 	}
 	result.ReleaseURL = releaseURL
 	result.ReleaseID = releaseID
@@ -290,6 +359,34 @@ func validateWorktree(repo *git.Repository, expectedBranch string) error {
 	return fmt.Errorf("expected branch %q but on %q", expectedBranch, currentBranch)
 }
 
+// validateBranchViaAPI checks that the branch exists remotely (used in API mode).
+func validateBranchViaAPI(ctx context.Context, svc ReleaseService, owner, repoName, branch string) error {
+	_, resp, err := svc.GetBranch(ctx, owner, repoName, branch, 0)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil {
+		return fmt.Errorf("branch %q not found via GitHub API: %w", branch, err)
+	}
+	return nil
+}
+
+// checkRemoteTagViaAPI checks whether a tag already exists on the remote using the GitHub API.
+// Returns an error if the tag exists; nil if it doesn't.
+func checkRemoteTagViaAPI(ctx context.Context, svc ReleaseService, owner, repo, tagName string) error {
+	tags, err := listTagsFromAPI(ctx, svc, owner, repo)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not check remote tags via API: %v\n", err)
+		return nil // non-fatal: allow the cut to proceed
+	}
+	for _, t := range tags {
+		if t == tagName {
+			return fmt.Errorf("tag %s already exists on remote", tagName)
+		}
+	}
+	return nil
+}
+
 // resolvePlan either loads from file or generates fresh
 func resolvePlan(opts *CutOptions) (*ReleasePlan, error) {
 	if opts.PlanFile != "" {
@@ -299,6 +396,9 @@ func resolvePlan(opts *CutOptions) (*ReleasePlan, error) {
 	planOpts := &PlanOptions{
 		RepoPath:        opts.RepoPath,
 		MutationsConfig: opts.MutationsConfig,
+		Mode:            opts.Mode,
+		ReleaseAPI:      opts.ReleaseAPI,
+		Branch:          opts.Branch,
 	}
 	return GeneratePlan(planOpts)
 }
@@ -336,27 +436,39 @@ func loadPlanFromFile(path string) (*ReleasePlan, error) {
 
 // checkImmutability verifies no existing tag or published release conflicts
 func checkImmutability(repo *git.Repository, opts *CutOptions, tagName string) error {
-	// check local tags
-	if _, err := repo.Tag(tagName); err == nil {
-		return fmt.Errorf("tag %s already exists locally", tagName)
+	// check local tags (skip in API mode — shallow clones may have incomplete local refs)
+	if opts.Mode != ModeAPI {
+		if _, err := repo.Tag(tagName); err == nil {
+			return fmt.Errorf("tag %s already exists locally", tagName)
+		}
 	}
 
-	// check remote tags via ls-remote (non-fatal if remote unavailable)
-	remote, err := repo.Remote(opts.Remote)
-	if err == nil {
-		listOpts := &git.ListOptions{}
-		if opts.Token != "" {
-			listOpts.Auth = &http.BasicAuth{Username: "x-access-token", Password: opts.Token}
+	// check remote tags: use GitHub API if available (works with shallow clones),
+	// otherwise fall back to go-git ls-remote
+	if opts.Mode == ModeAPI && opts.ReleaseAPI != nil {
+		owner, repoName, parseErr := parseOwnerRepo(repo)
+		if parseErr == nil {
+			if err := checkRemoteTagViaAPI(context.Background(), opts.ReleaseAPI, owner, repoName, tagName); err != nil {
+				return err
+			}
 		}
+	} else {
+		remote, err := repo.Remote(opts.Remote)
+		if err == nil {
+			listOpts := &git.ListOptions{}
+			if opts.Token != "" {
+				listOpts.Auth = &http.BasicAuth{Username: "x-access-token", Password: opts.Token}
+			}
 
-		refs, err := remote.List(listOpts)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not list remote refs: %v\n", err)
-		} else {
-			tagRef := plumbing.NewTagReferenceName(tagName)
-			for _, ref := range refs {
-				if ref.Name() == tagRef {
-					return fmt.Errorf("tag %s already exists on remote %q", tagName, opts.Remote)
+			refs, err := remote.List(listOpts)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not list remote refs: %v\n", err)
+			} else {
+				tagRef := plumbing.NewTagReferenceName(tagName)
+				for _, ref := range refs {
+					if ref.Name() == tagRef {
+						return fmt.Errorf("tag %s already exists on remote %q", tagName, opts.Remote)
+					}
 				}
 			}
 		}
@@ -566,8 +678,9 @@ func updateBranchRef(ctx context.Context, opts *CutOptions, owner, repoName, bra
 	return nil
 }
 
-// createDraftRelease creates a draft GitHub release via the API
-func createDraftRelease(repo *git.Repository, opts *CutOptions, plan *ReleasePlan) (string, int64, error) {
+// createGitHubRelease creates a GitHub release via the API.
+// When draft is true, creates a draft release; when false, creates a published release directly.
+func createGitHubRelease(repo *git.Repository, opts *CutOptions, plan *ReleasePlan, draft bool) (string, int64, error) {
 	repoName := GetRepositoryName(repo)
 	parts := strings.SplitN(repoName, "/", 2)
 	if len(parts) != 2 {
@@ -580,7 +693,7 @@ func createDraftRelease(repo *git.Repository, opts *CutOptions, plan *ReleasePla
 		TagName:              gogithub.Ptr(plan.NextVersion),
 		Name:                 gogithub.Ptr(plan.NextVersion),
 		Body:                 gogithub.Ptr(plan.ChangelogPreview),
-		Draft:                gogithub.Ptr(true),
+		Draft:                gogithub.Ptr(draft),
 		Prerelease:           gogithub.Ptr(false),
 		GenerateReleaseNotes: gogithub.Ptr(false),
 	}
@@ -594,6 +707,11 @@ func createDraftRelease(repo *git.Repository, opts *CutOptions, plan *ReleasePla
 	}
 
 	return created.GetHTMLURL(), created.GetID(), nil
+}
+
+// createDraftRelease creates a draft GitHub release via the API.
+func createDraftRelease(repo *git.Repository, opts *CutOptions, plan *ReleasePlan) (string, int64, error) {
+	return createGitHubRelease(repo, opts, plan, true)
 }
 
 // ToJSON serializes the cut result to JSON

@@ -240,7 +240,7 @@ func TestPublishOptionsValidation(t *testing.T) {
 				Token: "test-token",
 			},
 			wantErr:     true,
-			errContains: "either --tag or --latest must be specified",
+			errContains: "one of --tag, --latest, or --release-id must be specified",
 		},
 		{
 			name: "no token - invalid",
@@ -626,6 +626,77 @@ func TestPublishResultToJSON(t *testing.T) {
 	assert.Equal(t, float64(42), parsed["release_id"])
 	assert.Equal(t, true, parsed["published"])
 	assert.Equal(t, false, parsed["dry_run"])
+}
+
+// TestPublishByReleaseID verifies that --release-id bypasses ListReleases and
+// skips tag verification — enabling GitHub App token (octo-sts) workflows.
+func TestPublishByReleaseID(t *testing.T) {
+	dir, repo := setupTestRepo(t)
+	_, err := repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{"https://github.com/owner/repo.git"},
+	})
+	require.NoError(t, err)
+
+	mock := &mockReleaseService{
+		// GetRelease by ID returns the draft
+		getReleaseByID: &gogithub.RepositoryRelease{
+			ID:      gogithub.Ptr(int64(42)),
+			TagName: gogithub.Ptr("v1.2.0"),
+			Draft:   gogithub.Ptr(true),
+		},
+		updateRelease: &gogithub.RepositoryRelease{
+			ID:      gogithub.Ptr(int64(42)),
+			TagName: gogithub.Ptr("v1.2.0"),
+			Draft:   gogithub.Ptr(false),
+			HTMLURL: gogithub.Ptr("https://github.com/owner/repo/releases/tag/v1.2.0"),
+		},
+	}
+
+	opts := &PublishOptions{
+		ReleaseID:  42,
+		Token:      "test-token",
+		RepoPath:   dir,
+		ReleaseAPI: mock,
+	}
+
+	result, err := ExecutePublish(opts)
+	require.NoError(t, err)
+
+	assert.Equal(t, "v1.2.0", result.TagName)
+	assert.Equal(t, int64(42), result.ReleaseID)
+	assert.True(t, result.Published)
+	// ListReleases must NOT have been called (listReleases field remains nil)
+	assert.Nil(t, mock.listReleases, "ListReleases must not be called when using --release-id")
+}
+
+// TestPublishByReleaseIDAlreadyPublished verifies immutability when publishing by ID.
+func TestPublishByReleaseIDAlreadyPublished(t *testing.T) {
+	dir, repo := setupTestRepo(t)
+	_, err := repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{"https://github.com/owner/repo.git"},
+	})
+	require.NoError(t, err)
+
+	mock := &mockReleaseService{
+		getReleaseByID: &gogithub.RepositoryRelease{
+			ID:      gogithub.Ptr(int64(42)),
+			TagName: gogithub.Ptr("v1.2.0"),
+			Draft:   gogithub.Ptr(false), // already published
+		},
+	}
+
+	opts := &PublishOptions{
+		ReleaseID:  42,
+		Token:      "test-token",
+		RepoPath:   dir,
+		ReleaseAPI: mock,
+	}
+
+	_, err = ExecutePublish(opts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already published")
 }
 
 // TestExecutePublishNilOpts validates that nil options return a clear error.

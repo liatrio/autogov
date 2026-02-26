@@ -15,9 +15,12 @@ import (
 
 // PublishOptions contains configuration for publishing a draft release
 type PublishOptions struct {
-	RepoPath   string         // path to git repo (for remote detection)
-	Tag        string         // specific tag to publish (mutually exclusive with Latest)
-	Latest     bool           // find latest draft (mutually exclusive with Tag)
+	RepoPath  string // path to git repo (for remote detection)
+	Tag       string // specific tag to publish (mutually exclusive with Latest and ReleaseID)
+	Latest    bool   // find latest draft (mutually exclusive with Tag and ReleaseID)
+	ReleaseID int64  // publish by numeric release ID — works with GitHub App tokens
+	// Note: --tag and --latest require a user token; GitHub App tokens cannot discover
+	// draft releases via list/search endpoints. Use --release-id for App token workflows.
 	Token      string         // GitHub token (required)
 	DryRun     bool           // preview only, don't publish
 	ReleaseAPI ReleaseService // optional; created from Token if nil
@@ -70,8 +73,11 @@ func ExecutePublish(opts *PublishOptions) (*PublishResult, error) {
 	}
 
 	// verify the git tag exists on the remote before publishing
-	if err := verifyTagExists(repo, opts, release.GetTagName()); err != nil {
-		return nil, err
+	// skip tag verification when using --release-id (trust the release record)
+	if opts.ReleaseID == 0 {
+		if err := verifyTagExists(repo, opts, release.GetTagName()); err != nil {
+			return nil, err
+		}
 	}
 
 	result := &PublishResult{
@@ -104,24 +110,57 @@ func validatePublishOptions(opts *PublishOptions) error {
 		return fmt.Errorf("GitHub token required for publish (set GITHUB_TOKEN)")
 	}
 
-	if opts.Tag != "" && opts.Latest {
-		return fmt.Errorf("--tag and --latest are mutually exclusive")
+	// count how many selection modes are specified
+	modes := 0
+	if opts.Tag != "" {
+		modes++
+	}
+	if opts.Latest {
+		modes++
+	}
+	if opts.ReleaseID != 0 {
+		modes++
 	}
 
-	if opts.Tag == "" && !opts.Latest {
-		return fmt.Errorf("either --tag or --latest must be specified")
+	if modes > 1 {
+		return fmt.Errorf("--tag, --latest, and --release-id are mutually exclusive")
+	}
+
+	if modes == 0 {
+		return fmt.Errorf("one of --tag, --latest, or --release-id must be specified")
 	}
 
 	return nil
 }
 
-// findDraftRelease finds a draft release by tag or latest
+// findDraftRelease finds a draft release by tag, latest, or release ID
 func findDraftRelease(ctx context.Context, opts *PublishOptions, owner, repo string) (*gogithub.RepositoryRelease, error) {
+	if opts.ReleaseID != 0 {
+		return findDraftReleaseByID(ctx, opts, owner, repo)
+	}
 	if opts.Tag != "" {
 		return findDraftReleaseByTag(ctx, opts, owner, repo)
 	}
-
 	return findLatestDraftRelease(ctx, opts, owner, repo)
+}
+
+// findDraftReleaseByID fetches a release directly by numeric ID.
+// This works with GitHub App tokens that cannot list/search draft releases.
+func findDraftReleaseByID(ctx context.Context, opts *PublishOptions, owner, repo string) (*gogithub.RepositoryRelease, error) {
+	rel, resp, err := opts.ReleaseAPI.GetRelease(ctx, owner, repo, opts.ReleaseID)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get release ID %d: %w", opts.ReleaseID, err)
+	}
+	if rel == nil {
+		return nil, fmt.Errorf("release ID %d not found", opts.ReleaseID)
+	}
+	if !rel.GetDraft() {
+		return nil, fmt.Errorf("release ID %d (%s) is already published (immutable)", opts.ReleaseID, rel.GetTagName())
+	}
+	return rel, nil
 }
 
 // findDraftReleaseByTag finds a draft release matching the given tag.
