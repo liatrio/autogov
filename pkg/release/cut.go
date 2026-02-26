@@ -259,32 +259,35 @@ func validateWorktree(repo *git.Repository, expectedBranch string) error {
 		return nil
 	}
 
-	// detached HEAD: check if HEAD SHA matches the tip of the expected branch.
-	// Try local branch first, then remote refs (CI checkouts often lack local branches).
-	branchRef, err := repo.Reference(plumbing.NewBranchReferenceName(expectedBranch), true)
-	if err != nil {
-		// try remote refs (e.g., refs/remotes/origin/main)
-		remotes, remoteErr := repo.Remotes()
-		if remoteErr == nil {
-			for _, remote := range remotes {
-				remoteRef, refErr := repo.Reference(
-					plumbing.NewRemoteReferenceName(remote.Config().Name, expectedBranch), true)
-				if refErr == nil {
-					branchRef = remoteRef
-					break
+	// Detached HEAD (e.g., CI checkout by SHA): accept if the expected branch exists.
+	// The workflow's own trigger conditions (e.g., github.ref == refs/heads/main) are
+	// the real guard for which branch is being released. In CI, the branch tip may have
+	// advanced past the checkout SHA due to release commits from previous runs.
+	if !head.Name().IsBranch() {
+		// verify the expected branch exists (locally or in remotes)
+		_, err := repo.Reference(plumbing.NewBranchReferenceName(expectedBranch), true)
+		if err != nil {
+			remotes, remoteErr := repo.Remotes()
+			found := false
+			if remoteErr == nil {
+				for _, remote := range remotes {
+					_, refErr := repo.Reference(
+						plumbing.NewRemoteReferenceName(remote.Config().Name, expectedBranch), true)
+					if refErr == nil {
+						found = true
+						break
+					}
 				}
 			}
+			if !found {
+				return fmt.Errorf("expected branch %q but on detached HEAD (branch not found)", expectedBranch)
+			}
 		}
-		if branchRef == nil {
-			return fmt.Errorf("expected branch %q but on %q (branch not found locally or in remotes)", expectedBranch, currentBranch)
-		}
+		fmt.Fprintf(os.Stderr, "note: detached HEAD at %s, expected branch %q exists\n", head.Hash().String()[:8], expectedBranch)
+		return nil
 	}
 
-	if head.Hash() != branchRef.Hash() {
-		return fmt.Errorf("expected branch %q but on %q", expectedBranch, currentBranch)
-	}
-
-	return nil
+	return fmt.Errorf("expected branch %q but on %q", expectedBranch, currentBranch)
 }
 
 // resolvePlan either loads from file or generates fresh
