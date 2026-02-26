@@ -25,7 +25,7 @@ jobs:
       attestations: write
       contents: read
       actions: read
-    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@4586626e1817e1c248c1e495cdbc5fb8e4fab1b2 # v0.20.2
+    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@06d47235b41962c5ca8a26b0c26f90c43ace748b # v0.20.2
     secrets: inherit
     with:
       subject-path: autogov
@@ -38,12 +38,12 @@ jobs:
       packages: write
       contents: read
       actions: read
-    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-verify.yaml@4586626e1817e1c248c1e495cdbc5fb8e4fab1b2 # v0.20.2
+    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-verify.yaml@06d47235b41962c5ca8a26b0c26f90c43ace748b # v0.20.2
     secrets: inherit
     with:
       build-type: blob
       blob-artifact-id: ${{ needs.attest-blob.outputs.blob-artifact-id }}
-      cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@4586626e1817e1c248c1e495cdbc5fb8e4fab1b2 # v0.20.2
+      cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@06d47235b41962c5ca8a26b0c26f90c43ace748b # v0.20.2
       vuln-threshold-critical: '0'
       vuln-threshold-high: '-1'
       vuln-threshold-medium: '-1'
