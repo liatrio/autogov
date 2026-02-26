@@ -1,15 +1,16 @@
-# Contributing to AutoGov-Verify
+# Contributing to AutoGov
 
-Thank you for your interest in contributing to AutoGov-Verify! This document provides guidelines for contributing to the project.
+Thank you for your interest in contributing to AutoGov! This document provides guidelines for contributing to the project.
 
 ## Getting Started
 
 ### Prerequisites
 
-- Go 1.21 or higher
+- Go 1.25 or higher
 - GitHub CLI (`gh`) for trusted root fetching
 - Docker for container registry access
 - golangci-lint for code quality checks
+- [Task](https://taskfile.dev) for build automation
 - GitHub Personal Access Token with appropriate permissions
 
 ### Local Development Setup
@@ -23,26 +24,27 @@ cd autogov-verify
 go mod download
 
 # Run tests
-make test
+task test
 
 # Build binary
-make build
+task build
 
 # Run linter
-make lint
+task lint
 ```
 
-### Available Make Targets
+### Available Task Commands
 
 ```bash
-make help         # Show all available make targets
-make all         # Run verify and build (default)
-make build       # Build the binary
-make test        # Run tests with coverage
-make lint        # Run linter
-make format      # Format code
-make verify      # Run format, lint, and test
-make install     # Install binary to /usr/local/bin
+task --list       # Show all available tasks
+task              # Run verify and build (default)
+task build        # Build the binary
+task test         # Run tests with coverage
+task lint         # Run linter
+task format       # Format code
+task verify       # Run format, lint, and test
+task install      # Install binary to /usr/local/bin
+task clean        # Clean build artifacts
 ```
 
 ## Contributing Process
@@ -62,7 +64,7 @@ make install     # Install binary to /usr/local/bin
    - Add integration tests for end-to-end workflows
    - Test error conditions and edge cases
 
-4. **Run `make verify`** to ensure code quality
+4. **Run `task verify`** to ensure code quality
    - All tests must pass
    - Zero linter warnings required
    - Code must be properly formatted
@@ -117,11 +119,20 @@ make install     # Install binary to /usr/local/bin
 The project follows a modular architecture:
 
 - **`pkg/attestations/`**: GitHub API integration, sigstore verification, certificate validation
-- **`pkg/vsa/`**: SLSA v1.1 VSA generation with comprehensive validation
-- **`pkg/policy/`**: OPA integration for policy evaluation
-- **`pkg/storage/`**: ORAS-Go integration for VSA storage in OCI registries
-- **`pkg/certid/`**: Certificate identity validation against approved lists
+- **`pkg/bundle/`**: Common utilities for working with Sigstore bundles
+- **`pkg/certid/`**: Certificate identity validation against approved lists with caching
+- **`pkg/cli/`**: CLI-specific helpers for argument processing and digest handling
+- **`pkg/digest/`**: Digest calculation utilities for files, directories, and streams
+- **`pkg/download/`**: Attestation download from GitHub for offline workflows
 - **`pkg/github/`**: GitHub client and token management
+- **`pkg/mutate/`**: Configuration file mutations (JSON, YAML, TOML) for release versioning
+- **`pkg/offline/`**: Offline attestation verification using pre-downloaded bundles
+- **`pkg/orchestrate/`**: Verification workflow orchestration
+- **`pkg/policy/`**: OPA integration for policy evaluation
+- **`pkg/release/`**: Release management (plan, cut, publish, changelog, version bumping)
+- **`pkg/root/`**: Trusted root management with dynamic fetching and fallback
+- **`pkg/storage/`**: ORAS-Go integration for VSA storage in OCI registries
+- **`pkg/vsa/`**: SLSA v1.1 VSA generation with comprehensive validation
 
 ### Design Principles
 
@@ -212,4 +223,4 @@ Contributors don't need to manage releases, but understanding the process helps:
 
 This project follows the [Contributor Covenant Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/). By participating, you are expected to uphold this code.
 
-Thank you for contributing to AutoGov-Verify! 🎉
+Thank you for contributing to AutoGov!

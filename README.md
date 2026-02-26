@@ -1,12 +1,12 @@
-# AutoGov-Verify
+# AutoGov
 
-A tool for verifying GitHub Artifact Attestations using [cosign](https://docs.sigstore.dev/cosign/overview/) with SLSA v1.1 VSA (Verification Summary Attestation) support and integrated OPA policy evaluation.
+A unified CLI for attestation verification and release management. Supports [cosign](https://docs.sigstore.dev/cosign/overview/)-based verification with SLSA v1.1 VSA (Verification Summary Attestation) support, integrated OPA policy evaluation, and a full release engine with changelog generation.
 
-> **Note**: This tool supports attestations for container images in the GitHub Container Registry (ghcr.io) and blob attestations with comprehensive attestation verification, VSA generation, and policy evaluation capabilities.
+> **Note**: This tool supports attestation verification for container images (ghcr.io) and blobs, VSA generation, policy evaluation, and release management (plan, cut, publish) with conventional commit-based changelog generation.
 
 ## Requirements
 
-- Go 1.21 or higher
+- Go 1.25 or higher
 - GitHub personal access token with read access to packages
 - Access to the GitHub Container Registry (ghcr.io)
 - Docker login to ghcr.io (`docker login ghcr.io`) for container image verification
@@ -18,11 +18,15 @@ A tool for verifying GitHub Artifact Attestations using [cosign](https://docs.si
 - **OPA Policy Integration**: Evaluates Rego policies with results included in VSA metadata
 - **Certificate Identity Validation**: Validates against approved certificate identity lists
 - **Offline Verification**: Supports pre-downloaded attestation artifacts (verify container images by digest without pulling the image)
+- **Attestation Download**: Download attestations from GitHub for offline verification workflows
 - **Dynamic Trusted Root**: Automatically fetches latest GitHub trusted roots
 - **VSA Validation**: Comprehensive field validation, structured error handling, and multi-format digest support
+- **Release Management**: Plan, cut, and publish releases with GitHub API-signed commits (SLSA v1.2 provenance)
+- **Changelog Generation**: Automatic changelog from conventional commits with markdown or JSON output
+- **Configuration Mutations**: Update version strings across JSON, YAML, and TOML files during releases
 - **Production Ready**: Comprehensive error handling, caching, and monitoring support
 
-This tool verifies GitHub Artifact Attestations using the sigstore-go v1.0.0 API and supports attestations in the Sigstore bundle format used by [GitHub Artifact Attestations, npm Provenance, Homebrew Provenance, etc](https://blog.sigstore.dev/cosign-verify-bundles/).
+This tool verifies GitHub Artifact Attestations using the sigstore-go v1.1.x API and supports attestations in the Sigstore bundle format used by [GitHub Artifact Attestations, npm Provenance, Homebrew Provenance, etc](https://blog.sigstore.dev/cosign-verify-bundles/).
 
 ## Verification Process
 
@@ -91,7 +95,7 @@ go install github.com/liatrio/autogov-verify@latest
 
 ### Prerequisites
 
-- Go 1.21 or higher
+- Go 1.25 or higher
 - GitHub CLI (`gh`) for trusted root fetching
 - Docker for container registry access
 - golangci-lint for code quality checks
@@ -175,11 +179,20 @@ go tool pprof mem.prof
 The tool is organized into several key packages:
 
 - **`pkg/attestations/`**: GitHub API integration, sigstore verification, certificate validation
-- **`pkg/vsa/`**: SLSA v1.1 VSA generation with comprehensive validation
-- **`pkg/policy/`**: OPA integration for policy evaluation
-- **`pkg/storage/`**: ORAS-Go integration for VSA storage in OCI registries
-- **`pkg/certid/`**: Certificate identity validation against approved lists
+- **`pkg/bundle/`**: Common utilities for working with Sigstore bundles
+- **`pkg/certid/`**: Certificate identity validation against approved lists with caching
+- **`pkg/cli/`**: CLI-specific helpers for argument processing and digest handling
+- **`pkg/digest/`**: Digest calculation utilities for files, directories, and streams
+- **`pkg/download/`**: Attestation download from GitHub for offline workflows
 - **`pkg/github/`**: GitHub client and token management
+- **`pkg/mutate/`**: Configuration file mutations (JSON, YAML, TOML) for release versioning
+- **`pkg/offline/`**: Offline attestation verification using pre-downloaded bundles
+- **`pkg/orchestrate/`**: Verification workflow orchestration
+- **`pkg/policy/`**: OPA integration for policy evaluation
+- **`pkg/release/`**: Release management (plan, cut, publish, changelog, version bumping)
+- **`pkg/root/`**: Trusted root management with dynamic fetching and fallback
+- **`pkg/storage/`**: ORAS-Go integration for VSA storage in OCI registries
+- **`pkg/vsa/`**: SLSA v1.1 VSA generation with comprehensive validation
 
 ### Predicate Type Standardization
 
@@ -249,14 +262,11 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for deta
 ### Online Verification
 
 ```bash
-autogov verify --cert-identity <identity> [options]
+autogov verify --repo <owner/repo> [options]
 ```
 
 #### Required Flags
 
-- `--cert-identity, -i`: Certificate identity to verify against (GitHub Actions workflow URL)
-  - For blob verification, the organization and repository are extracted from this URL
-  - Format: `https://github.com/OWNER/REPO/.github/workflows/...`
 - `--repo`: Repository to fetch attestations from (format: owner/repo) (required for both image and blob verification)
 
 And one of the following:
@@ -361,6 +371,9 @@ The `auto` mode examines the attestation certificate issuer to determine the app
 
 ### Optional Flags
 
+- `--cert-identity, -i`: Certificate identity to verify against (GitHub Actions workflow URL). If not provided, any valid signature will be accepted.
+  - For blob verification, the organization and repository are extracted from this URL
+  - Format: `https://github.com/OWNER/REPO/.github/workflows/...`
 - `--cert-issuer, -s`: Certificate issuer to verify against (default: <https://token.actions.githubusercontent.com>)
 - `--source-ref, -r`: Source repository ref to verify against (e.g., refs/heads/main)
 - `--quiet, -q`: Only show errors and final results
@@ -453,6 +466,122 @@ All command line flags can be set via environment variables:
 - `FAIL_ON_POLICY_ERROR`: Alternative to --fail-on-policy-error flag (set to "true" to exit with error on policy failures)
 - `POLICY_DATA_PATH`: Alternative to --policy-data-path flag
 - `TRUSTED_ROOT_SOURCE`: Alternative to --trusted-root-source flag (values: `github`, `public`, `auto`)
+
+### Changelog Generation
+
+Generate a changelog from conventional commits:
+
+```bash
+autogov changelog [flags]
+```
+
+#### Changelog Flags
+
+- `--from`: Starting ref (tag/branch/SHA); empty discovers latest tag
+- `--to`: Ending ref (default: `HEAD`)
+- `-o, --output`: Output file path (default: stdout)
+- `--format`: Output format: `markdown`, `json` (default: `markdown`)
+- `--repo-path`: Path to git repository (default: `.`)
+- `--include-all`: Include non-releasable commit types (docs, chore, test, etc.)
+- `--first-parent`: Follow only first parent (merge commits) for history
+- `--version`: Version header; if empty and `--to` is a semver tag, derived from tag
+
+#### Changelog Examples
+
+```bash
+# Generate changelog since last tag
+autogov changelog
+
+# Generate changelog between two tags
+autogov changelog --from v0.3.0 --to v0.4.0
+
+# Output as JSON
+autogov changelog --format json
+
+# Save to file
+autogov changelog -o CHANGELOG.md
+
+# Include all commit types (docs, chore, test, etc.)
+autogov changelog --include-all
+```
+
+### Release Management
+
+The `release` command provides a full release workflow with three subcommands.
+
+#### `release plan` — Preview a release
+
+```bash
+autogov release plan [flags]
+```
+
+Analyzes commits since the last tag, determines the next semantic version, and shows what would be included in a release.
+
+**Flags:**
+
+- `--from`: Base ref to compare from (default: latest tag)
+- `--to`: Target ref to compare to (default: `HEAD`)
+- `--first-parent`: Only follow first parent commits in merge history
+- `-o, --output`: Output format: `text`, `json`, `yaml` (default: `text`)
+- `--repo`: Path to git repository (default: `.`)
+- `--mutations-config`: Path to mutations config file for file update preview
+
+#### `release cut` — Execute a release
+
+```bash
+autogov release cut [flags]
+```
+
+Applies file mutations, creates a release commit and tag via GitHub API (providing SLSA v1.2 provenance through GitHub's auto-signing), and creates a draft GitHub release.
+
+**Flags:**
+
+- `--plan-file`: Path to pre-generated release plan (JSON/YAML)
+- `--branch`: Expected branch to cut release from (default: `main`)
+- `--remote`: Git remote to push to (default: `origin`)
+- `--mutations-config`: Path to mutations config file
+- `--dry-run`: Show what would be done without making changes
+- `--repo`: Path to git repository (default: `.`)
+- `--commit-author`: Author name for release commit (default: `autogov[bot]`)
+- `--commit-email`: Author email for release commit (default: `autogov[bot]@users.noreply.github.com`)
+- `-o, --output`: Output format: `text`, `json` (default: `text`)
+
+#### `release publish` — Publish a draft release
+
+```bash
+autogov release publish [flags]
+```
+
+Publishes a draft GitHub release, making it visible to users.
+
+**Flags:**
+
+- `--tag`: Specific tag to publish (mutually exclusive with `--latest`)
+- `--latest`: Publish latest draft release (mutually exclusive with `--tag`)
+- `--dry-run`: Show what would be done without publishing
+- `--repo`: Path to git repository (default: `.`)
+- `-o, --output`: Output format: `text`, `json` (default: `text`)
+
+#### Release Workflow Example
+
+```bash
+# 1. Preview the release
+autogov release plan
+
+# 2. Cut the release (creates commit, tag, and draft release)
+autogov release cut --mutations-config .autogov-mutations.yaml
+
+# 3. After CI passes, publish
+autogov release publish --latest
+```
+
+### Version
+
+Print build version information:
+
+```bash
+autogov version
+```
 
 ## Examples
 
