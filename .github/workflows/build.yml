@@ -3,11 +3,15 @@ name: Build and Test
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '*.md'
+      - catalog-info.yaml
+      - renovate.json
   push:
     tags-ignore:
       - 'v*'
     paths-ignore:
-      - README.md
+      - '*.md'
       - catalog-info.yaml
       - renovate.json
 

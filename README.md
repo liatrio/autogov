@@ -26,7 +26,7 @@ A unified CLI for attestation verification and release management. Supports [cos
 - **Configuration Mutations**: Update version strings across JSON, YAML, and TOML files during releases
 - **Production Ready**: Comprehensive error handling, caching, and monitoring support
 
-This tool verifies GitHub Artifact Attestations using the sigstore-go v1.1.x API and supports attestations in the Sigstore bundle format used by [GitHub Artifact Attestations, npm Provenance, Homebrew Provenance, etc](https://blog.sigstore.dev/cosign-verify-bundles/).
+This tool verifies GitHub Artifact Attestations using the sigstore-go v1.1.4 API and supports attestations in the Sigstore bundle format used by [GitHub Artifact Attestations, npm Provenance, Homebrew Provenance, etc](https://blog.sigstore.dev/cosign-verify-bundles/).
 
 ## Verification Process
 
@@ -91,172 +91,6 @@ go install github.com/liatrio/autogov-verify@latest
 # Binary will be installed as 'autogov'
 ```
 
-## Development
-
-### Prerequisites
-
-- Go 1.25 or higher
-- GitHub CLI (`gh`) for trusted root fetching
-- Docker for container registry access
-- golangci-lint for code quality checks
-- GitHub Personal Access Token with appropriate permissions
-
-### Local Development
-
-```bash
-# Clone and setup
-git clone https://github.com/liatrio/autogov-verify
-cd autogov-verify
-
-# Install dependencies
-go mod download
-
-# Run tests
-task test
-
-# Build binary
-task build
-
-# Run linter
-task lint
-```
-
-### Available Task Commands
-
-The project uses [Task](https://taskfile.dev) for build automation.
-
-```bash
-task --list       # Show all available tasks
-task              # Run verify and build (default)
-task build        # Build the binary
-task test         # Run tests with coverage
-task lint         # Run linter
-task format       # Format code
-task verify       # Run format, lint, and test
-task install      # Install binary to /usr/local/bin
-task clean        # Clean build artifacts
-```
-
-### Testing
-
-```bash
-# Unit tests
-go test ./...
-
-# Integration tests with real attestations
-export GITHUB_AUTH_TOKEN=your_token
-go test -tags=integration ./...
-
-# Test with coverage
-go test -cover ./...
-
-# Benchmark tests
-go test -bench=. ./...
-```
-
-### Debugging
-
-```bash
-# build with debug symbols
-go build -o bin/autogov-debug .
-
-# run with delve
-dlv debug . -- verify --cert-identity "..." --repo "..." -d "sha256:..."
-
-# run tests with race detector
-go test -race ./...
-
-# cpu/memory profiling
-go test -cpuprofile=cpu.prof -bench=. ./...
-go tool pprof cpu.prof
-
-go test -memprofile=mem.prof -bench=. ./...
-go tool pprof mem.prof
-```
-
-### Architecture Overview
-
-The tool is organized into several key packages:
-
-- **`pkg/attestations/`**: GitHub API integration, sigstore verification, certificate validation
-- **`pkg/bundle/`**: Common utilities for working with Sigstore bundles
-- **`pkg/certid/`**: Certificate identity validation against approved lists with caching
-- **`pkg/cli/`**: CLI-specific helpers for argument processing and digest handling
-- **`pkg/digest/`**: Digest calculation utilities for files, directories, and streams
-- **`pkg/download/`**: Attestation download from GitHub for offline workflows
-- **`pkg/github/`**: GitHub client and token management
-- **`pkg/mutate/`**: Configuration file mutations (JSON, YAML, TOML) for release versioning
-- **`pkg/offline/`**: Offline attestation verification using pre-downloaded bundles
-- **`pkg/orchestrate/`**: Verification workflow orchestration
-- **`pkg/policy/`**: OPA integration for policy evaluation
-- **`pkg/release/`**: Release management (plan, cut, publish, changelog, version bumping)
-- **`pkg/root/`**: Trusted root management with dynamic fetching and fallback
-- **`pkg/storage/`**: ORAS-Go integration for VSA storage in OCI registries
-- **`pkg/vsa/`**: SLSA v1.1 VSA generation with comprehensive validation
-
-### Predicate Type Standardization
-
-The tool implements predicate type standardization following the [in-toto attestation framework](https://github.com/in-toto/attestation) and [SLSA specifications](https://slsa.dev/spec/v1.0/). This ensures consistent, human-readable display of attestation types during verification.
-
-**Supported Predicate Types:**
-
-The tool recognizes all standard in-toto attestation framework predicate types:
-
-| Predicate Type | Short Name | Description |
-|----------------|------------|-------------|
-| `https://slsa.dev/provenance/v1` | SLSA Provenance | Build provenance attestation |
-| `https://cyclonedx.org/bom` | CycloneDX SBOM | Software bill of materials (CycloneDX format) |
-| `https://spdx.dev/Document` | SPDX SBOM | Software bill of materials (SPDX format, version-aware) |
-| `https://in-toto.io/Statement/v1` | in-toto Statement | Base in-toto attestation statement envelope |
-| `https://in-toto.io/attestation/vulns/v0.2` | Vulnerability Scan | Security vulnerability scan results |
-| `https://slsa.dev/verification_summary/v1` | SLSA VSA | Verification summary attestation |
-| `https://autogov.dev/attestation/metadata/v1` | AutoGov Metadata | Custom autogov metadata with artifact/workflow/compliance details |
-| `https://in-toto.io/attestation/scai/v0.3` | SCAI Report | Software supply chain attribute integrity assertions |
-| `https://in-toto.io/attestation/runtime-trace/v0.1` | Runtime Trace | Runtime traces of supply chain operations |
-| `https://in-toto.io/attestation/release/v0.1` | Release | Release version and artifact hash linkage |
-| `https://in-toto.io/attestation/test-result/v0.1` | Test Result | Test execution results |
-| `https://in-toto.io/attestation/link/v0.3` | in-toto Link | Legacy in-toto 0.9 format (migration support) |
-| `https://cosign.sigstore.dev/attestation/v1` | Cosign Custom | Cosign generic custom attestation |
-
-**How It Works:**
-
-During verification, the tool:
-
-1. Extracts the predicate type URI from each attestation
-2. Looks up the URI in the predicate type registry
-3. Displays the short name if found, or "Unknown: <uri>" if not found
-4. Continues verification regardless of registry status
-
-**Graceful Handling of Unknown Types:**
-
-If the tool encounters a predicate type not in the registry (e.g., custom or newly-introduced types):
-
-- Verification proceeds normally without errors
-- The type is displayed as `Unknown: <full-uri>`
-- A warning is logged suggesting the registry be updated (if not in quiet mode)
-- Signature and certificate validation remain unchanged
-
-**Example Output:**
-
-```shell
-Verifying attestation 1 (SLSA Provenance: https://slsa.dev/provenance/v1)...
-✓ Attestation 1 verified successfully
----
-Verifying attestation 2 (CycloneDX SBOM: https://cyclonedx.org/bom)...
-✓ Attestation 2 verified successfully
----
-Verifying attestation 3 (Unknown: https://example.com/custom/v1)...
-⚠ Warning: Unknown predicate type: https://example.com/custom/v1
-  Consider updating PredicateTypeRegistry if this is a standard type.
-✓ Attestation 3 verified successfully
-```
-
-This approach ensures backward compatibility with all attestations while providing enhanced context for known types.
-
-### Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines on how to contribute to this project.
-
 ## Usage
 
 ### Online Verification
@@ -312,6 +146,7 @@ autogov download \
 - `--repo, -R`: Repository to download attestations from (format: `owner/repo`) (required)
 - `--output, -o`: Output file path for attestation bundles (required)
 - `--format`: Output format: `json` or `jsonl` (default: `jsonl`)
+- `-q, --quiet`: Only show errors and final results
 
 #### Verify Offline
 
@@ -337,16 +172,25 @@ autogov offline \
   --attestations attestations.jsonl \
   --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@sha" \
   --cert-issuer "https://token.actions.githubusercontent.com"
+```
 
 #### Offline Verification Flags
 
 - `--attestations`: Path to pre-downloaded attestation bundles file (required)
 - `--blob-path`: Path to artifact file or directory containing multiple artifacts to verify (optional, calculates SHA256 digest for single files)
 - `--image-digest`: SHA256 digest for container image verification (optional, use when image cannot be pulled offline)
-- `--cert-identity`: Certificate identity (workflow URL with commit SHA) (required)
+- `--cert-identity`: Certificate identity (workflow URL with commit SHA). If not provided, any valid signature will be accepted
 - `--cert-issuer`: Certificate issuer (defaults to GitHub Actions)
+- `--source-ref`: Source repository ref to verify against (e.g., `refs/heads/main`)
 - `--trusted-root`: Path to custom trusted root JSON file (takes precedence over `--trusted-root-source`)
 - `--trusted-root-source`: Trusted root source selection: `github`, `public`, or `auto` (default: `auto`)
+- `--generate-vsa`: Generate Verification Summary Attestation after successful verification
+- `--vsa-output`: Output path for generated VSA (required if `--generate-vsa` is used)
+- `--policy-uri`: Policy URI for VSA generation (required if `--generate-vsa` is used)
+- `--policy-bundle-path`: Path to OPA policy bundle directory or `.tar.gz` file
+- `--policy-data-path`: Path to JSON file containing additional OPA data (e.g., vulnerability thresholds)
+- `--policy-schemas-path`: Path to directory or `.tar.gz` file containing JSON schemas for OPA policy validation
+- `--fail-on-policy-error`: Exit with error when policy evaluation fails (default: false)
 - `-q, --quiet`: Only show errors and final results
 
 **Trusted Root Source Options:**
@@ -870,6 +714,172 @@ Common issues and solutions:
    - When using full OCI references, include the registry: `ghcr.io/owner/repo@sha256:hash`
 
 If you encounter any other issues, please [open an issue](https://github.com/liatrio/autogov-verify/issues/new) and include as much detail as possible.
+
+## Development
+
+### Prerequisites
+
+- Go 1.25 or higher
+- GitHub CLI (`gh`) for trusted root fetching
+- Docker for container registry access
+- golangci-lint for code quality checks
+- [Task](https://taskfile.dev) for build automation
+- GitHub Personal Access Token with appropriate permissions
+
+### Local Development
+
+```bash
+# Clone and setup
+git clone https://github.com/liatrio/autogov-verify
+cd autogov-verify
+
+# Install dependencies
+go mod download
+
+# Run tests
+task test
+
+# Build binary
+task build
+
+# Run linter
+task lint
+```
+
+### Available Task Commands
+
+The project uses [Task](https://taskfile.dev) for build automation.
+
+```bash
+task --list       # Show all available tasks
+task              # Run verify and build (default)
+task build        # Build the binary
+task test         # Run tests with coverage
+task lint         # Run linter
+task format       # Format code
+task verify       # Run format, lint, and test
+task install      # Install binary to /usr/local/bin
+task clean        # Clean build artifacts
+```
+
+### Testing
+
+```bash
+# Unit tests
+go test ./...
+
+# Integration tests with real attestations
+export GITHUB_AUTH_TOKEN=your_token
+go test -tags=integration ./...
+
+# Test with coverage
+go test -cover ./...
+
+# Benchmark tests
+go test -bench=. ./...
+```
+
+### Debugging
+
+```bash
+# build with debug symbols
+go build -o bin/autogov-debug .
+
+# run with delve
+dlv debug . -- verify --repo "owner/repo" -d "sha256:..."
+
+# run tests with race detector
+go test -race ./...
+
+# cpu/memory profiling
+go test -cpuprofile=cpu.prof -bench=. ./...
+go tool pprof cpu.prof
+
+go test -memprofile=mem.prof -bench=. ./...
+go tool pprof mem.prof
+```
+
+### Architecture Overview
+
+The tool is organized into several key packages:
+
+- **`pkg/attestations/`**: GitHub API integration, sigstore verification, certificate validation
+- **`pkg/bundle/`**: Common utilities for working with Sigstore bundles
+- **`pkg/certid/`**: Certificate identity validation against approved lists with caching
+- **`pkg/cli/`**: CLI-specific helpers for argument processing and digest handling
+- **`pkg/digest/`**: Digest calculation utilities for files, directories, and streams
+- **`pkg/download/`**: Attestation download from GitHub for offline workflows
+- **`pkg/github/`**: GitHub client and token management
+- **`pkg/mutate/`**: Configuration file mutations (JSON, YAML, TOML) for release versioning
+- **`pkg/offline/`**: Offline attestation verification using pre-downloaded bundles
+- **`pkg/orchestrate/`**: Verification workflow orchestration
+- **`pkg/policy/`**: OPA integration for policy evaluation
+- **`pkg/release/`**: Release management (plan, cut, publish, changelog, version bumping)
+- **`pkg/root/`**: Trusted root management with dynamic fetching and fallback
+- **`pkg/vsa/`**: SLSA v1.1 VSA generation with comprehensive validation
+
+### Predicate Type Standardization
+
+The tool implements predicate type standardization following the [in-toto attestation framework](https://github.com/in-toto/attestation) and [SLSA specifications](https://slsa.dev/spec/v1.0/). This ensures consistent, human-readable display of attestation types during verification.
+
+**Supported Predicate Types:**
+
+The tool recognizes all standard in-toto attestation framework predicate types:
+
+| Predicate Type | Short Name | Description |
+|----------------|------------|-------------|
+| `https://slsa.dev/provenance/v1` | SLSA Provenance | Build provenance attestation |
+| `https://cyclonedx.org/bom` | CycloneDX SBOM | Software bill of materials (CycloneDX format) |
+| `https://spdx.dev/Document` | SPDX SBOM | Software bill of materials (SPDX format, version-aware) |
+| `https://in-toto.io/Statement/v1` | in-toto Statement | Base in-toto attestation statement envelope |
+| `https://in-toto.io/attestation/vulns/v0.2` | Vulnerability Scan | Security vulnerability scan results |
+| `https://slsa.dev/verification_summary/v1` | SLSA VSA | Verification summary attestation |
+| `https://autogov.dev/attestation/metadata/v1` | AutoGov Metadata | Custom autogov metadata with artifact/workflow/compliance details |
+| `https://in-toto.io/attestation/scai/v0.3` | SCAI Report | Software supply chain attribute integrity assertions |
+| `https://in-toto.io/attestation/runtime-trace/v0.1` | Runtime Trace | Runtime traces of supply chain operations |
+| `https://in-toto.io/attestation/release/v0.1` | Release | Release version and artifact hash linkage |
+| `https://in-toto.io/attestation/test-result/v0.1` | Test Result | Test execution results |
+| `https://in-toto.io/attestation/link/v0.3` | in-toto Link | Legacy in-toto 0.9 format (migration support) |
+| `https://cosign.sigstore.dev/attestation/v1` | Cosign Custom | Cosign generic custom attestation |
+
+**How It Works:**
+
+During verification, the tool:
+
+1. Extracts the predicate type URI from each attestation
+2. Looks up the URI in the predicate type registry
+3. Displays the short name if found, or "Unknown: <uri>" if not found
+4. Continues verification regardless of registry status
+
+**Graceful Handling of Unknown Types:**
+
+If the tool encounters a predicate type not in the registry (e.g., custom or newly-introduced types):
+
+- Verification proceeds normally without errors
+- The type is displayed as `Unknown: <full-uri>`
+- A warning is logged suggesting the registry be updated (if not in quiet mode)
+- Signature and certificate validation remain unchanged
+
+**Example Output:**
+
+```shell
+Verifying attestation 1 (SLSA Provenance: https://slsa.dev/provenance/v1)...
+✓ Attestation 1 verified successfully
+---
+Verifying attestation 2 (CycloneDX SBOM: https://cyclonedx.org/bom)...
+✓ Attestation 2 verified successfully
+---
+Verifying attestation 3 (Unknown: https://example.com/custom/v1)...
+⚠ Warning: Unknown predicate type: https://example.com/custom/v1
+  Consider updating PredicateTypeRegistry if this is a standard type.
+✓ Attestation 3 verified successfully
+```
+
+This approach ensures backward compatibility with all attestations while providing enhanced context for known types.
+
+### Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines on how to contribute to this project.
 
 ## License
 
