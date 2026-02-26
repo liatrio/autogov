@@ -251,10 +251,25 @@ func validateWorktree(repo *git.Repository, expectedBranch string) error {
 		return nil
 	}
 
-	// detached HEAD: check if HEAD SHA matches the tip of the expected branch
+	// detached HEAD: check if HEAD SHA matches the tip of the expected branch.
+	// Try local branch first, then remote refs (CI checkouts often lack local branches).
 	branchRef, err := repo.Reference(plumbing.NewBranchReferenceName(expectedBranch), true)
 	if err != nil {
-		return fmt.Errorf("expected branch %q but on %q (branch not found)", expectedBranch, currentBranch)
+		// try remote refs (e.g., refs/remotes/origin/main)
+		remotes, remoteErr := repo.Remotes()
+		if remoteErr == nil {
+			for _, remote := range remotes {
+				remoteRef, refErr := repo.Reference(
+					plumbing.NewRemoteReferenceName(remote.Config().Name, expectedBranch), true)
+				if refErr == nil {
+					branchRef = remoteRef
+					break
+				}
+			}
+		}
+		if branchRef == nil {
+			return fmt.Errorf("expected branch %q but on %q (branch not found locally or in remotes)", expectedBranch, currentBranch)
+		}
 	}
 
 	if head.Hash() != branchRef.Hash() {

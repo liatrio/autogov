@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	gogithub "github.com/google/go-github/v82/github"
 	"github.com/stretchr/testify/assert"
@@ -175,9 +176,40 @@ func TestValidateWorktreeDetachedHead(t *testing.T) {
 	assert.NoError(t, err)
 
 	// detached HEAD should still fail for a non-existent branch
-	err = validateWorktree(repo, "main")
+	err = validateWorktree(repo, "nonexistent")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "expected branch")
+}
+
+func TestValidateWorktreeDetachedHeadRemoteRef(t *testing.T) {
+	// simulate CI: clone a repo, checkout by SHA (detached HEAD with only remote refs)
+	upstreamDir, upstreamRepo := setupTestRepo(t)
+	_ = upstreamDir
+
+	// get the commit hash from upstream
+	upstreamHead, err := upstreamRepo.Head()
+	require.NoError(t, err)
+
+	// clone into a new directory
+	cloneDir := t.TempDir()
+	clonedRepo, err := git.PlainClone(cloneDir, false, &git.CloneOptions{
+		URL: upstreamDir,
+	})
+	require.NoError(t, err)
+
+	// detach HEAD by checking out the SHA directly (like CI does)
+	wt, err := clonedRepo.Worktree()
+	require.NoError(t, err)
+	err = wt.Checkout(&git.CheckoutOptions{Hash: upstreamHead.Hash()})
+	require.NoError(t, err)
+
+	// delete local branch to simulate CI (only remote refs remain)
+	err = clonedRepo.Storer.RemoveReference(plumbing.NewBranchReferenceName("master"))
+	require.NoError(t, err)
+
+	// should pass by finding origin/master remote ref
+	err = validateWorktree(clonedRepo, "master")
+	assert.NoError(t, err)
 }
 
 func TestCheckImmutabilityTagExists(t *testing.T) {
