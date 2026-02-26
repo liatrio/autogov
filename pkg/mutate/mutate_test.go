@@ -17,6 +17,7 @@ func TestGetMutator(t *testing.T) {
 		{name: "yamlPath", typ: "yamlPath", wantErr: false},
 		{name: "tomlKey", typ: "tomlKey", wantErr: false},
 		{name: "regexReplace", typ: "regexReplace", wantErr: false},
+		{name: "exec", typ: "exec", wantErr: false},
 		{name: "unknown", typ: "foobar", wantErr: true},
 		{name: "empty", typ: "", wantErr: true},
 	}
@@ -37,9 +38,10 @@ func TestGetMutator(t *testing.T) {
 
 func TestValidMutationTypes(t *testing.T) {
 	types := ValidMutationTypes()
-	assert.GreaterOrEqual(t, len(types), 4)
+	assert.GreaterOrEqual(t, len(types), 5)
 	assert.Contains(t, types, "jsonPath")
 	assert.Contains(t, types, "yamlPath")
 	assert.Contains(t, types, "tomlKey")
 	assert.Contains(t, types, "regexReplace")
+	assert.Contains(t, types, "exec")
 }
