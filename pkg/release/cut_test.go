@@ -157,6 +157,29 @@ func TestValidateWorktreeEmptyBranch(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestValidateWorktreeDetachedHead(t *testing.T) {
+	_, repo := setupTestRepo(t)
+
+	// get the HEAD commit hash
+	head, err := repo.Head()
+	require.NoError(t, err)
+
+	// detach HEAD by checking out the commit hash directly
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+	err = wt.Checkout(&git.CheckoutOptions{Hash: head.Hash()})
+	require.NoError(t, err)
+
+	// detached HEAD at the same commit as "master" should pass
+	err = validateWorktree(repo, "master")
+	assert.NoError(t, err)
+
+	// detached HEAD should still fail for a non-existent branch
+	err = validateWorktree(repo, "main")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "expected branch")
+}
+
 func TestCheckImmutabilityTagExists(t *testing.T) {
 	dir, repo := setupTestRepo(t)
 

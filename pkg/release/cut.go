@@ -219,7 +219,9 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 	return result, nil
 }
 
-// validateWorktree checks that the working tree is clean and on the expected branch
+// validateWorktree checks that the working tree is clean and on the expected branch.
+// Supports detached HEAD (e.g., CI checkout by SHA) by verifying the HEAD SHA matches
+// the tip of the expected branch.
 func validateWorktree(repo *git.Repository, expectedBranch string) error {
 	wt, err := repo.Worktree()
 	if err != nil {
@@ -235,13 +237,27 @@ func validateWorktree(repo *git.Repository, expectedBranch string) error {
 		return fmt.Errorf("working tree is not clean; commit or stash changes first")
 	}
 
+	if expectedBranch == "" {
+		return nil
+	}
+
 	head, err := repo.Head()
 	if err != nil {
 		return fmt.Errorf("failed to get HEAD: %w", err)
 	}
 
 	currentBranch := head.Name().Short()
-	if expectedBranch != "" && currentBranch != expectedBranch {
+	if currentBranch == expectedBranch {
+		return nil
+	}
+
+	// detached HEAD: check if HEAD SHA matches the tip of the expected branch
+	branchRef, err := repo.Reference(plumbing.NewBranchReferenceName(expectedBranch), true)
+	if err != nil {
+		return fmt.Errorf("expected branch %q but on %q (branch not found)", expectedBranch, currentBranch)
+	}
+
+	if head.Hash() != branchRef.Hash() {
 		return fmt.Errorf("expected branch %q but on %q", expectedBranch, currentBranch)
 	}
 
