@@ -14,8 +14,9 @@ func executePublishCmd(t *testing.T, args []string) (string, error) {
 	t.Helper()
 
 	publishCmd.ResetFlags()
-	publishCmd.Flags().String("tag", "", "Specific tag to publish (mutually exclusive with --latest)")
-	publishCmd.Flags().Bool("latest", false, "Publish latest draft release (mutually exclusive with --tag)")
+	publishCmd.Flags().String("tag", "", "Specific tag to publish (requires user token; GitHub App tokens cannot discover drafts)")
+	publishCmd.Flags().Bool("latest", false, "Publish latest draft release (requires user token; GitHub App tokens cannot discover drafts)")
+	publishCmd.Flags().Int64("release-id", 0, "Publish by release ID — works with GitHub App tokens (octo-sts)")
 	publishCmd.Flags().Bool("dry-run", false, "Show what would be done without publishing")
 	publishCmd.Flags().String("repo", ".", "Path to git repository")
 	publishCmd.Flags().StringP("output", "o", "text", "Output format: text, json")
@@ -57,10 +58,16 @@ func TestPublishCmdMutuallyExclusiveFlags(t *testing.T) {
 	assert.Contains(t, err.Error(), "mutually exclusive")
 }
 
+func TestPublishCmdMutuallyExclusiveReleaseID(t *testing.T) {
+	_, err := executePublishCmdWithToken(t, []string{"--tag", "v1.0.0", "--release-id", "42"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mutually exclusive")
+}
+
 func TestPublishCmdNeitherTagNorLatest(t *testing.T) {
 	_, err := executePublishCmdWithToken(t, []string{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "either --tag or --latest must be specified")
+	assert.Contains(t, err.Error(), "one of --tag, --latest, or --release-id must be specified")
 }
 
 func TestPublishCmdHelpOutput(t *testing.T) {
@@ -70,6 +77,7 @@ func TestPublishCmdHelpOutput(t *testing.T) {
 
 	assert.Contains(t, out, "--tag")
 	assert.Contains(t, out, "--latest")
+	assert.Contains(t, out, "--release-id")
 	assert.Contains(t, out, "--dry-run")
 	assert.Contains(t, out, "-o")
 }

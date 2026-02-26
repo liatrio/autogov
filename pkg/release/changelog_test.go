@@ -1,11 +1,15 @@
 package release
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// emojiPattern matches common Unicode emoji ranges used in conventional commit tooling.
+var emojiPattern = regexp.MustCompile(`[\x{1F300}-\x{1F9FF}\x{2600}-\x{27BF}]`)
 
 func TestGenerateChangelog(t *testing.T) {
 	commits := []ParsedCommit{
@@ -223,6 +227,25 @@ func TestGenerateChangelogJSONGroupNames(t *testing.T) {
 
 	assert.Equal(t, "Features", nameMap["feat"])
 	assert.Equal(t, "Bug Fixes", nameMap["fix"])
+}
+
+// TestChangelogNoEmojis verifies the default template contains no Unicode emoji codepoints.
+func TestChangelogNoEmojis(t *testing.T) {
+	commits := []ParsedCommit{
+		{Hash: "abc1234567890", Type: "feat", Subject: "add feature", Breaking: true},
+		{Hash: "def1234567890", Type: "fix", Subject: "fix bug"},
+		{Hash: "ghi1234567890", Type: "perf", Subject: "improve speed"},
+		{Hash: "jkl1234567890", Type: "docs", Subject: "update readme"},
+		{Hash: "mno1234567890", Type: "chore", Subject: "update deps"},
+	}
+
+	changelog, err := GenerateChangelog(commits, &ChangelogOptions{Version: "v2.0.0", IncludeAll: true})
+	require.NoError(t, err)
+
+	// the default template must not contain any emoji (AC9)
+	match := emojiPattern.FindString(changelog)
+	assert.Empty(t, match, "changelog must not contain Unicode emoji, found: %s", match)
+	assert.Contains(t, changelog, "Breaking Changes")
 }
 
 func TestGenerateChangelogJSONEmptyCommits(t *testing.T) {

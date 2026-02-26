@@ -42,6 +42,8 @@ func init() {
 	cutCmd.Flags().String("remote", "origin", "Git remote to push to")
 	cutCmd.Flags().String("mutations-config", "", "Path to mutations config file")
 	cutCmd.Flags().Bool("dry-run", false, "Show what would be done without making changes")
+	cutCmd.Flags().Bool("publish", false, "Publish release directly (skip draft state)")
+	cutCmd.Flags().String("mode", "auto", "Git read mode: auto (default), api (require GitHub API), local (go-git only)")
 	cutCmd.Flags().String("repo", ".", "Path to git repository")
 	cutCmd.Flags().String("commit-author", "autogov[bot]", "Author name for release commit")
 	cutCmd.Flags().String("commit-email", "autogov[bot]@users.noreply.github.com", "Author email for release commit")
@@ -54,6 +56,8 @@ func runCut(cmd *cobra.Command, args []string) error {
 	remote, _ := cmd.Flags().GetString("remote")
 	mutationsConfig, _ := cmd.Flags().GetString("mutations-config")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	publish, _ := cmd.Flags().GetBool("publish")
+	modeStr, _ := cmd.Flags().GetString("mode")
 	repoPath, _ := cmd.Flags().GetString("repo")
 	commitAuthor, _ := cmd.Flags().GetString("commit-author")
 	commitEmail, _ := cmd.Flags().GetString("commit-email")
@@ -68,6 +72,8 @@ func runCut(cmd *cobra.Command, args []string) error {
 		PlanFile:        planFile,
 		MutationsConfig: mutationsConfig,
 		DryRun:          dryRun,
+		Publish:         publish,
+		Mode:            release.ReleaseMode(modeStr),
 		CommitAuthor:    commitAuthor,
 		CommitEmail:     commitEmail,
 		Token:           token,
@@ -100,7 +106,11 @@ func runCut(cmd *cobra.Command, args []string) error {
 		}
 		_, _ = fmt.Fprintln(os.Stdout, string(data))
 	default:
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Release %s created successfully\n", result.TagName)
+		action := "draft"
+		if result.Published {
+			action = "published"
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Release %s created successfully (%s)\n", result.TagName, action)
 		if result.CommitSHA != "" {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Commit: %s\n", result.CommitSHA)
 		}

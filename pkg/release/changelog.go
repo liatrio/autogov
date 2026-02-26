@@ -34,7 +34,7 @@ type ChangelogOptions struct {
 // default changelog template
 const defaultChangelogTemplate = `## {{.Version}}
 {{if .BreakingChanges}}
-### 💥 Breaking Changes
+### Breaking Changes
 
 {{range .BreakingChanges}}- {{.}}
 {{end}}

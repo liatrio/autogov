@@ -29,12 +29,22 @@ type mockReleaseService struct {
 	// release operations
 	getRelease      *gogithub.RepositoryRelease
 	getReleaseErr   error
+	getReleaseByID  *gogithub.RepositoryRelease
+	getReleaseByIDErr error
 	createRelease   *gogithub.RepositoryRelease
 	createErr       error
 	updateRelease   *gogithub.RepositoryRelease
 	updateErr       error
 	listReleases    []*gogithub.RepositoryRelease
 	listReleasesErr error
+
+	// read operations
+	listTagsResult    []*gogithub.RepositoryTag
+	listTagsErr       error
+	compareResult     *gogithub.CommitsComparison
+	compareErr        error
+	getBranchResult   *gogithub.Branch
+	getBranchErr      error
 
 	// git data operations
 	createTreeResult   *gogithub.Tree
@@ -43,6 +53,7 @@ type mockReleaseService struct {
 	createCommitErr    error
 	createTagResult    *gogithub.Tag
 	createTagErr       error
+	lastCreateTagArg   gogithub.CreateTag // captured for assertions
 	createRefResult    *gogithub.Reference
 	createRefErr       error
 	updateRefResult    *gogithub.Reference
@@ -55,6 +66,38 @@ func (m *mockReleaseService) GetReleaseByTag(_ context.Context, _, _, _ string) 
 		code = 404
 	}
 	return m.getRelease, mockResp(code), m.getReleaseErr
+}
+
+func (m *mockReleaseService) GetRelease(_ context.Context, _, _ string, _ int64) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
+	code := 200
+	if m.getReleaseByIDErr != nil {
+		code = 404
+	}
+	return m.getReleaseByID, mockResp(code), m.getReleaseByIDErr
+}
+
+func (m *mockReleaseService) ListTags(_ context.Context, _, _ string, _ *gogithub.ListOptions) ([]*gogithub.RepositoryTag, *gogithub.Response, error) {
+	code := 200
+	if m.listTagsErr != nil {
+		code = 500
+	}
+	return m.listTagsResult, mockResp(code), m.listTagsErr
+}
+
+func (m *mockReleaseService) CompareCommits(_ context.Context, _, _, _, _ string, _ *gogithub.ListOptions) (*gogithub.CommitsComparison, *gogithub.Response, error) {
+	code := 200
+	if m.compareErr != nil {
+		code = 500
+	}
+	return m.compareResult, mockResp(code), m.compareErr
+}
+
+func (m *mockReleaseService) GetBranch(_ context.Context, _, _, _ string, _ int) (*gogithub.Branch, *gogithub.Response, error) {
+	code := 200
+	if m.getBranchErr != nil {
+		code = 404
+	}
+	return m.getBranchResult, mockResp(code), m.getBranchErr
 }
 
 func (m *mockReleaseService) CreateRelease(_ context.Context, _, _ string, _ *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
@@ -89,7 +132,8 @@ func (m *mockReleaseService) CreateCommit(_ context.Context, _, _ string, _ gogi
 	return m.createCommitResult, mockResp(201), m.createCommitErr
 }
 
-func (m *mockReleaseService) CreateTag(_ context.Context, _, _ string, _ gogithub.CreateTag) (*gogithub.Tag, *gogithub.Response, error) {
+func (m *mockReleaseService) CreateTag(_ context.Context, _, _ string, tag gogithub.CreateTag) (*gogithub.Tag, *gogithub.Response, error) {
+	m.lastCreateTagArg = tag
 	return m.createTagResult, mockResp(201), m.createTagErr
 }
 
@@ -679,6 +723,124 @@ func TestCutResultToJSON(t *testing.T) {
 	assert.Len(t, parsed.FilesModified, 2)
 }
 
+// TestExecuteCutWithPublish verifies that --publish creates a non-draft release directly.
+func TestExecuteCutWithPublish(t *testing.T) {
+	dir, repo := setupTestRepo(t)
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+
+	sig := &object.Signature{Name: "test", Email: "test@example.com", When: time.Now()}
+	writeFile(t, dir, "feature.txt", "new feature")
+	_, err = wt.Add("feature.txt")
+	require.NoError(t, err)
+	_, err = wt.Commit("feat: add feature", &git.CommitOptions{Author: sig})
+	require.NoError(t, err)
+
+	_, err = repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{"https://github.com/test/repo.git"},
+	})
+	require.NoError(t, err)
+
+	commitSHA := "abc123def456789012345678901234567890abcd"
+	tagSHA := "def456789012345678901234567890abcdef1234"
+
+	mock := &mockReleaseService{
+		createTreeResult:   &gogithub.Tree{SHA: gogithub.Ptr("tree-sha-123")},
+		createCommitResult: &gogithub.Commit{SHA: gogithub.Ptr(commitSHA)},
+		createTagResult:    &gogithub.Tag{SHA: gogithub.Ptr(tagSHA)},
+		createRefResult:    &gogithub.Reference{},
+		updateRefResult:    &gogithub.Reference{},
+		createRelease: &gogithub.RepositoryRelease{
+			ID:      gogithub.Ptr(int64(99)),
+			Draft:   gogithub.Ptr(false),
+			HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
+		},
+		getReleaseErr: fmt.Errorf("not found"),
+	}
+
+	opts := &CutOptions{
+		RepoPath:     dir,
+		Branch:       "master",
+		Remote:       "origin",
+		CommitAuthor: "testbot",
+		CommitEmail:  "testbot@test.com",
+		Token:        "test-token",
+		ReleaseAPI:   mock,
+		Publish:      true, // directly published, no draft
+	}
+
+	result, err := ExecuteCut(opts)
+	require.NoError(t, err)
+
+	assert.Equal(t, "v1.1.0", result.TagName)
+	assert.False(t, result.Draft, "release should not be a draft when --publish is set")
+	assert.True(t, result.Published, "result.Published should be true when --publish is set")
+}
+
+// TestExecuteCutTagPlacement verifies the tag points to the HEAD (trigger) commit,
+// not the release commit — per SLSA v1.2 cert-identity requirements.
+func TestExecuteCutTagPlacement(t *testing.T) {
+	dir, repo := setupTestRepo(t)
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+
+	sig := &object.Signature{Name: "test", Email: "test@example.com", When: time.Now()}
+	writeFile(t, dir, "feature.txt", "new feature")
+	_, err = wt.Add("feature.txt")
+	require.NoError(t, err)
+	_, err = wt.Commit("feat: add feature", &git.CommitOptions{Author: sig})
+	require.NoError(t, err)
+
+	_, err = repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{"https://github.com/test/repo.git"},
+	})
+	require.NoError(t, err)
+
+	// capture HEAD SHA before cut — the tag must point here, not the release commit
+	head, err := repo.Head()
+	require.NoError(t, err)
+	expectedTagObjectSHA := head.Hash().String()
+
+	releaseCommitSHA := "release00def456789012345678901234567890ab"
+	tagSHA := "tag0000def456789012345678901234567890abcd"
+
+	mock := &mockReleaseService{
+		createTreeResult:   &gogithub.Tree{SHA: gogithub.Ptr("tree-sha")},
+		createCommitResult: &gogithub.Commit{SHA: gogithub.Ptr(releaseCommitSHA)},
+		createTagResult:    &gogithub.Tag{SHA: gogithub.Ptr(tagSHA)},
+		createRefResult:    &gogithub.Reference{},
+		updateRefResult:    &gogithub.Reference{},
+		createRelease: &gogithub.RepositoryRelease{
+			ID:      gogithub.Ptr(int64(77)),
+			HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
+		},
+		getReleaseErr: fmt.Errorf("not found"),
+	}
+
+	opts := &CutOptions{
+		RepoPath:     dir,
+		Branch:       "master",
+		Remote:       "origin",
+		CommitAuthor: "testbot",
+		CommitEmail:  "testbot@test.com",
+		Token:        "test-token",
+		ReleaseAPI:   mock,
+	}
+
+	_, err = ExecuteCut(opts)
+	require.NoError(t, err)
+
+	// the tag's Object SHA must be the trigger (HEAD before mutations), not the release commit
+	assert.Equal(t, expectedTagObjectSHA, mock.lastCreateTagArg.Object,
+		"tag must point to trigger commit (HEAD before release commit), not the release commit")
+	assert.NotEqual(t, releaseCommitSHA, mock.lastCreateTagArg.Object,
+		"tag must NOT point to the release commit")
+}
+
 func TestDefaultCutOptions(t *testing.T) {
 	opts := DefaultCutOptions()
 
@@ -687,4 +849,45 @@ func TestDefaultCutOptions(t *testing.T) {
 	assert.Equal(t, "origin", opts.Remote)
 	assert.Equal(t, "autogov[bot]", opts.CommitAuthor)
 	assert.False(t, opts.DryRun)
+}
+
+func TestValidateMode(t *testing.T) {
+	assert.NoError(t, ValidateMode(ModeAuto))
+	assert.NoError(t, ValidateMode(ModeAPI))
+	assert.NoError(t, ValidateMode(ModeLocal))
+	assert.NoError(t, ValidateMode("")) // empty defaults to auto behavior
+
+	err := ValidateMode("garbage")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid --mode")
+}
+
+func TestExecuteCutInvalidMode(t *testing.T) {
+	dir, _ := setupTestRepo(t)
+
+	opts := &CutOptions{
+		RepoPath: dir,
+		Branch:   "master",
+		Remote:   "origin",
+		Mode:     "invalid",
+	}
+
+	_, err := ExecuteCut(opts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid --mode")
+}
+
+func TestExecuteCutAPIModeRequiresToken(t *testing.T) {
+	dir, _ := setupTestRepo(t)
+
+	opts := &CutOptions{
+		RepoPath: dir,
+		Branch:   "master",
+		Remote:   "origin",
+		Mode:     ModeAPI,
+	}
+
+	_, err := ExecuteCut(opts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--mode=api requires a GitHub token")
 }
