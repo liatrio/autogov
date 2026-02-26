@@ -352,9 +352,10 @@ func TestExecuteCutNoReleaseNeeded(t *testing.T) {
 		Remote:   "origin",
 	}
 
-	_, err := ExecuteCut(opts)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no release needed")
+	result, err := ExecuteCut(opts)
+	assert.NoError(t, err)
+	assert.True(t, result.NoRelease)
+	assert.NotEmpty(t, result.Reason)
 }
 
 func TestExecuteCutDryRun(t *testing.T) {
