@@ -52,6 +52,18 @@ func applyRule(repoRoot string, rule MutationRule, version string, dryRun bool) 
 		return MutationResult{Rule: rule, Error: fmt.Sprintf("failed to read file: %v", err)}
 	}
 
+	// exec mutations cannot be simulated in dry-run mode
+	if rule.Type == "exec" && dryRun {
+		return MutationResult{
+			Rule:    rule,
+			Applied: false,
+			Diff:    "exec mutations are not simulated in dry-run mode",
+		}
+	}
+
+	// set repo root for mutators that need filesystem context (e.g., exec)
+	rule.RepoRoot = repoRoot
+
 	// for structured mutators (json/yaml/toml), newValue is the version string
 	// for regex, the Replace template handles substitution
 	newValue := version

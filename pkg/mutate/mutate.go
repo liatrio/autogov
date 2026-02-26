@@ -1,14 +1,18 @@
 package mutate
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // MutationRule defines a single file mutation to perform
 type MutationRule struct {
-	Path    string `json:"path" yaml:"path"`                           // file path relative to repo root
-	Type    string `json:"type" yaml:"type"`                           // jsonPath, yamlPath, tomlKey, regexReplace
-	Field   string `json:"field" yaml:"field"`                         // path expression (dot-notation or regex pattern)
-	Replace string `json:"replace,omitempty" yaml:"replace,omitempty"` // replacement template (for regex)
-	Global  bool   `json:"global,omitempty" yaml:"global,omitempty"`   // replace all matches (regex only)
+	Path     string `json:"path" yaml:"path"`                           // file path relative to repo root
+	Type     string `json:"type" yaml:"type"`                           // jsonPath, yamlPath, tomlKey, regexReplace, exec
+	Field    string `json:"field" yaml:"field"`                         // path expression (dot-notation, regex pattern, or shell command)
+	Replace  string `json:"replace,omitempty" yaml:"replace,omitempty"` // replacement template (for regex)
+	Global   bool   `json:"global,omitempty" yaml:"global,omitempty"`   // replace all matches (regex only)
+	RepoRoot string `json:"-" yaml:"-"`                                 // runtime-only: set by engine, not serialized
 }
 
 // MutationConfig holds the full mutation configuration
@@ -44,7 +48,7 @@ func RegisterMutator(name string, m Mutator) {
 func GetMutator(mutationType string) (Mutator, error) {
 	m, ok := mutatorRegistry[mutationType]
 	if !ok {
-		return nil, fmt.Errorf("unknown mutation type: %s (available: jsonPath, yamlPath, tomlKey, regexReplace)", mutationType)
+		return nil, fmt.Errorf("unknown mutation type: %s (available: %s)", mutationType, strings.Join(ValidMutationTypes(), ", "))
 	}
 	return m, nil
 }

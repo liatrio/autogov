@@ -167,7 +167,7 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 
 	// populate file mutations if config provided
 	if opts.MutationsConfig != "" && plan.ReleaseNeeded {
-		mutations, err := previewMutations(opts.RepoPath, opts.MutationsConfig, nextVersion.String())
+		mutations, err := previewMutations(opts.RepoPath, opts.MutationsConfig, nextVersion.StringWithoutV())
 		if err != nil {
 			// non-fatal: log warning but don't fail the plan
 			plan.FileMutations = []FileMutation{{
