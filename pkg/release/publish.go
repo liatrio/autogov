@@ -125,9 +125,22 @@ func findDraftRelease(ctx context.Context, opts *PublishOptions, owner, repo str
 }
 
 // findDraftReleaseByTag finds a draft release matching the given tag.
-// Uses ListReleases because GetReleaseByTag only returns published releases;
-// draft releases are only visible through the list endpoint.
+// Tries GetReleaseByTag first (works with tokens that have push access),
+// then falls back to ListReleases for broader compatibility.
 func findDraftReleaseByTag(ctx context.Context, opts *PublishOptions, owner, repo string) (*gogithub.RepositoryRelease, error) {
+	// try GetReleaseByTag first — returns drafts if the token has push access
+	rel, resp, err := opts.ReleaseAPI.GetReleaseByTag(ctx, owner, repo, opts.Tag)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err == nil && rel != nil {
+		if !rel.GetDraft() {
+			return nil, fmt.Errorf("release %s is already published (immutable)", opts.Tag)
+		}
+		return rel, nil
+	}
+
+	// fall back to ListReleases (drafts may not appear for some token types)
 	const maxPages = 10
 	listOpts := &gogithub.ListOptions{PerPage: 50}
 
