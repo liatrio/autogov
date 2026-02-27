@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v82/github"
-	"github.com/liatrio/autogov-verify/pkg/digest"
-	ghclient "github.com/liatrio/autogov-verify/pkg/github"
-	"github.com/liatrio/autogov-verify/pkg/offline"
+	"github.com/liatrio/autogov/pkg/digest"
+	ghclient "github.com/liatrio/autogov/pkg/github"
+	"github.com/liatrio/autogov/pkg/offline"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 )
 

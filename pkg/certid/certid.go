@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/liatrio/autogov-verify/pkg/github"
+	"github.com/liatrio/autogov/pkg/github"
 )
 
 // default cache dir

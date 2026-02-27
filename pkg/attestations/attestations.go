@@ -17,10 +17,10 @@ import (
 	"time"
 
 	"github.com/google/go-github/v82/github"
-	"github.com/liatrio/autogov-verify/pkg/certid"
-	"github.com/liatrio/autogov-verify/pkg/digest"
-	ghclient "github.com/liatrio/autogov-verify/pkg/github"
-	"github.com/liatrio/autogov-verify/pkg/root"
+	"github.com/liatrio/autogov/pkg/certid"
+	"github.com/liatrio/autogov/pkg/digest"
+	ghclient "github.com/liatrio/autogov/pkg/github"
+	"github.com/liatrio/autogov/pkg/root"
 
 	"github.com/sigstore/cosign/v3/pkg/oci"
 	"github.com/sigstore/cosign/v3/pkg/oci/static"

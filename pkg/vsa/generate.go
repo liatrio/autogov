@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/liatrio/autogov-verify/pkg/attestations"
-	"github.com/liatrio/autogov-verify/pkg/policy"
+	"github.com/liatrio/autogov/pkg/attestations"
+	"github.com/liatrio/autogov/pkg/policy"
 	"github.com/sigstore/cosign/v3/pkg/oci"
 	"github.com/spf13/viper"
 )

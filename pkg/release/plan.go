@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/liatrio/autogov-verify/pkg/mutate"
+	"github.com/liatrio/autogov/pkg/mutate"
 	"gopkg.in/yaml.v3"
 )
 

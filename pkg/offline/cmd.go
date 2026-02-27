@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/liatrio/autogov-verify/pkg/cli"
-	"github.com/liatrio/autogov-verify/pkg/vsa"
+	"github.com/liatrio/autogov/pkg/cli"
+	"github.com/liatrio/autogov/pkg/vsa"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

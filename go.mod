@@ -1,4 +1,4 @@
-module github.com/liatrio/autogov-verify
+module github.com/liatrio/autogov
 
 go 1.25.0
 

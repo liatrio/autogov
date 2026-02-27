@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liatrio/autogov-verify/pkg/attestations"
+	"github.com/liatrio/autogov/pkg/attestations"
 )
 
 const (

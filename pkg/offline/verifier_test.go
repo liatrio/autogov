@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	bundleutils "github.com/liatrio/autogov-verify/pkg/bundle"
+	bundleutils "github.com/liatrio/autogov/pkg/bundle"
 )
 
 func TestNewOfflineVerifier(t *testing.T) {
