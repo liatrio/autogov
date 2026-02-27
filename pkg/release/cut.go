@@ -620,6 +620,8 @@ func buildCommitMessage(plan *ReleasePlan) string {
 		}
 	}
 
+	sb.WriteString("\n[skip ci]")
+
 	return sb.String()
 }
 

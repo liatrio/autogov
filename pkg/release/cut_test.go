@@ -370,6 +370,7 @@ func TestBuildCommitMessageNoMutations(t *testing.T) {
 	msg := buildCommitMessage(plan)
 	assert.Contains(t, msg, "chore(release): v1.0.1")
 	assert.NotContains(t, msg, "Files modified")
+	assert.Contains(t, msg, "[skip ci]")
 }
 
 func TestBuildCommitMessageSkipsErrors(t *testing.T) {
