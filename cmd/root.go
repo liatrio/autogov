@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/liatrio/autogov-verify/cmd/release"
+	"github.com/liatrio/autogov-verify/cmd/verify"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -42,8 +43,11 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
+	// propagate build-time version info to verify package for VSA generation
+	verify.SetBuildInfo(Version, OpaVersion)
+
 	// add subcommands
-	rootCmd.AddCommand(verifyCmd)
+	rootCmd.AddCommand(verify.VerifyCmd)
 	rootCmd.AddCommand(downloadCmd)
 	rootCmd.AddCommand(offlineCmd)
 	rootCmd.AddCommand(versionCmd)
