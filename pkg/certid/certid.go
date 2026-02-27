@@ -16,7 +16,7 @@ import (
 )
 
 // default cache dir
-const CacheDir = ".autogov-verify"
+const CacheDir = ".autogov"
 
 // default cache file
 const CacheFile = "cert-identities.json"

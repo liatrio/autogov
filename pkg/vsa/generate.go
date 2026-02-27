@@ -146,9 +146,9 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 		},
 	}
 
-	// add autogov-verify version if not dev build
+	// add autogov version if not dev build
 	if opts.Version != "" && opts.Version != "dev" {
-		vsaOpts.AdditionalVerifiers["autogov-verify"] = opts.Version
+		vsaOpts.AdditionalVerifiers["autogov"] = opts.Version
 	}
 
 	// generate VSA with subjects
