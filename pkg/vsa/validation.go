@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/liatrio/autogov-verify/pkg/attestations"
-	"github.com/liatrio/autogov-verify/pkg/digest"
+	"github.com/liatrio/autogov/pkg/attestations"
+	"github.com/liatrio/autogov/pkg/digest"
 )
 
 // structured error for VSA operations

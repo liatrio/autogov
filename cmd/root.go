@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/liatrio/autogov-verify/cmd/release"
-	"github.com/liatrio/autogov-verify/cmd/verify"
+	"github.com/liatrio/autogov/cmd/release"
+	"github.com/liatrio/autogov/cmd/verify"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

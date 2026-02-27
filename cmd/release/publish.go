@@ -3,8 +3,8 @@ package release
 import (
 	"fmt"
 
-	ghpkg "github.com/liatrio/autogov-verify/pkg/github"
-	"github.com/liatrio/autogov-verify/pkg/release"
+	ghpkg "github.com/liatrio/autogov/pkg/github"
+	"github.com/liatrio/autogov/pkg/release"
 	"github.com/spf13/cobra"
 )
 

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 
 	"github.com/google/go-github/v82/github"
-	"github.com/liatrio/autogov-verify/pkg/attestations"
-	"github.com/liatrio/autogov-verify/pkg/certid"
+	"github.com/liatrio/autogov/pkg/attestations"
+	"github.com/liatrio/autogov/pkg/certid"
 	"github.com/sigstore/cosign/v3/pkg/oci"
 )
 

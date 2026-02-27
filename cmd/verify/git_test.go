@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/liatrio/autogov-verify/cmd/verify"
+	"github.com/liatrio/autogov/cmd/verify"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

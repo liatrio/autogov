@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/liatrio/autogov-verify/cmd"
+	"github.com/liatrio/autogov/cmd"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
 const (
-	testCertIdentity     = "https://github.com/liatrio/autogov-verify/.github/workflows/test.yml@refs/heads/main"
+	testCertIdentity     = "https://github.com/liatrio/autogov/.github/workflows/test.yml@refs/heads/main"
 	testRepo             = "liatrio/repo"
 	testToken            = "mock-token"
 	testFlagCertIdentity = "--cert-identity"

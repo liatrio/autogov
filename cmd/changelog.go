@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/liatrio/autogov-verify/pkg/release"
+	"github.com/liatrio/autogov/pkg/release"
 	"github.com/spf13/cobra"
 )
 

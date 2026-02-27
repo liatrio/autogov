@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/liatrio/autogov-verify/pkg/digest"
-	"github.com/liatrio/autogov-verify/pkg/github"
+	"github.com/liatrio/autogov/pkg/digest"
+	"github.com/liatrio/autogov/pkg/github"
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/rego"
 	"github.com/open-policy-agent/opa/v1/storage/inmem"

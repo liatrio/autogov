@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/liatrio/autogov-verify/pkg/attestations"
+	"github.com/liatrio/autogov/pkg/attestations"
 )
 
 const (
@@ -275,7 +275,7 @@ func TestValidateVSAFromJSON(t *testing.T) {
 		],
 		"predicate": {
 			"verifier": {
-				"id": "https://github.com/liatrio/autogov-verify"
+				"id": "https://github.com/liatrio/autogov"
 			},
 			"resourceUri": "test-resource",
 			"verificationResult": "PASSED",

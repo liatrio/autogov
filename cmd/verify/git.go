@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/liatrio/autogov-verify/pkg/gitsign"
+	"github.com/liatrio/autogov/pkg/gitsign"
 	"github.com/spf13/cobra"
 )
 

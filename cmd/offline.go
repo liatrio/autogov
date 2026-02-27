@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/liatrio/autogov-verify/pkg/offline"
+	"github.com/liatrio/autogov/pkg/offline"
 	"github.com/spf13/cobra"
 )
 

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/liatrio/autogov-verify/cmd"
+	"github.com/liatrio/autogov/cmd"
 )
 
 // build-time variables set via ldflags

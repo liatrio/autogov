@@ -227,7 +227,7 @@ func TestVSAWithMultipleRealAttestations(t *testing.T) {
 	}
 
 	// verify verifier versions - should be empty or only contain additional verifiers
-	// autogov-verify version is no longer included by default
+	// autogov version is no longer included by default
 	expectedVerifiers := []string{"opa", "slsa-verifier"}
 	for _, verifier := range expectedVerifiers {
 		if _, exists := vsa.Predicate.Verifier.Version[verifier]; !exists {

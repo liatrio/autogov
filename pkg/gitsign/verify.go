@@ -15,7 +15,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/liatrio/autogov-verify/pkg/root"
+	"github.com/liatrio/autogov/pkg/root"
 )
 
 // VerifyOptions configures gitsign commit verification.

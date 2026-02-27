@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/liatrio/autogov-verify/pkg/attestations"
-	"github.com/liatrio/autogov-verify/pkg/policy"
+	"github.com/liatrio/autogov/pkg/attestations"
+	"github.com/liatrio/autogov/pkg/policy"
 	"github.com/sigstore/cosign/v3/pkg/oci"
 	"github.com/spf13/viper"
 )
@@ -146,9 +146,9 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 		},
 	}
 
-	// add autogov-verify version if not dev build
+	// add autogov version if not dev build
 	if opts.Version != "" && opts.Version != "dev" {
-		vsaOpts.AdditionalVerifiers["autogov-verify"] = opts.Version
+		vsaOpts.AdditionalVerifiers["autogov"] = opts.Version
 	}
 
 	// generate VSA with subjects

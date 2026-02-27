@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/liatrio/autogov-verify/pkg/attestations"
+	"github.com/liatrio/autogov/pkg/attestations"
 )
 
 // Verification Summary Attestation based on the in-toto VSA specification / SLSA v1.1
@@ -297,7 +297,7 @@ func generateVSACore(imageRef string, subjects []VSASubject, policyURI string, v
 		Subject:       vsaSubjects,
 		Predicate: VSAPredicate{
 			Verifier: VSAVerifier{
-				ID:      "https://github.com/liatrio/autogov-verify",
+				ID:      "https://github.com/liatrio/autogov",
 				Version: verifierVersions,
 			},
 			TimeVerified:       now.Format(time.RFC3339),

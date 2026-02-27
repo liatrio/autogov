@@ -2,10 +2,10 @@
 apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
-  name: autogov-verify
-  description: A tool for getting/verifying GitHub Artifact Attestations
+  name: autogov
+  description: A unified CLI for attestation verification and release management
   annotations:
-    github.com/project-slug: liatrio/autogov-verify
+    github.com/project-slug: liatrio/autogov
   tags:
     - automated-governance
     - autogov
