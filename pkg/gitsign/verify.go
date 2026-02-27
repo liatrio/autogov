@@ -116,7 +116,14 @@ func verifyCommitObject(commit *object.Commit, opts VerifyOptions) (*Verificatio
 		return result, nil
 	}
 
-	// decode PEM block (gitsign uses "SIGNED MESSAGE" type, same as PGP block name)
+	// detect PGP armor (standard gpg/ssh signing) before attempting PEM decode,
+	// since encoding/pem cannot parse PGP armor (the =CRC line breaks it)
+	if strings.Contains(sig, "-----BEGIN PGP SIGNATURE-----") {
+		result.ErrorMsg = "unsupported signature type: PGP (not a gitsign/Sigstore signature)"
+		return result, nil
+	}
+
+	// decode PEM block (gitsign uses "SIGNED MESSAGE" type)
 	block, _ := pem.Decode([]byte(sig))
 	if block == nil {
 		result.ErrorMsg = "unsupported signature format: not PEM-encoded"

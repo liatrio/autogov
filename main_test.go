@@ -53,7 +53,7 @@ func TestVerify(t *testing.T) {
 	}{
 		{
 			name: "no args",
-			args: []string{"verify"},
+			args: []string{"verify", "attestation"},
 			envVars: map[string]string{
 				"GITHUB_TOKEN": "",
 				"GH_TOKEN":     "",
@@ -64,7 +64,7 @@ func TestVerify(t *testing.T) {
 		{
 			name: "missing token",
 			args: []string{
-				"verify",
+				"verify", "attestation",
 				testFlagCertIdentity, testCertIdentity,
 				testFlagImageDigest, "liatrio/repo@sha256:abc123",
 				testFlagRepo, testRepo,
@@ -79,7 +79,7 @@ func TestVerify(t *testing.T) {
 		{
 			name: "missing artifact digest and blob path",
 			args: []string{
-				"verify",
+				"verify", "attestation",
 				testFlagCertIdentity, testCertIdentity,
 			},
 			envVars: map[string]string{
@@ -91,7 +91,7 @@ func TestVerify(t *testing.T) {
 		{
 			name: "invalid artifact digest - short sha",
 			args: []string{
-				"verify",
+				"verify", "attestation",
 				testFlagCertIdentity, testCertIdentity,
 				testFlagImageDigest, "liatrio/repo@sha256:abc123",
 				testFlagRepo, testRepo,
@@ -105,7 +105,7 @@ func TestVerify(t *testing.T) {
 		{
 			name: "invalid artifact digest - bad format",
 			args: []string{
-				"verify",
+				"verify", "attestation",
 				testFlagCertIdentity, testCertIdentity,
 				testFlagImageDigest, "sha256:test",
 				testFlagRepo, testRepo,
@@ -119,7 +119,7 @@ func TestVerify(t *testing.T) {
 		{
 			name: "invalid blob path",
 			args: []string{
-				"verify",
+				"verify", "attestation",
 				testFlagCertIdentity, testCertIdentity,
 				"--blob-path", "/nonexistent/path",
 				testFlagRepo, "liatrio/test-repo",
@@ -132,7 +132,7 @@ func TestVerify(t *testing.T) {
 		},
 		{
 			name: "invalid_blob_path",
-			args: []string{"verify", "--blob-path", "/nonexistent/path", testFlagRepo, testRepo},
+			args: []string{"verify", "attestation", "--blob-path", "/nonexistent/path", testFlagRepo, testRepo},
 			envVars: map[string]string{
 				"GITHUB_TOKEN": testToken,
 			},
@@ -237,6 +237,36 @@ func TestHelpContainsAllSubcommands(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("Expected subcommand %q not found in root command", expected)
+		}
+	}
+}
+
+func TestVerifySubcommands(t *testing.T) {
+	rootCmd := cmd.GetRootCmd()
+
+	var verifyCmd *cobra.Command
+	for _, subCmd := range rootCmd.Commands() {
+		if subCmd.Name() == "verify" {
+			verifyCmd = subCmd
+			break
+		}
+	}
+
+	if verifyCmd == nil {
+		t.Fatal("verify command not found")
+	}
+
+	expectedSubcommands := []string{"attestation", "git"}
+	for _, expected := range expectedSubcommands {
+		found := false
+		for _, subCmd := range verifyCmd.Commands() {
+			if subCmd.Name() == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected verify subcommand %q not found", expected)
 		}
 	}
 }
