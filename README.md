@@ -86,7 +86,7 @@ If testing locally, use a PAT (e.g., a [Classic Personal Token](https://docs.git
 ## Installation
 
 ```bash
-go install github.com/liatrio/autogov-verify@latest
+go install github.com/liatrio/autogov@latest
 
 # Binary will be installed as 'autogov'
 ```
@@ -713,7 +713,7 @@ Common issues and solutions:
    - Ensure the digest follows the format: `sha256:hash`
    - When using full OCI references, include the registry: `ghcr.io/owner/repo@sha256:hash`
 
-If you encounter any other issues, please [open an issue](https://github.com/liatrio/autogov-verify/issues/new) and include as much detail as possible.
+If you encounter any other issues, please [open an issue](https://github.com/liatrio/autogov/issues/new) and include as much detail as possible.
 
 ## Development
 
@@ -730,8 +730,8 @@ If you encounter any other issues, please [open an issue](https://github.com/lia
 
 ```bash
 # Clone and setup
-git clone https://github.com/liatrio/autogov-verify
-cd autogov-verify
+git clone https://github.com/liatrio/autogov
+cd autogov
 
 # Install dependencies
 go mod download

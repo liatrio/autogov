@@ -17,8 +17,8 @@ Thank you for your interest in contributing to AutoGov! This document provides g
 
 ```bash
 # Clone and setup
-git clone https://github.com/liatrio/autogov-verify
-cd autogov-verify
+git clone https://github.com/liatrio/autogov
+cd autogov
 
 # Install dependencies
 go mod download
