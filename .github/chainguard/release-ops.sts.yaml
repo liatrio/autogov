@@ -1,4 +1,8 @@
 issuer: https://token.actions.githubusercontent.com
+# SLSA recommends immutable refs (commit SHAs or tags) over mutable branch refs.
+# GitHub OIDC tokens for push events embed the branch ref in the subject claim,
+# preventing direct use of commit SHAs here. Future: redesign the release trigger
+# to use tag-based events so this can be scoped to refs/tags/v*.
 subject_pattern: "repo:liatrio/autogov:ref:refs/heads/main"
 permissions:
   contents: write

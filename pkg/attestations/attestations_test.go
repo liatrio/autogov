@@ -15,8 +15,8 @@ import (
 const (
 	testFileName              = "test.txt"
 	testFileData              = "test data"
-	testCertIdentity          = "https://github.com/liatrio/autogov/.github/workflows/test.yml@refs/heads/main"
-	verifyCertIdentity        = "https://github.com/liatrio/autogov/.github/workflows/verify.yml@refs/heads/main"
+	testCertIdentity          = "https://github.com/liatrio/autogov/.github/workflows/test.yml@abc1234567890abcdef1234567890abcdef12345"
+	verifyCertIdentity        = "https://github.com/liatrio/autogov/.github/workflows/verify.yml@def1234567890abcdef1234567890abcdef12345"
 	testCertIssuer            = "https://token.actions.githubusercontent.com"
 	testDigest                = "sha256:abc123def456789012345678901234567890123456789012345678901234"
 	shortTestDigest           = "sha256:abc123"

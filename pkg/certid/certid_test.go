@@ -27,7 +27,7 @@ func TestValidatorIsValidIdentity(t *testing.T) {
 				"version": "1.0.0",
 				"sha": "abcdef1234567890",
 				"status": "latest",
-				"identities": ["https://github.com/liatrio/test-repo/.github/workflows/test.yaml@refs/heads/main"],
+				"identities": ["https://github.com/liatrio/test-repo/.github/workflows/test.yaml@abc1234567890abcdef1234567890abcdef12345"],
 				"added": "` + today + `"
 			},
 			{
@@ -85,7 +85,7 @@ func TestValidatorIsValidIdentity(t *testing.T) {
 	}{
 		{
 			name:         "Latest - Valid",
-			certIdentity: "https://github.com/liatrio/test-repo/.github/workflows/test.yaml@refs/heads/main",
+			certIdentity: "https://github.com/liatrio/test-repo/.github/workflows/test.yaml@abc1234567890abcdef1234567890abcdef12345",
 			want:         true,
 			errContains:  "",
 		},
