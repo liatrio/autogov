@@ -25,6 +25,7 @@ jobs:
       attestations: write
       contents: read
       actions: read
+      artifact-metadata: write
     uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-attest-blob.yaml@c2295cdfb8e80d6872c162a8d22cf3a0eb0dd324 # v0.20.10
     secrets: inherit
     with:
@@ -38,6 +39,7 @@ jobs:
       packages: write
       contents: read
       actions: read
+      artifact-metadata: write
     uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-verify.yaml@c2295cdfb8e80d6872c162a8d22cf3a0eb0dd324 # v0.20.10
     secrets: inherit
     with:
