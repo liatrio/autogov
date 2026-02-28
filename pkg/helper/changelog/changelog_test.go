@@ -1,9 +1,10 @@
-package release
+package changelog
 
 import (
 	"regexp"
 	"testing"
 
+	"github.com/liatrio/autogov/pkg/helper/version"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -12,13 +13,13 @@ import (
 var emojiPattern = regexp.MustCompile(`[\x{1F300}-\x{1F9FF}\x{2600}-\x{27BF}]`)
 
 func TestGenerateChangelog(t *testing.T) {
-	commits := []ParsedCommit{
+	commits := []version.ParsedCommit{
 		{Hash: "abc1234567890", Type: "feat", Scope: "api", Subject: "add new endpoint"},
 		{Hash: "def1234567890", Type: "fix", Subject: "fix bug in auth"},
 		{Hash: "ghi1234567890", Type: "docs", Subject: "update readme"},
 	}
 
-	opts := &ChangelogOptions{
+	opts := &Options{
 		Version:    "v1.1.0",
 		IncludeAll: true,
 	}
@@ -36,12 +37,12 @@ func TestGenerateChangelog(t *testing.T) {
 }
 
 func TestGenerateChangelogWithBreakingChanges(t *testing.T) {
-	commits := []ParsedCommit{
+	commits := []version.ParsedCommit{
 		{Hash: "abc1234567890", Type: "feat", Scope: "api", Subject: "breaking change", Breaking: true},
 		{Hash: "def1234567890", Type: "fix", Subject: "normal fix"},
 	}
 
-	opts := &ChangelogOptions{Version: "v2.0.0"}
+	opts := &Options{Version: "v2.0.0"}
 	changelog, err := GenerateChangelog(commits, opts)
 	require.NoError(t, err)
 
@@ -50,13 +51,13 @@ func TestGenerateChangelogWithBreakingChanges(t *testing.T) {
 }
 
 func TestGenerateChangelogWithoutNonReleasable(t *testing.T) {
-	commits := []ParsedCommit{
+	commits := []version.ParsedCommit{
 		{Hash: "abc1234567890", Type: "feat", Subject: "new feature"},
 		{Hash: "def1234567890", Type: "docs", Subject: "update docs"},
 		{Hash: "ghi1234567890", Type: "chore", Subject: "update deps"},
 	}
 
-	opts := &ChangelogOptions{
+	opts := &Options{
 		Version:    "v1.1.0",
 		IncludeAll: false,
 	}
@@ -72,7 +73,7 @@ func TestGenerateChangelogWithoutNonReleasable(t *testing.T) {
 }
 
 func TestGenerateChangelogPreview(t *testing.T) {
-	commits := []ParsedCommit{
+	commits := []version.ParsedCommit{
 		{Hash: "abc1234567890", Type: "feat", Subject: "new feature"},
 		{Hash: "def1234567890", Type: "fix", Subject: "bug fix"},
 	}
@@ -86,7 +87,7 @@ func TestGenerateChangelogPreview(t *testing.T) {
 }
 
 func TestGetCommitStats(t *testing.T) {
-	commits := []ParsedCommit{
+	commits := []version.ParsedCommit{
 		{Type: "feat", Breaking: true},
 		{Type: "feat"},
 		{Type: "fix"},
@@ -102,9 +103,8 @@ func TestGetCommitStats(t *testing.T) {
 	assert.Equal(t, 1, stats["breaking"])
 }
 
-
 func TestGenerateChangelogNilOpts(t *testing.T) {
-	commits := []ParsedCommit{
+	commits := []version.ParsedCommit{
 		{Hash: "abc1234567890", Type: "feat", Subject: "new feature"},
 	}
 
@@ -114,11 +114,11 @@ func TestGenerateChangelogNilOpts(t *testing.T) {
 }
 
 func TestGenerateChangelogCustomTemplate(t *testing.T) {
-	commits := []ParsedCommit{
+	commits := []version.ParsedCommit{
 		{Hash: "abc1234567890", Type: "feat", Subject: "new feature"},
 	}
 
-	opts := &ChangelogOptions{
+	opts := &Options{
 		Version:  "v1.0.0",
 		Template: "Release {{.Version}}: {{len .Groups}} groups",
 	}
@@ -129,13 +129,13 @@ func TestGenerateChangelogCustomTemplate(t *testing.T) {
 }
 
 func TestGenerateChangelogJSON(t *testing.T) {
-	commits := []ParsedCommit{
+	commits := []version.ParsedCommit{
 		{Hash: "abc1234567890", Type: "feat", Scope: "api", Subject: "add endpoint", Breaking: true},
 		{Hash: "def1234567890", Type: "fix", Subject: "fix crash"},
 		{Hash: "ghi1234567890", Type: "docs", Subject: "update readme"},
 	}
 
-	result := GenerateChangelogJSON(commits, &ChangelogOptions{
+	result := GenerateChangelogJSON(commits, &Options{
 		Version:    "v2.0.0",
 		IncludeAll: true,
 	})
@@ -163,13 +163,13 @@ func TestGenerateChangelogJSON(t *testing.T) {
 }
 
 func TestGenerateChangelogJSONWithoutIncludeAll(t *testing.T) {
-	commits := []ParsedCommit{
+	commits := []version.ParsedCommit{
 		{Hash: "abc1234567890", Type: "feat", Subject: "feature"},
 		{Hash: "def1234567890", Type: "docs", Subject: "docs change"},
 		{Hash: "ghi1234567890", Type: "chore", Subject: "chore task"},
 	}
 
-	result := GenerateChangelogJSON(commits, &ChangelogOptions{
+	result := GenerateChangelogJSON(commits, &Options{
 		Version:    "v1.0.0",
 		IncludeAll: false,
 	})
@@ -184,7 +184,7 @@ func TestGenerateChangelogJSONWithoutIncludeAll(t *testing.T) {
 }
 
 func TestGenerateChangelogJSONNilOpts(t *testing.T) {
-	commits := []ParsedCommit{
+	commits := []version.ParsedCommit{
 		{Hash: "abc1234567890", Type: "feat", Subject: "feature"},
 	}
 
@@ -195,11 +195,11 @@ func TestGenerateChangelogJSONNilOpts(t *testing.T) {
 }
 
 func TestGenerateChangelogJSONCommitFields(t *testing.T) {
-	commits := []ParsedCommit{
+	commits := []version.ParsedCommit{
 		{Hash: "abc1234567890", Type: "feat", Scope: "auth", Subject: "add login", Breaking: true},
 	}
 
-	result := GenerateChangelogJSON(commits, &ChangelogOptions{Version: "v1.0.0"})
+	result := GenerateChangelogJSON(commits, &Options{Version: "v1.0.0"})
 
 	require.Len(t, result.Groups, 1)
 	require.Len(t, result.Groups[0].Commits, 1)
@@ -213,12 +213,12 @@ func TestGenerateChangelogJSONCommitFields(t *testing.T) {
 }
 
 func TestGenerateChangelogJSONGroupNames(t *testing.T) {
-	commits := []ParsedCommit{
+	commits := []version.ParsedCommit{
 		{Hash: "a", Type: "feat", Subject: "f"},
 		{Hash: "b", Type: "fix", Subject: "x"},
 	}
 
-	result := GenerateChangelogJSON(commits, &ChangelogOptions{IncludeAll: true})
+	result := GenerateChangelogJSON(commits, &Options{IncludeAll: true})
 
 	nameMap := make(map[string]string)
 	for _, g := range result.Groups {
@@ -231,7 +231,7 @@ func TestGenerateChangelogJSONGroupNames(t *testing.T) {
 
 // TestChangelogNoEmojis verifies the default template contains no Unicode emoji codepoints.
 func TestChangelogNoEmojis(t *testing.T) {
-	commits := []ParsedCommit{
+	commits := []version.ParsedCommit{
 		{Hash: "abc1234567890", Type: "feat", Subject: "add feature", Breaking: true},
 		{Hash: "def1234567890", Type: "fix", Subject: "fix bug"},
 		{Hash: "ghi1234567890", Type: "perf", Subject: "improve speed"},
@@ -239,7 +239,7 @@ func TestChangelogNoEmojis(t *testing.T) {
 		{Hash: "mno1234567890", Type: "chore", Subject: "update deps"},
 	}
 
-	changelog, err := GenerateChangelog(commits, &ChangelogOptions{Version: "v2.0.0", IncludeAll: true})
+	changelog, err := GenerateChangelog(commits, &Options{Version: "v2.0.0", IncludeAll: true})
 	require.NoError(t, err)
 
 	// the default template must not contain any emoji (AC9)
@@ -249,7 +249,7 @@ func TestChangelogNoEmojis(t *testing.T) {
 }
 
 func TestGenerateChangelogJSONEmptyCommits(t *testing.T) {
-	result := GenerateChangelogJSON(nil, &ChangelogOptions{Version: "v1.0.0"})
+	result := GenerateChangelogJSON(nil, &Options{Version: "v1.0.0"})
 
 	assert.Equal(t, "v1.0.0", result.Version)
 	assert.Empty(t, result.Groups)

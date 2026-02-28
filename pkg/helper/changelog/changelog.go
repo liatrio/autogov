@@ -1,8 +1,10 @@
-package release
+package changelog
 
 import (
 	"bytes"
 	"text/template"
+
+	"github.com/liatrio/autogov/pkg/helper/version"
 )
 
 // changelog type ordering for consistent output
@@ -21,8 +23,8 @@ var changelogTypeOrder = []string{
 	"other",
 }
 
-// ChangelogOptions contains options for changelog generation
-type ChangelogOptions struct {
+// Options contains options for changelog generation
+type Options struct {
 	// version being released
 	Version string
 	// include non-releasable commit types
@@ -44,24 +46,24 @@ const defaultChangelogTemplate = `## {{.Version}}
 {{range .Commits}}- {{if .Scope}}**{{.Scope}}:** {{end}}{{.Subject}} ({{shortHash .Hash}})
 {{end}}{{end}}{{end}}`
 
-// ChangelogGroup represents a group of commits in the changelog
-type ChangelogGroup struct {
+// Group represents a group of commits in the changelog
+type Group struct {
 	Type    string
-	Info    CommitTypeInfo
-	Commits []ParsedCommit
+	Info    version.CommitTypeInfo
+	Commits []version.ParsedCommit
 }
 
-// ChangelogData contains data for changelog template rendering
-type ChangelogData struct {
+// Data contains data for changelog template rendering
+type Data struct {
 	Version         string
 	BreakingChanges []string
-	Groups          []ChangelogGroup
+	Groups          []Group
 }
 
 // shouldIncludeGroup returns true if a commit group should be included in changelog output
-func shouldIncludeGroup(commitType string, commitList []ParsedCommit, includeAll bool) bool {
-	info := GetCommitTypeInfo(commitType)
-	if includeAll || info.BumpType != BumpNone || commitType == "other" {
+func shouldIncludeGroup(commitType string, commitList []version.ParsedCommit, includeAll bool) bool {
+	info := version.GetCommitTypeInfo(commitType)
+	if includeAll || info.BumpType != version.BumpNone || commitType == "other" {
 		return true
 	}
 	// include non-releasable types only if they contain breaking changes
@@ -74,16 +76,16 @@ func shouldIncludeGroup(commitType string, commitList []ParsedCommit, includeAll
 }
 
 // GenerateChangelog creates a changelog preview from commits
-func GenerateChangelog(commits []ParsedCommit, opts *ChangelogOptions) (string, error) {
+func GenerateChangelog(commits []version.ParsedCommit, opts *Options) (string, error) {
 	if opts == nil {
-		opts = &ChangelogOptions{}
+		opts = &Options{}
 	}
 
 	// group commits by type
-	groups := GroupCommitsByType(commits)
+	groups := version.GroupCommitsByType(commits)
 
 	// build ordered changelog groups
-	var orderedGroups []ChangelogGroup
+	var orderedGroups []Group
 	for _, commitType := range changelogTypeOrder {
 		commitList, ok := groups[commitType]
 		if !ok || len(commitList) == 0 {
@@ -94,18 +96,18 @@ func GenerateChangelog(commits []ParsedCommit, opts *ChangelogOptions) (string, 
 			continue
 		}
 
-		orderedGroups = append(orderedGroups, ChangelogGroup{
+		orderedGroups = append(orderedGroups, Group{
 			Type:    commitType,
-			Info:    GetCommitTypeInfo(commitType),
+			Info:    version.GetCommitTypeInfo(commitType),
 			Commits: commitList,
 		})
 	}
 
 	// extract breaking changes
-	breakingChanges := ExtractBreakingChanges(commits)
+	breakingChanges := version.ExtractBreakingChanges(commits)
 
 	// prepare template data
-	data := ChangelogData{
+	data := Data{
 		Version:         opts.Version,
 		BreakingChanges: breakingChanges,
 		Groups:          orderedGroups,
@@ -141,9 +143,8 @@ func GenerateChangelog(commits []ParsedCommit, opts *ChangelogOptions) (string, 
 }
 
 // GenerateChangelogPreview creates a brief changelog preview suitable for release plan output
-// Returns an error if changelog generation fails instead of embedding error in string
-func GenerateChangelogPreview(commits []ParsedCommit, nextVersion string) (string, error) {
-	opts := &ChangelogOptions{
+func GenerateChangelogPreview(commits []version.ParsedCommit, nextVersion string) (string, error) {
+	opts := &Options{
 		Version:    nextVersion,
 		IncludeAll: false,
 	}
@@ -152,7 +153,7 @@ func GenerateChangelogPreview(commits []ParsedCommit, nextVersion string) (strin
 }
 
 // GetCommitStats returns statistics about the commits
-func GetCommitStats(commits []ParsedCommit) map[string]int {
+func GetCommitStats(commits []version.ParsedCommit) map[string]int {
 	stats := make(map[string]int)
 
 	for _, c := range commits {
@@ -166,18 +167,18 @@ func GetCommitStats(commits []ParsedCommit) map[string]int {
 	return stats
 }
 
-// ChangelogJSON represents the JSON output format for changelog generation
-type ChangelogJSON struct {
-	Version         string             `json:"version,omitempty"`
-	BreakingChanges []string           `json:"breaking_changes,omitempty"`
-	Groups          []ChangelogGroupJSON `json:"groups"`
-	Stats           map[string]int     `json:"stats"`
+// JSON represents the JSON output format for changelog generation
+type JSON struct {
+	Version         string     `json:"version,omitempty"`
+	BreakingChanges []string   `json:"breaking_changes,omitempty"`
+	Groups          []GroupJSON `json:"groups"`
+	Stats           map[string]int `json:"stats"`
 }
 
-// ChangelogGroupJSON represents a commit group in JSON output
-type ChangelogGroupJSON struct {
-	Type    string       `json:"type"`
-	Name    string       `json:"name"`
+// GroupJSON represents a commit group in JSON output
+type GroupJSON struct {
+	Type    string      `json:"type"`
+	Name    string      `json:"name"`
 	Commits []CommitJSON `json:"commits"`
 }
 
@@ -191,14 +192,14 @@ type CommitJSON struct {
 }
 
 // GenerateChangelogJSON creates a structured JSON changelog from commits
-func GenerateChangelogJSON(commits []ParsedCommit, opts *ChangelogOptions) *ChangelogJSON {
+func GenerateChangelogJSON(commits []version.ParsedCommit, opts *Options) *JSON {
 	if opts == nil {
-		opts = &ChangelogOptions{}
+		opts = &Options{}
 	}
 
-	groups := GroupCommitsByType(commits)
+	groups := version.GroupCommitsByType(commits)
 
-	jsonGroups := make([]ChangelogGroupJSON, 0)
+	jsonGroups := make([]GroupJSON, 0)
 	for _, commitType := range changelogTypeOrder {
 		commitList, ok := groups[commitType]
 		if !ok || len(commitList) == 0 {
@@ -209,7 +210,7 @@ func GenerateChangelogJSON(commits []ParsedCommit, opts *ChangelogOptions) *Chan
 			continue
 		}
 
-		info := GetCommitTypeInfo(commitType)
+		info := version.GetCommitTypeInfo(commitType)
 		jsonCommits := make([]CommitJSON, 0, len(commitList))
 		for _, c := range commitList {
 			jc := CommitJSON{
@@ -224,16 +225,16 @@ func GenerateChangelogJSON(commits []ParsedCommit, opts *ChangelogOptions) *Chan
 			jsonCommits = append(jsonCommits, jc)
 		}
 
-		jsonGroups = append(jsonGroups, ChangelogGroupJSON{
+		jsonGroups = append(jsonGroups, GroupJSON{
 			Type:    commitType,
 			Name:    info.ChangelogName,
 			Commits: jsonCommits,
 		})
 	}
 
-	return &ChangelogJSON{
+	return &JSON{
 		Version:         opts.Version,
-		BreakingChanges: ExtractBreakingChanges(commits),
+		BreakingChanges: version.ExtractBreakingChanges(commits),
 		Groups:          jsonGroups,
 		Stats:           GetCommitStats(commits),
 	}

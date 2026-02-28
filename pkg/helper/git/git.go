@@ -1,13 +1,15 @@
-package release
+package git
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/liatrio/autogov/pkg/helper/version"
 )
 
 // OpenRepository opens a git repository at the given path
@@ -21,7 +23,7 @@ func OpenRepository(path string) (*git.Repository, error) {
 
 // DiscoverLatestTag finds the most recent semver tag in the repository
 // if firstParent is true, only considers tags that are ancestors of HEAD via first-parent
-func DiscoverLatestTag(repo *git.Repository, firstParent bool) (*Version, string, error) {
+func DiscoverLatestTag(repo *git.Repository, firstParent bool) (*version.Version, string, error) {
 	tags, err := repo.Tags()
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get tags: %w", err)
@@ -32,7 +34,7 @@ func DiscoverLatestTag(repo *git.Repository, firstParent bool) (*Version, string
 		tagName := ref.Name().Short()
 
 		// try to parse as semver
-		ver, err := ParseVersion(tagName)
+		ver, err := version.ParseVersion(tagName)
 		if err != nil {
 			// skip non-semver tags
 			return nil
@@ -75,7 +77,7 @@ func DiscoverLatestTag(repo *git.Repository, firstParent bool) (*Version, string
 
 // tagInfo holds information about a tag
 type tagInfo struct {
-	version *Version
+	version *version.Version
 	name    string
 	hash    plumbing.Hash
 }
@@ -113,7 +115,7 @@ func filterAncestorTags(repo *git.Repository, tags []*tagInfo) ([]*tagInfo, erro
 		// need to resolve tag to commit hash (could be lightweight or annotated)
 		commitHash, err := resolveTagToCommit(repo, tag.hash)
 		if err != nil {
-			fmt.Printf("warning: skipping tag %s: failed to resolve to commit: %v\n", tag.name, err)
+			fmt.Fprintf(os.Stderr, "warning: skipping tag %s: failed to resolve to commit: %v\n", tag.name, err)
 			continue
 		}
 		if ancestors[commitHash] {
@@ -291,7 +293,7 @@ func GetRepositoryName(repo *git.Repository) string {
 		if remote.Config().Name == "origin" {
 			urls := remote.Config().URLs
 			if len(urls) > 0 {
-				return parseRepoNameFromURL(urls[0])
+				return ParseRepoNameFromURL(urls[0])
 			}
 		}
 	}
@@ -299,15 +301,15 @@ func GetRepositoryName(repo *git.Repository) string {
 	// fallback to first remote
 	urls := remotes[0].Config().URLs
 	if len(urls) > 0 {
-		return parseRepoNameFromURL(urls[0])
+		return ParseRepoNameFromURL(urls[0])
 	}
 
 	return "unknown"
 }
 
-// parseRepoNameFromURL extracts owner/repo from a git URL
+// ParseRepoNameFromURL extracts owner/repo from a git URL
 // returns "unknown" if parsing fails to avoid leaking raw URLs
-func parseRepoNameFromURL(url string) string {
+func ParseRepoNameFromURL(url string) string {
 	// handle ssh format: git@github.com:owner/repo.git
 	if strings.HasPrefix(url, "git@") {
 		parts := strings.Split(url, ":")

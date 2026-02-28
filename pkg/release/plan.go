@@ -8,8 +8,76 @@ import (
 	"strings"
 	"time"
 
+	"github.com/liatrio/autogov/pkg/helper/changelog"
+	githelper "github.com/liatrio/autogov/pkg/helper/git"
+	"github.com/liatrio/autogov/pkg/helper/version"
 	"github.com/liatrio/autogov/pkg/mutate"
 	"gopkg.in/yaml.v3"
+)
+
+// Backward-compatibility aliases and re-exports.
+// TODO(2-12): Remove these once all callers import from pkg/helper/* directly.
+// These exist to avoid breaking existing code during the story 2-10 extraction.
+
+// ParsedCommit is an alias for version.ParsedCommit for backward compatibility.
+type ParsedCommit = version.ParsedCommit
+
+// BumpType is an alias for version.BumpType for backward compatibility
+type BumpType = version.BumpType
+
+// Version is an alias for version.Version for backward compatibility
+type Version = version.Version
+
+// CommitTypeInfo is an alias for version.CommitTypeInfo for backward compatibility
+type CommitTypeInfo = version.CommitTypeInfo
+
+// Re-export version constants for backward compatibility
+const (
+	BumpMajor = version.BumpMajor
+	BumpMinor = version.BumpMinor
+	BumpPatch = version.BumpPatch
+	BumpNone  = version.BumpNone
+)
+
+// Re-export version functions for backward compatibility
+var (
+	ParseVersion           = version.ParseVersion
+	ZeroVersion            = version.ZeroVersion
+	ComputeNextVersion     = version.ComputeNextVersion
+	ParseConventionalCommit = version.ParseConventionalCommit
+	FilterReleasableCommits = version.FilterReleasableCommits
+	ExtractBreakingChanges  = version.ExtractBreakingChanges
+	GroupCommitsByType      = version.GroupCommitsByType
+	GetCommitTypeInfo       = version.GetCommitTypeInfo
+)
+
+// Re-export git helper functions for backward compatibility
+var (
+	OpenRepository   = githelper.OpenRepository
+	DiscoverLatestTag = githelper.DiscoverLatestTag
+	GetCommitsSinceTag = githelper.GetCommitsSinceTag
+	GetRepositoryName  = githelper.GetRepositoryName
+	ParseCommits       = githelper.ParseCommits
+)
+
+// ChangelogOptions is an alias for changelog.Options for backward compatibility
+type ChangelogOptions = changelog.Options
+
+// ChangelogJSON is an alias for changelog.JSON for backward compatibility
+type ChangelogJSON = changelog.JSON
+
+// ChangelogGroupJSON is an alias for changelog.GroupJSON for backward compatibility
+type ChangelogGroupJSON = changelog.GroupJSON
+
+// CommitJSON is an alias for changelog.CommitJSON for backward compatibility
+type CommitJSON = changelog.CommitJSON
+
+// Re-export changelog functions for backward compatibility
+var (
+	GenerateChangelog        = changelog.GenerateChangelog
+	GenerateChangelogPreview = changelog.GenerateChangelogPreview
+	GenerateChangelogJSON    = changelog.GenerateChangelogJSON
+	GetCommitStats           = changelog.GetCommitStats
 )
 
 // ReleasePlan contains all information about a planned release
@@ -36,17 +104,6 @@ type ReleasePlan struct {
 	// status
 	ReleaseNeeded bool   `json:"release_needed" yaml:"release_needed"`
 	Reason        string `json:"reason,omitempty" yaml:"reason,omitempty"`
-}
-
-// ParsedCommit represents a parsed conventional commit
-type ParsedCommit struct {
-	Hash     string `json:"hash" yaml:"hash"`
-	Type     string `json:"type" yaml:"type"`                       // feat, fix, docs, etc.
-	Scope    string `json:"scope,omitempty" yaml:"scope,omitempty"` // optional scope
-	Subject  string `json:"subject" yaml:"subject"`                 // commit subject line
-	Body     string `json:"body,omitempty" yaml:"body,omitempty"`   // optional body
-	Breaking bool   `json:"breaking" yaml:"breaking"`               // is this a breaking change?
-	Raw      string `json:"raw" yaml:"raw"`                         // original commit message
 }
 
 // FileMutation represents a file change that would occur during release
@@ -247,11 +304,11 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 		}
 	} else {
 		// generate changelog preview
-		changelog, err := GenerateChangelogPreview(parsedCommits, nextVersion.String())
+		changelogText, err := GenerateChangelogPreview(parsedCommits, nextVersion.String())
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate changelog: %w", err)
 		}
-		plan.ChangelogPreview = changelog
+		plan.ChangelogPreview = changelogText
 	}
 
 	// populate file mutations if config provided
@@ -271,13 +328,13 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 }
 
 // previewMutations loads mutation config and performs a dry-run
-func previewMutations(repoPath, configPath, version string) ([]FileMutation, error) {
+func previewMutations(repoPath, configPath, versionStr string) ([]FileMutation, error) {
 	config, err := mutate.LoadConfig(configPath)
 	if err != nil {
 		return nil, err
 	}
 
-	results, err := mutate.DryRunMutations(repoPath, config, version)
+	results, err := mutate.DryRunMutations(repoPath, config, versionStr)
 	if err != nil {
 		return nil, err
 	}

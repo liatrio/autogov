@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/liatrio/autogov/cmd/predicate"
 	"github.com/liatrio/autogov/cmd/release"
 	"github.com/liatrio/autogov/cmd/verify"
 	"github.com/spf13/cobra"
@@ -52,6 +53,7 @@ func init() {
 	rootCmd.AddCommand(offlineCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(release.ReleaseCmd)
+	rootCmd.AddCommand(predicate.PredicateCmd)
 	rootCmd.AddCommand(changelogCmd)
 
 	// set opa version in viper for policy package to use
