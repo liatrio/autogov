@@ -96,8 +96,11 @@ func loadPolicyFromDirectory(dir string) (*Policy, error) {
 
 	for _, entry := range entries {
 		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {
-			pol, err := loadPolicyFromFile(filepath.Join(dir, entry.Name()))
+			filePath := filepath.Join(dir, entry.Name())
+			pol, err := loadPolicyFromFile(filePath)
 			if err == nil {
+				// Store which file was loaded so callers can inspect.
+				pol.LoadedFrom = filePath
 				return pol, nil
 			}
 		}

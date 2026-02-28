@@ -37,6 +37,12 @@ func VerifyPolicy(opts VerifyOptions) (*VerificationResult, error) {
 		}
 	}
 
+	// Warn if policy was loaded from an unexpected file.
+	if policy.LoadedFrom != "" {
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("policy loaded from fallback file: %s (neither targets.json nor policy.json found)", policy.LoadedFrom))
+	}
+
 	// Build policy rules from the loaded policy for the report.
 	result.PolicyRules = buildPolicyRules(policy, opts.TargetRef)
 

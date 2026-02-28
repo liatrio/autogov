@@ -140,6 +140,14 @@ func TestVerifyPolicy_InvalidRepo(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestVerifyPolicy_VSAFlagsRegistered(t *testing.T) {
+	out, err := executeVerifyPolicyCmd(t, []string{"--help"})
+	require.NoError(t, err)
+	assert.Contains(t, out, "--generate-vsa")
+	assert.Contains(t, out, "--vsa-output")
+	assert.Contains(t, out, "--policy-uri")
+}
+
 func TestVerifyPolicy_InvalidFormat(t *testing.T) {
 	repoDir, policyFile := createPolicyTestRepo(t)
 

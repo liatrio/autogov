@@ -66,6 +66,8 @@ type Policy struct {
 	Rules              []PolicyRuleConfig              `json:"rules,omitempty"`
 	ProtectedBranches  map[string]BranchProtectionConfig `json:"protected_branches,omitempty"`
 	RequiredSigners    map[string][]string              `json:"required_signers,omitempty"`
+	// LoadedFrom records which file the policy was loaded from (set during discovery).
+	LoadedFrom         string                           `json:"-"`
 }
 
 // PolicyRuleConfig defines a single policy rule from a gittuf policy file.

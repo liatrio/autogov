@@ -6,11 +6,13 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/liatrio/autogov/pkg/gitsign"
 )
 
 // VerifyBranchProtection checks the commit history on a ref for evidence
 // of branch protection enforcement. It examines merge commit patterns
-// (indicating PR workflow) and commit signatures (indicating signing policy).
+// (indicating PR workflow) and cryptographically verifies commit signatures
+// (indicating signing policy).
 func VerifyBranchProtection(repo *git.Repository, ref string, policy *Policy, maxCommits int) (*BranchProtectionStatus, error) {
 	if maxCommits <= 0 {
 		maxCommits = 50
@@ -42,15 +44,23 @@ func VerifyBranchProtection(repo *git.Repository, ref string, policy *Policy, ma
 
 	status.TotalCommitCount = len(commits)
 
+	verifyOpts := gitsign.VerifyOptions{
+		SkipRekor: true,
+	}
+
 	for _, c := range commits {
 		// Merge commits indicate PR workflow.
 		if c.NumParents() > 1 {
 			status.MergeCommitCount++
 		}
 
-		// Signed commits indicate signing policy.
+		// Cryptographically verify commit signatures rather than just
+		// checking presence, so invalid/expired signatures don't count.
 		if c.PGPSignature != "" {
-			status.SignedCommitCount++
+			result, err := gitsign.VerifyCommit(repo, c.Hash.String(), verifyOpts)
+			if err == nil && result.Verified {
+				status.SignedCommitCount++
+			}
 		}
 	}
 

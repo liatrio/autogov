@@ -71,10 +71,16 @@ func TestVerifySource_HelpOutput(t *testing.T) {
 	assert.Contains(t, out, "--quiet")
 }
 
-func TestVerifySource_InvalidFormat(t *testing.T) {
-	// This will fail at preRun with missing attestation-path, but let's ensure
-	// the format flag is registered correctly by testing help output
+func TestVerifySource_FormatFlagRegistered(t *testing.T) {
 	out, err := executeVerifySourceCmd(t, []string{"--help"})
 	require.NoError(t, err)
 	assert.Contains(t, out, "text, json")
+}
+
+func TestVerifySource_VSAFlagsRegistered(t *testing.T) {
+	out, err := executeVerifySourceCmd(t, []string{"--help"})
+	require.NoError(t, err)
+	assert.Contains(t, out, "--generate-vsa")
+	assert.Contains(t, out, "--vsa-output")
+	assert.Contains(t, out, "--policy-uri")
 }

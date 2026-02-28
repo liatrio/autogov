@@ -1,16 +1,19 @@
 package verify
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 
 	"github.com/liatrio/autogov/pkg/gitpolicy"
+	"github.com/liatrio/autogov/pkg/vsa"
 	"github.com/spf13/cobra"
 )
 
 const (
 	flagRef        = "ref"
 	flagPolicyPath = "policy-path"
+	flagMaxCommits = "max-commits"
 )
 
 // newPolicyCmd creates the verify policy subcommand.
@@ -44,7 +47,10 @@ Examples:
 	cmd.Flags().StringP(flagCertIssuer, "s", "", "Expected OIDC issuer for commit signatures")
 	cmd.Flags().String(flagFormat, "text", "Output format: text, json")
 	cmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final status")
-	cmd.Flags().Int("max-commits", 50, "Maximum number of commits to walk for verification")
+	cmd.Flags().Int(flagMaxCommits, 50, "Maximum number of commits to walk for verification")
+	cmd.Flags().Bool(flagGenerateVSA, false, "Generate Verification Summary Attestation after successful verification")
+	cmd.Flags().String(flagVSAOutput, "", "Output path for generated VSA (required if --generate-vsa is used)")
+	cmd.Flags().String(flagPolicyURI, "", "Policy URI for VSA generation (required if --generate-vsa is used)")
 
 	return cmd
 }
@@ -65,7 +71,7 @@ func runPolicy(cmd *cobra.Command, _ []string) error {
 	certIssuer, _ := cmd.Flags().GetString(flagCertIssuer)
 	format, _ := cmd.Flags().GetString(flagFormat)
 	quiet, _ := cmd.Flags().GetBool(flagQuiet)
-	maxCommits, _ := cmd.Flags().GetInt("max-commits")
+	maxCommits, _ := cmd.Flags().GetInt(flagMaxCommits)
 
 	opts := gitpolicy.VerifyOptions{
 		RepoPath:     repoPath,
@@ -83,12 +89,97 @@ func runPolicy(cmd *cobra.Command, _ []string) error {
 
 	switch format {
 	case "json":
-		return outputPolicyJSON(cmd, result)
+		if err := outputPolicyJSON(cmd, result); err != nil {
+			return err
+		}
 	case "text", "":
-		return outputPolicyText(cmd, result, quiet)
+		if err := outputPolicyText(cmd, result, quiet); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("unsupported format %q: use text or json", format)
 	}
+
+	// VSA generation.
+	generateVSA, _ := cmd.Flags().GetBool(flagGenerateVSA)
+	if generateVSA && result.Verified {
+		vsaOutput, _ := cmd.Flags().GetString(flagVSAOutput)
+		policyURI, _ := cmd.Flags().GetString(flagPolicyURI)
+
+		if vsaOutput == "" {
+			return fmt.Errorf("VSA output path is required when --generate-vsa is used")
+		}
+		if policyURI == "" {
+			return fmt.Errorf("policy URI is required when --generate-vsa is used")
+		}
+
+		if err := generatePolicyVSA(result, repoPath, vsaOutput, policyURI); err != nil {
+			return fmt.Errorf("failed to generate VSA: %w", err)
+		}
+
+		if !quiet {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "VSA saved to: %s\n", vsaOutput)
+		}
+	}
+
+	return nil
+}
+
+// generatePolicyVSA creates a Verification Summary Attestation for policy verification.
+func generatePolicyVSA(result *gitpolicy.VerificationResult, repoPath, vsaOutput, policyURI string) error {
+	artifactRef := fmt.Sprintf("%s@%s", repoPath, result.Ref)
+
+	h := sha256.New()
+	h.Write([]byte(artifactRef))
+	digest := fmt.Sprintf("%x", h.Sum(nil))
+
+	subjects := []vsa.VSASubject{
+		{
+			URI: artifactRef,
+			Digest: map[string]string{
+				"sha256": digest,
+			},
+		},
+	}
+
+	verificationResults := map[string]bool{
+		"policy.verification": result.Verified,
+	}
+	if result.BranchProtection != nil {
+		verificationResults["policy.branch_protection"] = result.BranchProtection.Verified
+	}
+	if result.SignerPolicy != nil {
+		verificationResults["policy.signer_policy"] = result.SignerPolicy.AllSigned
+	}
+
+	vsaOpts := vsa.VSAOptions{
+		AdditionalVerifiers: map[string]string{
+			"autogov": version,
+		},
+	}
+
+	generatedVSA, err := vsa.GenerateVSAWithSubjects(artifactRef, subjects, policyURI, verificationResults, vsaOpts)
+	if err != nil {
+		return err
+	}
+
+	if generatedVSA.Metadata == nil {
+		generatedVSA.Metadata = make(map[string]interface{})
+	}
+
+	policyMeta := map[string]interface{}{
+		"ref":      result.Ref,
+		"verified": result.Verified,
+	}
+	if result.BranchProtection != nil {
+		policyMeta["branch_protection"] = result.BranchProtection
+	}
+	if result.SignerPolicy != nil {
+		policyMeta["signer_policy"] = result.SignerPolicy
+	}
+	generatedVSA.Metadata["autogov.policy.verification"] = policyMeta
+
+	return vsa.WriteToFile(generatedVSA, vsaOutput)
 }
 
 func outputPolicyJSON(cmd *cobra.Command, result *gitpolicy.VerificationResult) error {

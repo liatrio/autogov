@@ -6,7 +6,6 @@ package source
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 
@@ -137,6 +136,8 @@ func VerifySourceProvenance(bundlePath string, opts VerifyOptions) (*Verificatio
 		policyOpts = append(policyOpts, verify.WithCertificateIdentity(certID))
 	} else {
 		policyOpts = append(policyOpts, verify.WithoutIdentitiesUnsafe())
+		result.Warnings = append(result.Warnings,
+			"no --cert-identity provided; signer identity is not verified (any valid Sigstore signature accepted)")
 	}
 	policy := verify.NewPolicy(verify.WithoutArtifactUnsafe(), policyOpts...)
 
@@ -414,34 +415,3 @@ func extractRefFromURI(uri string) string {
 	return ""
 }
 
-// LoadBundleStatement loads a Sigstore bundle and returns the parsed in-toto statement.
-// This is useful for inspecting bundle contents without full verification.
-func LoadBundleStatement(bundlePath string) (*inTotoStatement, error) {
-	data, err := os.ReadFile(bundlePath)
-	if err != nil {
-		return nil, fmt.Errorf("read bundle: %w", err)
-	}
-
-	// Try to parse as a Sigstore bundle.
-	b := new(bundle.Bundle)
-	if err := b.UnmarshalJSON(data); err != nil {
-		return nil, fmt.Errorf("parse bundle: %w", err)
-	}
-
-	envelope := b.GetDsseEnvelope()
-	if envelope == nil {
-		return nil, fmt.Errorf("bundle does not contain a DSSE envelope")
-	}
-
-	payload := envelope.GetPayload()
-	if payload == nil {
-		return nil, fmt.Errorf("DSSE envelope has no payload")
-	}
-
-	var statement inTotoStatement
-	if err := json.Unmarshal(payload, &statement); err != nil {
-		return nil, fmt.Errorf("parse statement: %w", err)
-	}
-
-	return &statement, nil
-}

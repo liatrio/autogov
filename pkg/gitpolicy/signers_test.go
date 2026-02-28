@@ -3,7 +3,9 @@ package gitpolicy
 import (
 	"testing"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSignerMatchesAny(t *testing.T) {
@@ -62,4 +64,55 @@ func TestSignerMatchesAny(t *testing.T) {
 			assert.Equal(t, tt.expected, signerMatchesAny(tt.required, tt.seen))
 		})
 	}
+}
+
+func TestVerifySignerPolicy_UnsignedCommits(t *testing.T) {
+	// Create a repo with unsigned commits and a policy requiring signers.
+	repoDir := createTestRepo(t, []string{
+		"feat: first commit",
+		"feat: second commit",
+	})
+
+	repo, err := git.PlainOpen(repoDir)
+	require.NoError(t, err)
+
+	policy := &Policy{
+		RequiredSigners: map[string][]string{
+			"refs/heads/master": {"user@example.com"},
+		},
+	}
+
+	opts := VerifyOptions{
+		RepoPath:  repoDir,
+		TargetRef: "refs/heads/master",
+	}
+
+	status, err := VerifySignerPolicy(repo, "refs/heads/master", policy, opts)
+	require.NoError(t, err)
+
+	assert.False(t, status.AllSigned, "should fail: no signed commits")
+	assert.Contains(t, status.MissingSigners, "user@example.com")
+	assert.Empty(t, status.VerifiedSigners)
+}
+
+func TestVerifySignerPolicy_NoRequiredSigners(t *testing.T) {
+	repoDir := createTestRepo(t, []string{"feat: commit"})
+
+	repo, err := git.PlainOpen(repoDir)
+	require.NoError(t, err)
+
+	policy := &Policy{
+		RequiredSigners: map[string][]string{},
+	}
+
+	opts := VerifyOptions{
+		RepoPath:  repoDir,
+		TargetRef: "refs/heads/master",
+	}
+
+	status, err := VerifySignerPolicy(repo, "refs/heads/master", policy, opts)
+	require.NoError(t, err)
+
+	assert.True(t, status.AllSigned, "should pass: no signers required")
+	assert.Empty(t, status.MissingSigners)
 }
