@@ -26,7 +26,7 @@ jobs:
       contents: read
       actions: read
       artifact-metadata: write
-    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-attest-blob.yaml@c2295cdfb8e80d6872c162a8d22cf3a0eb0dd324 # v0.20.10
+    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-attest-blob.yaml@87e7cb3ce912354630aa2302424d23ed2091821e # v0.20.12
     secrets: inherit
     with:
       subject-path: autogov
@@ -40,12 +40,12 @@ jobs:
       contents: read
       actions: read
       artifact-metadata: write
-    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-verify.yaml@c2295cdfb8e80d6872c162a8d22cf3a0eb0dd324 # v0.20.10
+    uses: liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-verify.yaml@87e7cb3ce912354630aa2302424d23ed2091821e # v0.20.12
     secrets: inherit
     with:
       build-type: blob
       blob-artifact-id: ${{ needs.attest-blob.outputs.blob-artifact-id }}
-      cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-attest-blob.yaml@c2295cdfb8e80d6872c162a8d22cf3a0eb0dd324 # v0.20.10
+      cert-identity: https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-attest-blob.yaml@87e7cb3ce912354630aa2302424d23ed2091821e # v0.20.12
       vuln-threshold-critical: '0'
       vuln-threshold-high: '-1'
       vuln-threshold-medium: '-1'
@@ -61,10 +61,10 @@ jobs:
     env:
       VSA_FOLDER: ./vsa
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
           go-version: 1.25.5
           cache: true
@@ -92,7 +92,7 @@ jobs:
           DATE: ${{ github.event.head_commit.timestamp }}
       - name: Download VSA artifact
         if: steps.go-semantic-release.outputs.version != ''
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           name: verification-summary-attestation-high-perms
           path: ${{ env.VSA_FOLDER }}
