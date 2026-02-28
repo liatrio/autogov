@@ -7,7 +7,8 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/liatrio/autogov/pkg/release"
+	"github.com/liatrio/autogov/pkg/helper/changelog"
+	githelper "github.com/liatrio/autogov/pkg/helper/git"
 	"github.com/spf13/cobra"
 )
 
@@ -59,10 +60,10 @@ func runChangelog(cmd *cobra.Command, args []string) error {
 	format, _ := cmd.Flags().GetString("format")
 	includeAll, _ := cmd.Flags().GetBool("include-all")
 	firstParent, _ := cmd.Flags().GetBool("first-parent")
-	version, _ := cmd.Flags().GetString("version")
+	versionFlag, _ := cmd.Flags().GetString("version")
 
 	// 1. Open repo
-	repo, err := release.OpenRepository(repoPath)
+	repo, err := githelper.OpenRepository(repoPath)
 	if err != nil {
 		return fmt.Errorf("changelog: %w", err)
 	}
@@ -70,15 +71,15 @@ func runChangelog(cmd *cobra.Command, args []string) error {
 	// 2. Resolve --from: if empty, discover latest tag
 	fromRef := from
 	if fromRef == "" {
-		_, tagName, err := release.DiscoverLatestTag(repo, firstParent)
+		_, tagName, err := githelper.DiscoverLatestTag(repo, firstParent)
 		if err != nil {
 			return fmt.Errorf("changelog: discovering latest tag: %w", err)
 		}
-		fromRef = tagName // empty string if no tags exist → full history
+		fromRef = tagName // empty string if no tags exist -> full history
 	}
 
 	// 3. Get commits
-	gitCommits, err := release.GetCommitsSinceTag(repo, fromRef, to, firstParent)
+	gitCommits, err := githelper.GetCommitsSinceTag(repo, fromRef, to, firstParent)
 	if err != nil {
 		return fmt.Errorf("changelog: %w", err)
 	}
@@ -100,19 +101,19 @@ func runChangelog(cmd *cobra.Command, args []string) error {
 	}
 
 	// 4. Parse commits (after sorting so order is preserved)
-	parsed := release.ParseCommits(gitCommits)
+	parsed := githelper.ParseCommits(gitCommits)
 
 	// 5. Resolve version
-	if version == "" && semverTagPattern.MatchString(to) {
-		version = to
+	if versionFlag == "" && semverTagPattern.MatchString(to) {
+		versionFlag = to
 	}
 
 	// 6. Generate output
 	var result string
 	switch format {
 	case "json":
-		jsonData := release.GenerateChangelogJSON(parsed, &release.ChangelogOptions{
-			Version:    version,
+		jsonData := changelog.GenerateChangelogJSON(parsed, &changelog.Options{
+			Version:    versionFlag,
 			IncludeAll: includeAll,
 		})
 		jsonBytes, err := json.MarshalIndent(jsonData, "", "  ")
@@ -121,11 +122,11 @@ func runChangelog(cmd *cobra.Command, args []string) error {
 		}
 		result = string(jsonBytes) + "\n"
 	case "markdown", "md":
-		opts := &release.ChangelogOptions{
-			Version:    version,
+		opts := &changelog.Options{
+			Version:    versionFlag,
 			IncludeAll: includeAll,
 		}
-		result, err = release.GenerateChangelog(parsed, opts)
+		result, err = changelog.GenerateChangelog(parsed, opts)
 		if err != nil {
 			return fmt.Errorf("changelog: generating markdown: %w", err)
 		}

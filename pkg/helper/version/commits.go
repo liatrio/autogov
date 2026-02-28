@@ -1,10 +1,8 @@
-package release
+package version
 
 import (
 	"regexp"
 	"strings"
-
-	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
 // conventional commit regex pattern
@@ -12,6 +10,17 @@ import (
 var conventionalCommitPattern = regexp.MustCompile(
 	`^(\w+)(?:\(([^)]+)\))?(!)?:\s*(.+)$`,
 )
+
+// ParsedCommit represents a parsed conventional commit
+type ParsedCommit struct {
+	Hash     string `json:"hash" yaml:"hash"`
+	Type     string `json:"type" yaml:"type"`                       // feat, fix, docs, etc.
+	Scope    string `json:"scope,omitempty" yaml:"scope,omitempty"` // optional scope
+	Subject  string `json:"subject" yaml:"subject"`                 // commit subject line
+	Body     string `json:"body,omitempty" yaml:"body,omitempty"`   // optional body
+	Breaking bool   `json:"breaking" yaml:"breaking"`               // is this a breaking change?
+	Raw      string `json:"raw" yaml:"raw"`                         // original commit message
+}
 
 // CommitTypeInfo defines properties for a commit type
 type CommitTypeInfo struct {
@@ -56,7 +65,6 @@ func ParseConventionalCommit(hash, message string) *ParsedCommit {
 
 	matches := conventionalCommitPattern.FindStringSubmatch(subject)
 	if matches == nil {
-		// not a conventional commit
 		return nil
 	}
 
@@ -65,7 +73,6 @@ func ParseConventionalCommit(hash, message string) *ParsedCommit {
 	breakingMarker := matches[3] == "!"
 	commitSubject := matches[4]
 
-	// check for BREAKING CHANGE in body
 	breakingInBody := strings.Contains(body, "BREAKING CHANGE:") ||
 		strings.Contains(body, "BREAKING-CHANGE:")
 
@@ -80,49 +87,16 @@ func ParseConventionalCommit(hash, message string) *ParsedCommit {
 	}
 }
 
-// ParseCommits converts git commits to ParsedCommits
-// non-conventional commits are included with Type="other"
-func ParseCommits(commits []*object.Commit) []ParsedCommit {
-	var parsed []ParsedCommit
-
-	for _, c := range commits {
-		pc := ParseConventionalCommit(c.Hash.String(), c.Message)
-		if pc == nil {
-			// include non-conventional commits as "other"
-			lines := strings.SplitN(c.Message, "\n", 2)
-			subject := strings.TrimSpace(lines[0])
-			var body string
-			if len(lines) > 1 {
-				body = strings.TrimSpace(lines[1])
-			}
-
-			pc = &ParsedCommit{
-				Hash:     c.Hash.String(),
-				Type:     "other",
-				Subject:  subject,
-				Body:     body,
-				Breaking: false,
-				Raw:      c.Message,
-			}
-		}
-		parsed = append(parsed, *pc)
-	}
-
-	return parsed
-}
-
 // FilterReleasableCommits returns only commits that trigger a version bump
 func FilterReleasableCommits(commits []ParsedCommit) []ParsedCommit {
 	var releasable []ParsedCommit
 
 	for _, c := range commits {
-		// breaking changes are always releasable
 		if c.Breaking {
 			releasable = append(releasable, c)
 			continue
 		}
 
-		// check if the commit type triggers a bump
 		info := GetCommitTypeInfo(c.Type)
 		if info.BumpType != BumpNone {
 			releasable = append(releasable, c)
@@ -141,14 +115,12 @@ func ExtractBreakingChanges(commits []ParsedCommit) []string {
 			continue
 		}
 
-		// format the breaking change description
 		desc := c.Subject
 		if c.Scope != "" {
 			desc = c.Scope + ": " + desc
 		}
 		breaking = append(breaking, desc)
 
-		// also check for detailed breaking change in body
 		if strings.Contains(c.Body, "BREAKING CHANGE:") {
 			lines := strings.Split(c.Body, "\n")
 			for _, line := range lines {

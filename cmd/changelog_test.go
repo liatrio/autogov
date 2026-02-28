@@ -11,7 +11,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/liatrio/autogov/pkg/release"
+	"github.com/liatrio/autogov/pkg/helper/changelog"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -126,7 +126,7 @@ func TestRunChangelogJSON(t *testing.T) {
 	out, err := executeChangelogCmd(t, []string{"--repo-path", dir, "--format", "json", "--version", "v1.0.0"})
 	require.NoError(t, err)
 
-	var result release.ChangelogJSON
+	var result changelog.JSON
 	err = json.Unmarshal([]byte(out), &result)
 	require.NoError(t, err)
 
@@ -395,7 +395,7 @@ func TestRunChangelogBreakingChangesJSON(t *testing.T) {
 	out, err := executeChangelogCmd(t, []string{"--repo-path", dir, "--format", "json", "--version", "v2.0.0"})
 	require.NoError(t, err)
 
-	var result release.ChangelogJSON
+	var result changelog.JSON
 	err = json.Unmarshal([]byte(out), &result)
 	require.NoError(t, err)
 

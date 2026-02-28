@@ -1,4 +1,4 @@
-package release
+package git
 
 import (
 	"os"
@@ -12,6 +12,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// NOTE: These test helpers are duplicated in pkg/release/test_helpers_test.go.
+// Go's test package scoping prevents sharing _test.go helpers across packages
+// without creating a dedicated testutil package. Keep both copies in sync.
 
 // helper to create a test git repository with commits and tags
 func createTestRepo(t *testing.T) (string, *git.Repository) {
@@ -220,19 +224,10 @@ func createMergeCommit(t *testing.T, repo *git.Repository, dir string, parent1, 
 }
 
 func TestGetCommitsSinceTagMergeFirstParentVsAll(t *testing.T) {
-	// build a repo with a merge commit:
-	//
-	//   initial -- A (tag v1.0.0) -- B -- merge (HEAD)
-	//                                   /
-	//                              C --D
-	//
-	// firstParent=true  should see: merge, B        (2 commits)
-	// firstParent=false should see: merge, B, D, C  (4 commits)
-
 	dir, repo := createTestRepo(t)
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	// A — tag it
+	// A - tag it
 	addCommit(t, repo, dir, "feat: feature A")
 	createTag(t, repo, "v1.0.0")
 
@@ -240,7 +235,6 @@ func TestGetCommitsSinceTagMergeFirstParentVsAll(t *testing.T) {
 	hashB := addCommit(t, repo, dir, "feat: feature B")
 
 	// create a side branch from A (parent of B)
-	// first, get A's hash (parent of B)
 	commitB, err := repo.CommitObject(hashB)
 	require.NoError(t, err)
 	parentA, err := commitB.Parent(0)
@@ -325,8 +319,32 @@ func TestParseRepoNameFromURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parseRepoNameFromURL(tt.url)
+			got := ParseRepoNameFromURL(tt.url)
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestParseCommits(t *testing.T) {
+	dir, repo := createTestRepo(t)
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	addCommit(t, repo, dir, "feat: new feature")
+	addCommit(t, repo, dir, "fix: bug fix")
+	addCommit(t, repo, dir, "not a conventional commit")
+
+	commits, err := GetCommitsSinceTag(repo, "", "HEAD", false)
+	require.NoError(t, err)
+
+	parsed := ParseCommits(commits)
+	assert.Len(t, parsed, 4) // initial + 3 more
+
+	// verify conventional commits are parsed correctly
+	typeMap := make(map[string]int)
+	for _, pc := range parsed {
+		typeMap[pc.Type]++
+	}
+	assert.Equal(t, 1, typeMap["feat"])
+	assert.Equal(t, 1, typeMap["fix"])
+	assert.Equal(t, 2, typeMap["other"]) // initial commit + non-conventional
 }
