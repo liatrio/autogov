@@ -1,7 +1,6 @@
 package predicate
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,7 +28,7 @@ func TestGetRequiredEnv(t *testing.T) {
 	})
 
 	t.Run("non-existent variable", func(t *testing.T) {
-		os.Unsetenv("NON_EXISTENT_VAR_REQ_TEST")
+		t.Setenv("NON_EXISTENT_VAR_REQ_TEST", "")
 		_, err := GetRequiredEnv("NON_EXISTENT_VAR_REQ_TEST")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "required environment variable")
@@ -39,14 +38,14 @@ func TestGetRequiredEnv(t *testing.T) {
 func TestGetGitHubToken(t *testing.T) {
 	t.Run("GH_TOKEN exists", func(t *testing.T) {
 		t.Setenv("GH_TOKEN", "gh_token")
-		os.Unsetenv("GITHUB_TOKEN")
+		t.Setenv("GITHUB_TOKEN", "")
 		token, err := GetGitHubToken()
 		assert.NoError(t, err)
 		assert.Equal(t, "gh_token", token)
 	})
 
 	t.Run("GITHUB_TOKEN exists", func(t *testing.T) {
-		os.Unsetenv("GH_TOKEN")
+		t.Setenv("GH_TOKEN", "")
 		t.Setenv("GITHUB_TOKEN", "github_token")
 		token, err := GetGitHubToken()
 		assert.NoError(t, err)
@@ -54,8 +53,8 @@ func TestGetGitHubToken(t *testing.T) {
 	})
 
 	t.Run("no token exists", func(t *testing.T) {
-		os.Unsetenv("GH_TOKEN")
-		os.Unsetenv("GITHUB_TOKEN")
+		t.Setenv("GH_TOKEN", "")
+		t.Setenv("GITHUB_TOKEN", "")
 		_, err := GetGitHubToken()
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "GitHub token not found")

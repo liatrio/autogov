@@ -40,7 +40,7 @@ func CalculateDigest(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to open file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
@@ -56,7 +56,7 @@ func hashFileInto(h hash.Hash, path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open file %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if _, err := io.Copy(h, f); err != nil {
 		return fmt.Errorf("failed to calculate digest for %s: %w", path, err)

@@ -1,7 +1,6 @@
 package predicate
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,7 +29,7 @@ func TestLoadGitHubContext(t *testing.T) {
 	})
 
 	t.Run("missing_runner_os", func(t *testing.T) {
-		os.Unsetenv("RUNNER_OS")
+		t.Setenv("RUNNER_OS", "")
 		t.Setenv("RUNNER_ARCH", "X64")
 
 		_, err := LoadGitHubContext()
@@ -40,7 +39,7 @@ func TestLoadGitHubContext(t *testing.T) {
 
 	t.Run("missing_runner_arch", func(t *testing.T) {
 		t.Setenv("RUNNER_OS", "Linux")
-		os.Unsetenv("RUNNER_ARCH")
+		t.Setenv("RUNNER_ARCH", "")
 
 		_, err := LoadGitHubContext()
 		assert.Error(t, err)
@@ -50,7 +49,7 @@ func TestLoadGitHubContext(t *testing.T) {
 	t.Run("default_job_status", func(t *testing.T) {
 		t.Setenv("RUNNER_OS", "Linux")
 		t.Setenv("RUNNER_ARCH", "X64")
-		os.Unsetenv("GITHUB_JOB_STATUS")
+		t.Setenv("GITHUB_JOB_STATUS", "")
 
 		ctx, err := LoadGitHubContext()
 		assert.NoError(t, err)

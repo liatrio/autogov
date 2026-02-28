@@ -94,7 +94,7 @@ func TestDepscanCommandFlags(t *testing.T) {
 
 func TestGetWorkflowPermissions(t *testing.T) {
 	t.Run("default permissions for container image", func(t *testing.T) {
-		os.Unsetenv(pred.EnvWorkflowPermissions)
+		t.Setenv(pred.EnvWorkflowPermissions, "")
 		perms := getWorkflowPermissions(pred.ArtifactTypeContainerImage)
 		assert.Equal(t, "write", perms["id-token"])
 		assert.Equal(t, "write", perms["attestations"])
@@ -103,7 +103,7 @@ func TestGetWorkflowPermissions(t *testing.T) {
 	})
 
 	t.Run("default permissions for blob", func(t *testing.T) {
-		os.Unsetenv(pred.EnvWorkflowPermissions)
+		t.Setenv(pred.EnvWorkflowPermissions, "")
 		perms := getWorkflowPermissions(pred.ArtifactTypeBlob)
 		assert.Equal(t, "write", perms["id-token"])
 		assert.Equal(t, "write", perms["attestations"])

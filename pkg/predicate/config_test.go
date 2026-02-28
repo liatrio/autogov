@@ -1,7 +1,6 @@
 package predicate
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,10 +9,10 @@ import (
 
 func TestLoadConfig(t *testing.T) {
 	t.Run("loads default config", func(t *testing.T) {
-		os.Unsetenv("POLICY_REPO_OWNER")
-		os.Unsetenv("POLICY_REPO_NAME")
-		os.Unsetenv("POLICY_VERSION")
-		os.Unsetenv("SCHEMAS_PATH")
+		t.Setenv("POLICY_REPO_OWNER", "")
+		t.Setenv("POLICY_REPO_NAME", "")
+		t.Setenv("POLICY_VERSION", "")
+		t.Setenv("SCHEMAS_PATH", "")
 
 		cfg, err := LoadConfig()
 		assert.NoError(t, err)
