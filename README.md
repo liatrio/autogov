@@ -1,8 +1,30 @@
 # AutoGov
 
-A unified CLI for attestation verification and release management. Supports [cosign](https://docs.sigstore.dev/cosign/overview/)-based verification with SLSA v1.1 VSA (Verification Summary Attestation) support, integrated OPA policy evaluation, and a full release engine with changelog generation.
+A unified CLI for attestation verification and release management. Supports [cosign](https://docs.sigstore.dev/cosign/overview/)-based verification with SLSA v1.2 VSA (Verification Summary Attestation) support, integrated OPA policy evaluation, and a full release engine with changelog generation.
 
 > **Note**: This tool supports attestation verification for container images (ghcr.io) and blobs, VSA generation, policy evaluation, and release management (plan, cut, publish) with conventional commit-based changelog generation.
+
+## Table of Contents
+
+- [Requirements](#requirements)
+- [Features](#features)
+- [Verification Process](#verification-process)
+- [Authentication](#authentication)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Online Verification](#online-verification)
+  - [Offline Verification](#offline-verification)
+  - [Optional Flags](#optional-flags)
+  - [Environment Variables](#environment-variables)
+  - [Changelog Generation](#changelog-generation)
+  - [Release Management](#release-management)
+- [Examples](#examples)
+- [Output](#output)
+- [Trusted Root Management](#trusted-root-management)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+  - [Architecture Overview](#architecture-overview)
+- [License](#license)
 
 ## Requirements
 
@@ -14,7 +36,7 @@ A unified CLI for attestation verification and release management. Supports [cos
 ## Features
 
 - **Multi-Attestation Verification**: Supports all standard in-toto predicate types (SLSA, SBOM, vulnerability, custom)
-- **SLSA v1.1 VSA Generation**: Creates comprehensive Verification Summary Attestations
+- **SLSA v1.2 VSA Generation**: Creates comprehensive Verification Summary Attestations
 - **OPA Policy Integration**: Evaluates Rego policies with results included in VSA metadata
 - **Certificate Identity Validation**: Validates against approved certificate identity lists
 - **Offline Verification**: Supports pre-downloaded attestation artifacts (verify container images by digest without pulling the image)
@@ -231,7 +253,7 @@ The tool supports validating certificate identities against a source of truth li
 
 #### VSA and Policy Flags
 
-The tool supports generating SLSA v1.1 Verification Summary Attestations (VSAs) with enhanced validation and evaluating OPA policies:
+The tool supports generating SLSA v1.2 Verification Summary Attestations (VSAs) with enhanced validation and evaluating OPA policies:
 
 - `--generate-vsa`: Generate a VSA after successful verification with comprehensive validation
 - `--vsa-output`: Path to save the generated VSA (e.g., `./verification-summary.json`)
@@ -242,12 +264,7 @@ The tool supports generating SLSA v1.1 Verification Summary Attestations (VSAs) 
 - `--fail-on-policy-error`: Exit with error code 1 when policy evaluation fails (default: false - exit code 0)
 - `--attestations-path`: Path to directory containing attestation files for offline verification
 
-**Enhanced VSA Features:**
-
-- **Comprehensive Validation**: Detailed field validation with structured error types
-- **SLSA Level Parsing**: Robust parsing of SLSA levels with track extraction (e.g., `SLSA_BUILD_LEVEL_3`)
-- **Multi-Format Digest Support**: Validation for multiple hash algorithms beyond SHA256
-- **Policy Integration**: OPA policy evaluation results included in VSA metadata
+For enhanced VSA features and SLSA v1.2 compliance details, see [docs/vsa-metadata.md](docs/vsa-metadata.md).
 
 The certificate identity source of truth is a JSON file with the following structure:
 
@@ -536,71 +553,7 @@ autogov verify \
 - Positive number: Maximum allowed count
 - `-1`: Unlimited (disable check for that severity)
 
-**VSA Output Features:**
-
-- **Comprehensive Validation**: All VSA fields validated with detailed error reporting
-- **SLSA Level Details**: Verified levels include `SLSA_BUILD_LEVEL_3` (per SLSA v1.1 specification) plus custom autogov levels
-- **Policy Results**: Complete OPA policy evaluation results and violations
-- **Attestation Summary**: Details of all verified attestation types (vulnerability, SBOM, provenance, cosign)
-
-**SLSA v1.1 Compliance**: The tool validates against official SLSA Build track levels (L0-L3) as defined in the [SLSA v1.1 specification](https://slsa.dev/spec/v1.1/levels)
-
-### VSA Metadata Structure
-
-The generated VSA includes comprehensive metadata about the verification and policy evaluation:
-
-```json
-{
-  "_type": "https://in-toto.io/Statement/v1",
-  "subject": [...],
-  "predicateType": "https://slsa.dev/verification_summary/v1.1",
-  "predicate": {
-    "verifier": {...},
-    "timeVerified": "2024-01-20T15:30:00Z",
-    "policy": {...},
-    "inputAttestations": [...],
-    "verificationResult": "PASSED",
-    "verifiedLevels": [...]
-  },
-  "metadata": {
-    "autogov.policy.evaluation": {
-      "result": "PASSED",
-      "violations": [],
-      "evaluation_time": "2024-01-20T15:30:00Z",
-      "policy_bundle": "ghcr.io/liatrio/liatrio-rego-policy-library:latest",
-      "opa_version": "v1.8.0",
-      "governance_rules": ["governance.allow", "governance.violations"],
-      "details": {
-        "total_policies": 15,
-        "policies_evaluated": 15,
-        "policies_passed": 15
-      }
-    },
-    "autogov.policy.violation_summary": {
-      // Grouped violations by policy type (if any)
-    },
-    "autogov.policy.metrics": {
-      "total_violations": 0,
-      "compliance_status": "PASSED",
-      "input_attestations": 4,
-      "evaluation_duration": 125
-    },
-    "autogov.verification.details": {
-      "attestation.slsa_provenance": true,
-      "attestation.sbom": true,
-      "attestation.vulnerability": true,
-      "attestation.metadata": true
-    }
-  }
-}
-```
-
-**Metadata Fields:**
-
-- **`autogov.policy.evaluation`**: Core policy evaluation results including pass/fail status, violations, and policy details
-- **`autogov.policy.violation_summary`**: Violations grouped by policy type for quick identification of issues
-- **`autogov.policy.metrics`**: Compliance metrics and statistics for reporting
-- **`autogov.verification.details`**: Attestation verification results by type
+For VSA output features, metadata structure, and SLSA v1.2 compliance details, see [docs/vsa-metadata.md](docs/vsa-metadata.md).
 
 ## Output
 
@@ -671,21 +624,6 @@ or
 
 ```text
 ⚠ Failed to fetch dynamic trusted root, using embedded fallback
-```
-
-## Advanced Features
-
-### VSA Generation with Policy Evaluation
-
-The tool generates SLSA v1.1 compliant Verification Summary Attestations (VSAs) with integrated OPA policy evaluation:
-
-```go
-// Verification workflow
-1. Collect attestations from GitHub
-2. Verify signatures using sigstore-go
-3. Evaluate OPA/Rego policies
-4. Generate comprehensive VSA
-5. Store VSA in OCI registry
 ```
 
 ## Troubleshooting
@@ -816,66 +754,11 @@ The tool is organized into several key packages:
 - **`pkg/policy/`**: OPA integration for policy evaluation
 - **`pkg/release/`**: Release management (plan, cut, publish, changelog, version bumping)
 - **`pkg/root/`**: Trusted root management with dynamic fetching and fallback
-- **`pkg/vsa/`**: SLSA v1.1 VSA generation with comprehensive validation
+- **`pkg/vsa/`**: SLSA v1.2 VSA generation with comprehensive validation
 
 ### Predicate Type Standardization
 
-The tool implements predicate type standardization following the [in-toto attestation framework](https://github.com/in-toto/attestation) and [SLSA specifications](https://slsa.dev/spec/v1.0/). This ensures consistent, human-readable display of attestation types during verification.
-
-**Supported Predicate Types:**
-
-The tool recognizes all standard in-toto attestation framework predicate types:
-
-| Predicate Type | Short Name | Description |
-|----------------|------------|-------------|
-| `https://slsa.dev/provenance/v1` | SLSA Provenance | Build provenance attestation |
-| `https://cyclonedx.org/bom` | CycloneDX SBOM | Software bill of materials (CycloneDX format) |
-| `https://spdx.dev/Document` | SPDX SBOM | Software bill of materials (SPDX format, version-aware) |
-| `https://in-toto.io/Statement/v1` | in-toto Statement | Base in-toto attestation statement envelope |
-| `https://in-toto.io/attestation/vulns/v0.2` | Vulnerability Scan | Security vulnerability scan results |
-| `https://slsa.dev/verification_summary/v1` | SLSA VSA | Verification summary attestation |
-| `https://autogov.dev/attestation/metadata/v1` | AutoGov Metadata | Custom autogov metadata with artifact/workflow/compliance details |
-| `https://in-toto.io/attestation/scai/v0.3` | SCAI Report | Software supply chain attribute integrity assertions |
-| `https://in-toto.io/attestation/runtime-trace/v0.1` | Runtime Trace | Runtime traces of supply chain operations |
-| `https://in-toto.io/attestation/release/v0.1` | Release | Release version and artifact hash linkage |
-| `https://in-toto.io/attestation/test-result/v0.1` | Test Result | Test execution results |
-| `https://in-toto.io/attestation/link/v0.3` | in-toto Link | Legacy in-toto 0.9 format (migration support) |
-| `https://cosign.sigstore.dev/attestation/v1` | Cosign Custom | Cosign generic custom attestation |
-
-**How It Works:**
-
-During verification, the tool:
-
-1. Extracts the predicate type URI from each attestation
-2. Looks up the URI in the predicate type registry
-3. Displays the short name if found, or "Unknown: <uri>" if not found
-4. Continues verification regardless of registry status
-
-**Graceful Handling of Unknown Types:**
-
-If the tool encounters a predicate type not in the registry (e.g., custom or newly-introduced types):
-
-- Verification proceeds normally without errors
-- The type is displayed as `Unknown: <full-uri>`
-- A warning is logged suggesting the registry be updated (if not in quiet mode)
-- Signature and certificate validation remain unchanged
-
-**Example Output:**
-
-```shell
-Verifying attestation 1 (SLSA Provenance: https://slsa.dev/provenance/v1)...
-✓ Attestation 1 verified successfully
----
-Verifying attestation 2 (CycloneDX SBOM: https://cyclonedx.org/bom)...
-✓ Attestation 2 verified successfully
----
-Verifying attestation 3 (Unknown: https://example.com/custom/v1)...
-⚠ Warning: Unknown predicate type: https://example.com/custom/v1
-  Consider updating PredicateTypeRegistry if this is a standard type.
-✓ Attestation 3 verified successfully
-```
-
-This approach ensures backward compatibility with all attestations while providing enhanced context for known types.
+For the full predicate type registry, lookup behavior, and unknown-type handling, see [docs/predicate-types.md](docs/predicate-types.md).
 
 ### Contributing
 
