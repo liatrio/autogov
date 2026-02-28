@@ -42,28 +42,38 @@ func SetBuildInfo(v, opa string) {
 func NewVerifyCmdForTesting() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "verify",
-		Short: "Verify attestations and commit signatures",
+		Short: "Verify attestations, commit signatures, source provenance, and policies",
 	}
 	cmd.AddCommand(newAttestationCmd())
 	cmd.AddCommand(newGitCmd())
+	cmd.AddCommand(newSourceCmd())
+	cmd.AddCommand(newPolicyCmd())
 	return cmd
 }
 
 // VerifyCmd is the parent command for all verify operations.
 var VerifyCmd = &cobra.Command{
 	Use:   "verify",
-	Short: "Verify attestations and commit signatures",
-	Long: `Commands for verifying artifact attestations and commit signatures.
+	Short: "Verify attestations, commit signatures, source provenance, and policies",
+	Long: `Commands for verifying artifact attestations, commit signatures, source provenance, and repository policies.
 
 Examples:
   # Verify GitHub artifact attestations
   autogov verify attestation --blob-path artifact.tar.gz --repo org/repo
 
   # Verify gitsign commit signatures
-  autogov verify git HEAD`,
+  autogov verify git HEAD
+
+  # Verify source provenance
+  autogov verify source --attestation-path bundle.json --repo-uri https://github.com/org/repo --commit abc123
+
+  # Verify repository policy
+  autogov verify policy --ref refs/heads/main`,
 }
 
 func init() {
 	VerifyCmd.AddCommand(newAttestationCmd())
 	VerifyCmd.AddCommand(newGitCmd())
+	VerifyCmd.AddCommand(newSourceCmd())
+	VerifyCmd.AddCommand(newPolicyCmd())
 }
