@@ -13,6 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// NOTE: These test helpers are duplicated in pkg/release/test_helpers_test.go.
+// Go's test package scoping prevents sharing _test.go helpers across packages
+// without creating a dedicated testutil package. Keep both copies in sync.
+
 // helper to create a test git repository with commits and tags
 func createTestRepo(t *testing.T) (string, *git.Repository) {
 	t.Helper()

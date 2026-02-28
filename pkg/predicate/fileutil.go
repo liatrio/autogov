@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -27,15 +28,9 @@ func CalculateDigest(path string) (string, error) {
 		// get combined digest of all files
 		h := sha256.New()
 		for _, file := range files {
-			f, err := os.Open(file)
-			if err != nil {
-				return "", fmt.Errorf("failed to open file %s: %w", file, err)
+			if err := hashFileInto(h, file); err != nil {
+				return "", err
 			}
-			if _, err := io.Copy(h, f); err != nil {
-				f.Close()
-				return "", fmt.Errorf("failed to calculate digest for %s: %w", file, err)
-			}
-			f.Close()
 		}
 		return fmt.Sprintf("sha256:%s", hex.EncodeToString(h.Sum(nil))), nil
 	}
@@ -53,6 +48,20 @@ func CalculateDigest(path string) (string, error) {
 	}
 
 	return fmt.Sprintf("sha256:%s", hex.EncodeToString(h.Sum(nil))), nil
+}
+
+// hashFileInto opens a file and copies its contents into the provided hash.
+func hashFileInto(h hash.Hash, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("failed to open file %s: %w", path, err)
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("failed to calculate digest for %s: %w", path, err)
+	}
+	return nil
 }
 
 // listFiles lists all files in a directory recursively, sorted.

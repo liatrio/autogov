@@ -291,8 +291,8 @@ func NewDependencyScan(opts DependencyScanOptions) *DependencyScan {
 
 	scan.Scanner.Result = make([]ScanResult, 0)
 
-	scan.Metadata.ScanStartedOn = opts.StartedAt.Format("2006-01-02T15:04:05Z")
-	scan.Metadata.ScanFinishedOn = opts.FinishedAt.Format("2006-01-02T15:04:05Z")
+	scan.Metadata.ScanStartedOn = opts.StartedAt.UTC().Format("2006-01-02T15:04:05Z")
+	scan.Metadata.ScanFinishedOn = opts.FinishedAt.UTC().Format("2006-01-02T15:04:05Z")
 
 	return scan
 }

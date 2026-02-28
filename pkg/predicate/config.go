@@ -5,7 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"log"
+	"os"
 
 	"github.com/google/go-github/v82/github"
 	"github.com/xeipuuv/gojsonschema"
@@ -79,7 +79,7 @@ func fetchSchemaContent(schemaName string) (string, error) {
 				return schemaContent, nil
 			}
 		}
-		log.Printf("failed to fetch schema from GitHub API, falling back to embedded")
+		fmt.Fprintf(os.Stderr, "warning: failed to fetch schema from GitHub API, falling back to embedded\n")
 	}
 
 	// fallback to embedded

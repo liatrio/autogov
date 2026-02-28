@@ -182,20 +182,16 @@
               "type": "object",
               "properties": {
                 "id-token": {
-                  "type": "string",
-                  "enum": ["write"]
+                  "type": "string"
                 },
                 "attestations": {
-                  "type": "string",
-                  "enum": ["write"]
+                  "type": "string"
                 },
                 "contents": {
-                  "type": "string",
-                  "enum": ["read"]
+                  "type": "string"
                 },
                 "packages": {
-                  "type": "string",
-                  "enum": ["write", "none"]
+                  "type": "string"
                 }
               },
               "required": ["id-token", "attestations", "contents", "packages"]

@@ -65,9 +65,13 @@ func GenerateDepscan(opts DependencyScanOptions, outputFile string) error {
 		return fmt.Errorf("failed to parse results: %w", err)
 	}
 
-	// set timestamps
-	opts.StartedAt = time.Now()
-	opts.FinishedAt = time.Now()
+	// set timestamps if not provided by caller
+	if opts.StartedAt.IsZero() {
+		opts.StartedAt = time.Now()
+	}
+	if opts.FinishedAt.IsZero() {
+		opts.FinishedAt = time.Now()
+	}
 
 	// create scan
 	scan := NewDependencyScan(opts)
