@@ -129,8 +129,9 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 		}
 	}
 
-	// calculate policy digest from the actual policy content
-	policyDigest, err := policy.CalculateDigest(policyBundlePath)
+	// calculate policy digest from the actual policy content (use the resolved
+	// local path so digesting works for remote schemes too, not the raw URI)
+	policyDigest, err := policy.CalculateDigest(evaluator.ResolvedPolicyPath())
 	if err != nil {
 		return fmt.Errorf("failed to calculate policy digest: %w", err)
 	}
@@ -172,7 +173,13 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 			"result":          policyResult.Result,
 			"violations":      violations,
 			"evaluation_time": policyResult.Timestamp,
-			"policy_bundle":   policyBundlePath,
+			// policy_bundle is where the policy was loaded from (may be an archive
+			// or remote URI). The SLSA predicate.policy.digest is computed over the
+			// resolved policy *contents* (the extracted/evaluated .rego/.json/.yaml),
+			// NOT the bytes of policy_bundle — policy_digest_scope makes that explicit
+			// so an auditor doesn't expect sha256(policy_bundle) == policy.digest.
+			"policy_bundle":       policyBundlePath,
+			"policy_digest_scope": "resolved policy contents (not archive bytes)",
 		}
 
 		// violation summary by policy type
