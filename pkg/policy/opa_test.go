@@ -303,7 +303,7 @@ func TestDownloadBundleWithToken(t *testing.T) {
 	ctx := context.Background()
 
 	// will fail because we're not serving a valid tar.gz, but it tests the auth logic
-	_, err := downloadBundle(ctx, server.URL)
+	_, _, err := downloadBundle(ctx, server.URL)
 	if err == nil {
 		t.Fatal("Expected error for invalid tar.gz content")
 	}
@@ -339,7 +339,7 @@ func TestDownloadBundleWithoutToken(t *testing.T) {
 
 	ctx := context.Background()
 
-	_, err := downloadBundle(ctx, server.URL)
+	_, _, err := downloadBundle(ctx, server.URL)
 	if err == nil {
 		t.Fatal("Expected error for unauthorized request")
 	}
@@ -833,17 +833,11 @@ func TestExtractBundle(t *testing.T) {
 	createTestTarGz(t, tarGzPath)
 
 	// extract it
-	extractedPath, err := extractBundle(tarGzPath)
+	extractedPath, cleanup, err := extractBundle(tarGzPath)
 	if err != nil {
 		t.Fatalf("Failed to extract bundle: %v", err)
 	}
-
-	// clean up extracted path
-	defer func() {
-		if err := os.RemoveAll(extractedPath); err != nil {
-			t.Logf("Warning: failed to clean up extracted dir: %v", err)
-		}
-	}()
+	defer cleanup() // owns teardown of the extracted temp dir
 
 	// verify extracted contents
 	policyFile := filepath.Join(extractedPath, "test.rego")
@@ -862,7 +856,7 @@ func TestExtractBundle(t *testing.T) {
 }
 
 func TestExtractBundleNonexistent(t *testing.T) {
-	_, err := extractBundle("/nonexistent/bundle.tar.gz")
+	_, _, err := extractBundle("/nonexistent/bundle.tar.gz")
 	if err == nil {
 		t.Fatal("Expected error for nonexistent bundle")
 	}
@@ -885,7 +879,7 @@ func TestExtractBundleInvalidGzip(t *testing.T) {
 		t.Fatalf("Failed to write invalid file: %v", err)
 	}
 
-	_, err = extractBundle(invalidFile)
+	_, _, err = extractBundle(invalidFile)
 	if err == nil {
 		t.Fatal("Expected error for invalid gzip")
 	}
@@ -1033,16 +1027,11 @@ func TestExtractBundleWithDirectory(t *testing.T) {
 	tarGzPath := filepath.Join(tempDir, "bundle.tar.gz")
 	createTarGzWithDir(t, tarGzPath)
 
-	extractedPath, err := extractBundle(tarGzPath)
+	extractedPath, cleanup, err := extractBundle(tarGzPath)
 	if err != nil {
 		t.Fatalf("Failed to extract bundle: %v", err)
 	}
-
-	defer func() {
-		if err := os.RemoveAll(extractedPath); err != nil {
-			t.Logf("Warning: failed to clean up extracted dir: %v", err)
-		}
-	}()
+	defer cleanup() // owns teardown of the extracted temp dir
 
 	// verify directory was created
 	subDir := filepath.Join(extractedPath, "policies")
@@ -1268,7 +1257,7 @@ func TestDownloadBundleHTTPError(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	_, err := downloadBundle(ctx, server.URL)
+	_, _, err := downloadBundle(ctx, server.URL)
 	if err == nil {
 		t.Fatal("Expected error for 500 response")
 	}

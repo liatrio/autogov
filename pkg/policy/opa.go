@@ -25,9 +25,11 @@ import (
 
 // handles OPA policy evaluation using the Rego API
 type OPAEvaluator struct {
-	policyPath string
-	opaVersion string
-	prepared   *rego.PreparedEvalQuery
+	policyPath   string   // original URI (for display/GetPolicyDetails)
+	resolvedPath string   // resolved local path (for CalculateDigest)
+	opaVersion   string
+	prepared     *rego.PreparedEvalQuery
+	cleanups     []func() // collected cleanup functions, called in Stop()
 }
 
 // result of OPA policy evaluation
@@ -46,23 +48,29 @@ type PolicyViolation struct {
 
 // creates a new OPA evaluator instance
 func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath string, dataPath string) (*OPAEvaluator, error) {
-	// download and extract bundle if it's a URL
-	var bundlePath string
-	if strings.HasPrefix(policyBundlePath, "http") {
-		var err error
-		bundlePath, err = downloadBundle(ctx, policyBundlePath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to download bundle: %w", err)
+	// collect cleanup functions from all path resolutions; called in Stop()
+	var cleanups []func()
+
+	// if construction fails after we've already extracted/downloaded into a temp
+	// dir, Stop() is never reached — run the collected cleanups here so the temp
+	// dirs don't leak. This also honors the dispatcher contract for future schemes
+	// that may return a non-nil cleanup alongside an error.
+	success := false
+	defer func() {
+		if !success {
+			for _, cleanup := range cleanups {
+				if cleanup != nil {
+					cleanup()
+				}
+			}
 		}
-	} else if strings.HasSuffix(policyBundlePath, ".tar.gz") || strings.HasSuffix(policyBundlePath, ".tgz") {
-		// extract local tar.gz bundle
-		var err error
-		bundlePath, err = extractBundle(policyBundlePath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to extract bundle: %w", err)
-		}
-	} else {
-		bundlePath = policyBundlePath
+	}()
+
+	// resolve the bundle path (URL download, tar.gz extraction, or local dir)
+	bundlePath, bundleCleanup, err := resolveBundlePath(ctx, policyBundlePath, &ResolveOptions{DefaultAsset: "bundle.tar.gz"})
+	cleanups = append(cleanups, bundleCleanup)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve bundle path: %w", err)
 	}
 
 	// creates OPA instance w/ Rego API to load policies directly
@@ -82,25 +90,34 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 
 	// add schemas if provided
 	if schemasPath != "" {
-		// check if it's a tar.gz file that needs extraction
 		var actualSchemasPath string
-		if strings.HasSuffix(schemasPath, ".tar.gz") || strings.HasSuffix(schemasPath, ".tgz") {
-			// extract schemas archive
-			extractedPath, err := extractBundle(schemasPath)
-			if err != nil {
-				log.Printf("warning: failed to extract schemas archive: %v", err)
-				actualSchemasPath = schemasPath // fallback to original path
-			} else {
-				actualSchemasPath = extractedPath
-			}
+		if schemasPath == policyBundlePath {
+			// schemas default to the bundle path (generate.go). Reuse the already
+			// resolved bundle directory instead of resolving it a second time —
+			// otherwise an http(s):// bundle would be downloaded twice.
+			actualSchemasPath = bundlePath
 		} else {
-			actualSchemasPath = schemasPath
+			// resolve the schemas path (URL download, tar.gz extraction, or local dir).
+			// preserve graceful degradation: on failure, log a warning and fall back to
+			// the original path rather than failing evaluator construction.
+			resolvedSchemas, schemasCleanup, err := resolveBundlePath(ctx, schemasPath, &ResolveOptions{DefaultAsset: "schemas.tar.gz"})
+			if err != nil {
+				log.Printf("warning: failed to resolve schemas path: %v", err)
+				resolvedSchemas = schemasPath // fallback to original path
+				schemasCleanup = func() {}
+			}
+			cleanups = append(cleanups, schemasCleanup)
+			actualSchemasPath = resolvedSchemas
 		}
 
 		if _, err := os.Stat(actualSchemasPath); err == nil {
 			// load schemas from directory
 			schemas, err := loadSchemasFromPath(actualSchemasPath)
-			if err == nil && len(schemas) > 0 {
+			if err != nil {
+				// a malformed schema should be visible, not silently disable all
+				// type checking
+				log.Printf("warning: failed to load schemas from %s: %v", actualSchemasPath, err)
+			} else if len(schemas) > 0 {
 				// convert to SchemaSet
 				schemaSet := ast.NewSchemaSet()
 				for name, schema := range schemas {
@@ -149,24 +166,24 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 		fmt.Printf("OPA evaluator created with %d policies loaded\n", len(policies))
 	}
 
+	// construction succeeded — keep the temp dirs alive for Stop() to clean up
+	success = true
+
 	return &OPAEvaluator{
-		policyPath: policyBundlePath,
-		opaVersion: viper.GetString("opa-version"),
-		prepared:   &prepared,
+		policyPath:   policyBundlePath,
+		resolvedPath: bundlePath,
+		opaVersion:   viper.GetString("opa-version"),
+		prepared:     &prepared,
+		cleanups:     cleanups,
 	}, nil
 }
 
 // downloads a bundle from URL and extracts it to a temp dir
-func downloadBundle(ctx context.Context, url string) (string, error) {
-	// default bundle URL if none provided
-	if url == "" {
-		url = "https://github.com/liatrio/liatrio-rego-policy-library/releases/download/v0.7.1/bundle.tar.gz"
-	}
-
+func downloadBundle(ctx context.Context, url string) (string, func(), error) {
 	// HTTP request with authentication if gh token is available
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return "", nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// use gh token if available from centralized client
@@ -178,7 +195,7 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to download bundle: %w", err)
+		return "", nil, fmt.Errorf("failed to download bundle: %w", err)
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
@@ -187,87 +204,29 @@ func downloadBundle(ctx context.Context, url string) (string, error) {
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to download bundle: HTTP %d", resp.StatusCode)
+		return "", nil, fmt.Errorf("failed to download bundle: HTTP %d", resp.StatusCode)
 	}
 
 	// temp dir using digest package
 	tempDir, cleanup, err := digest.CreateTempDir("opa-bundle-")
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp directory: %w", err)
+		return "", nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	// note: cleanup will be called when extraction fails, but directory is returned on success
-	_ = cleanup
 
-	// extracts tar.gz
-	gzr, err := gzip.NewReader(resp.Body)
-	if err != nil {
+	if err := extractTarGz(resp.Body, tempDir); err != nil {
 		cleanup()
-		return "", fmt.Errorf("failed to create gzip reader: %w", err)
-	}
-	defer func() {
-		if err := gzr.Close(); err != nil {
-			log.Printf("warning: failed to close gzip reader: %v", err)
-		}
-	}()
-
-	tr := tar.NewReader(gzr)
-	for {
-		header, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			cleanup()
-			return "", fmt.Errorf("failed to read tar: %w", err)
-		}
-
-		// validate path to prevent path traversal attacks
-		path := filepath.Join(tempDir, header.Name)
-		if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(tempDir)+string(os.PathSeparator)) {
-			cleanup()
-			return "", fmt.Errorf("invalid path in archive (path traversal attempt): %s", header.Name)
-		}
-
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(path, 0755); err != nil {
-				cleanup()
-				return "", fmt.Errorf("failed to create directory: %w", err)
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-				cleanup()
-				return "", fmt.Errorf("failed to create parent directory: %w", err)
-			}
-
-			file, err := os.Create(path)
-			if err != nil {
-				cleanup()
-				return "", fmt.Errorf("failed to create file: %w", err)
-			}
-
-			if _, err := io.Copy(file, tr); err != nil {
-				if err := file.Close(); err != nil {
-					log.Printf("warning: failed to close file: %v", err)
-				}
-				cleanup()
-				return "", fmt.Errorf("failed to write file: %w", err)
-			}
-			if err := file.Close(); err != nil {
-				log.Printf("warning: failed to close file: %v", err)
-			}
-		}
+		return "", nil, err
 	}
 
-	return tempDir, nil
+	return tempDir, cleanup, nil
 }
 
 // extracts a local tar.gz bundle to a temp directory
-func extractBundle(bundlePath string) (string, error) {
+func extractBundle(bundlePath string) (string, func(), error) {
 	// open the tar.gz file
 	file, err := os.Open(bundlePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to open bundle file: %w", err)
+		return "", nil, fmt.Errorf("failed to open bundle file: %w", err)
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
@@ -278,14 +237,25 @@ func extractBundle(bundlePath string) (string, error) {
 	// create temp dir for extraction
 	tempDir, cleanup, err := digest.CreateTempDir("opa-bundle-")
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp directory: %w", err)
+		return "", nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
-	// extract tar.gz
-	gzr, err := gzip.NewReader(file)
-	if err != nil {
+	if err := extractTarGz(file, tempDir); err != nil {
 		cleanup()
-		return "", fmt.Errorf("failed to create gzip reader: %w", err)
+		return "", nil, err
+	}
+
+	return tempDir, cleanup, nil
+}
+
+// extractTarGz extracts a gzip-compressed tar stream into dest (which must
+// already exist), guarding against path-traversal entries. Shared by
+// downloadBundle (HTTP body) and extractBundle (local file) so the security
+// guard lives in exactly one place.
+func extractTarGz(r io.Reader, dest string) error {
+	gzr, err := gzip.NewReader(r)
+	if err != nil {
+		return fmt.Errorf("failed to create gzip reader: %w", err)
 	}
 	defer func() {
 		if err := gzr.Close(); err != nil {
@@ -300,41 +270,35 @@ func extractBundle(bundlePath string) (string, error) {
 			break
 		}
 		if err != nil {
-			cleanup()
-			return "", fmt.Errorf("failed to read tar: %w", err)
+			return fmt.Errorf("failed to read tar: %w", err)
 		}
 
 		// validate path to prevent path traversal attacks
-		path := filepath.Join(tempDir, header.Name)
-		if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(tempDir)+string(os.PathSeparator)) {
-			cleanup()
-			return "", fmt.Errorf("invalid path in archive (path traversal attempt): %s", header.Name)
+		path := filepath.Join(dest, header.Name)
+		if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(dest)+string(os.PathSeparator)) {
+			return fmt.Errorf("invalid path in archive (path traversal attempt): %s", header.Name)
 		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(path, 0755); err != nil {
-				cleanup()
-				return "", fmt.Errorf("failed to create directory: %w", err)
+				return fmt.Errorf("failed to create directory: %w", err)
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-				cleanup()
-				return "", fmt.Errorf("failed to create parent directory: %w", err)
+				return fmt.Errorf("failed to create parent directory: %w", err)
 			}
 
 			outFile, err := os.Create(path)
 			if err != nil {
-				cleanup()
-				return "", fmt.Errorf("failed to create file: %w", err)
+				return fmt.Errorf("failed to create file: %w", err)
 			}
 
 			if _, err := io.Copy(outFile, tr); err != nil {
 				if err := outFile.Close(); err != nil {
 					log.Printf("warning: failed to close file: %v", err)
 				}
-				cleanup()
-				return "", fmt.Errorf("failed to write file: %w", err)
+				return fmt.Errorf("failed to write file: %w", err)
 			}
 			if err := outFile.Close(); err != nil {
 				log.Printf("warning: failed to close file: %v", err)
@@ -342,7 +306,7 @@ func extractBundle(bundlePath string) (string, error) {
 		}
 	}
 
-	return tempDir, nil
+	return nil
 }
 
 // loads all .json schema files from a directory
@@ -428,8 +392,25 @@ func loadPoliciesFromPath(path string) (map[string]string, error) {
 	return policies, nil
 }
 
-// shuts down the OPA evaluator (no-op for Rego API)
+// shuts down the OPA evaluator, removing any temp directories created during
+// path resolution
 func (e *OPAEvaluator) Stop(ctx context.Context) {
+	for _, cleanup := range e.cleanups {
+		if cleanup != nil {
+			cleanup()
+		}
+	}
+}
+
+// returns the resolved local path of the policy bundle (for digest calculation).
+// unlike policyPath (the original URI used for display), this is a local
+// filesystem path after resolution.
+//
+// WARNING: for downloaded/extracted bundles this points into a temp directory
+// that Stop() removes. Read it before calling Stop() (as generate.go does); a
+// path read after Stop() may no longer exist.
+func (e *OPAEvaluator) ResolvedPolicyPath() string {
+	return e.resolvedPath
 }
 
 // evaluates OPA policy against attestations
