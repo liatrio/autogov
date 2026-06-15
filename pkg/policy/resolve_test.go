@@ -269,7 +269,9 @@ func TestNewOPAEvaluatorSchemasViaHTTP(t *testing.T) {
 	// NewOPAEvaluator must succeed end-to-end with an HTTP schemas path AND
 	// actually load the schema (construction succeeds even with zero schemas, so
 	// "no error" alone would not prove the new capability works).
+	origQuiet := viper.Get("quiet")
 	viper.Set("quiet", false)
+	defer viper.Set("quiet", origQuiet)
 	var evaluator *OPAEvaluator
 	out := captureStdout(t, func() {
 		var e error

@@ -270,47 +270,49 @@ func TestPolicyResultJSONMarshaling(t *testing.T) {
 	}
 }
 
-// test w/ env vars for token auth
-func TestDownloadBundleWithToken(t *testing.T) {
-	// skip if running in CI without network access
-	if os.Getenv("CI") != "" {
-		t.Skip("Skipping network test in CI")
-	}
-
-	// create a simple test server
+// the gh token must NEVER be sent to a non-GitHub host, even when configured —
+// otherwise a non-GitHub --policy-bundle-path URL would leak the credential.
+func TestDownloadBundleDoesNotLeakTokenToNonGitHubHost(t *testing.T) {
+	var gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") == "" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
+		gotAuth = r.Header.Get("Authorization")
 		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write([]byte("test content")); err != nil {
+		if _, err := w.Write([]byte("not a valid tar.gz")); err != nil {
 			t.Errorf("Failed to write response: %v", err)
 		}
 	}))
 	defer server.Close()
 
-	// set test token
-	if err := os.Setenv("GH_TOKEN", "test-token"); err != nil {
-		t.Fatalf("Failed to set env var: %v", err)
-	}
-	defer func() {
-		if err := os.Unsetenv("GH_TOKEN"); err != nil {
-			t.Logf("Warning: failed to unset env var: %v", err)
-		}
-	}()
+	// configure a token via viper (highest-precedence source)
+	viper.Set("token", "test-token")
+	defer viper.Set("token", "")
 
 	ctx := context.Background()
+	// download fails (bad gzip) — we only assert on the captured header
+	_, _, _ = downloadBundle(ctx, server.URL)
 
-	// will fail because we're not serving a valid tar.gz, but it tests the auth logic
-	_, _, err := downloadBundle(ctx, server.URL)
-	if err == nil {
-		t.Fatal("Expected error for invalid tar.gz content")
+	if gotAuth != "" {
+		t.Errorf("token leaked to non-GitHub host %q: Authorization=%q", server.URL, gotAuth)
 	}
+}
 
-	// error should be about gzip/tar format, not authentication
-	if strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "unauthorized") {
-		t.Error("Authentication failed when token was provided")
+// pins the host allowlist for token injection
+func TestIsGitHubHost(t *testing.T) {
+	cases := map[string]bool{
+		"github.com":                    true,
+		"api.github.com":                true,
+		"GitHub.com":                    true, // case-insensitive
+		"raw.githubusercontent.com":     false,
+		"objects.githubusercontent.com": false,
+		"evil.com":                      false,
+		"github.com.evil.com":           false,
+		"127.0.0.1":                     false,
+		"":                              false,
+	}
+	for host, want := range cases {
+		if got := isGitHubHost(host); got != want {
+			t.Errorf("isGitHubHost(%q) = %v, want %v", host, got, want)
+		}
 	}
 }
 

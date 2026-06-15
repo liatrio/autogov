@@ -178,6 +178,17 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 	}, nil
 }
 
+// isGitHubHost reports whether the GitHub token may be sent to host h. Scoped
+// to github.com hosts so the token is never leaked to an arbitrary download URL.
+func isGitHubHost(h string) bool {
+	switch strings.ToLower(h) {
+	case "github.com", "api.github.com":
+		return true
+	default:
+		return false
+	}
+}
+
 // downloads a bundle from URL and extracts it to a temp dir
 func downloadBundle(ctx context.Context, url string) (string, func(), error) {
 	// HTTP request with authentication if gh token is available
@@ -186,8 +197,10 @@ func downloadBundle(ctx context.Context, url string) (string, func(), error) {
 		return "", nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// use gh token if available from centralized client
-	if token := github.GetToken(); token != "" {
+	// use gh token if available — but ONLY for GitHub hosts, so a non-GitHub
+	// --policy-bundle-path URL can never receive the token. (net/http also strips
+	// Authorization across host redirects, so this covers the initial request.)
+	if token := github.GetToken(); token != "" && isGitHubHost(req.URL.Hostname()) {
 		req.Header.Set("Authorization", "token "+token)
 	}
 
