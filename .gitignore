@@ -1,3 +1,8 @@
+# local env / secrets
+.env
+.env.*
+!.env.example
+
 # binary files
 /autogov
 *.exe
@@ -32,6 +37,7 @@ build-errors.log
 .air.toml
 
 # agent config dirs
+.agents/
 .agentvibes/
 .claude/
 .clinerules/
