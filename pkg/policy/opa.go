@@ -571,10 +571,19 @@ func CalculateDigest(policyPath string) (string, error) {
 	return hex, nil
 }
 
-// downloads policy content from URL and hashes it
+// downloads policy content from URL and hashes it. Mirrors downloadBundle's
+// auth: the GitHub token is attached only for GitHub hosts (never leaked to an
+// arbitrary URL), so this no longer diverges from the authenticated download path.
 func calculateRemoteDigest(url string) (string, error) {
-	// create HTTP request
-	resp, err := http.Get(url)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request for %s: %w", url, err)
+	}
+	if token := github.GetToken(); token != "" && isGitHubHost(req.URL.Hostname()) {
+		req.Header.Set("Authorization", "token "+token)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to download policy from %s: %w", url, err)
 	}

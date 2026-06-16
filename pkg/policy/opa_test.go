@@ -1251,6 +1251,30 @@ func TestCalculateRemoteDigestNotFound(t *testing.T) {
 	}
 }
 
+// the gh token must never be sent to a non-GitHub host during remote digest
+// calculation (parity with downloadBundle).
+func TestCalculateRemoteDigestDoesNotLeakTokenToNonGitHubHost(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write([]byte("policy content")); err != nil {
+			t.Errorf("Failed to write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	viper.Set("token", "test-token")
+	defer viper.Set("token", "")
+
+	if _, err := CalculateDigest(server.URL); err != nil {
+		t.Fatalf("CalculateDigest returned error: %v", err)
+	}
+	if gotAuth != "" {
+		t.Errorf("token leaked to non-GitHub host: Authorization=%q", gotAuth)
+	}
+}
+
 func TestDownloadBundleHTTPError(t *testing.T) {
 	// create a test server that returns 500
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
