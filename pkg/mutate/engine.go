@@ -136,7 +136,7 @@ func computeDiff(before, after, path string) string {
 	afterLines := strings.Split(after, "\n")
 
 	var diff strings.Builder
-	diff.WriteString(fmt.Sprintf("--- %s\n+++ %s\n", path, path))
+	fmt.Fprintf(&diff, "--- %s\n+++ %s\n", path, path)
 
 	// simple line-by-line diff (find first difference)
 	maxLines := len(beforeLines)
@@ -154,10 +154,10 @@ func computeDiff(before, after, path string) string {
 		}
 		if bLine != aLine {
 			if bLine != "" {
-				diff.WriteString(fmt.Sprintf("-%s\n", bLine))
+				fmt.Fprintf(&diff, "-%s\n", bLine)
 			}
 			if aLine != "" {
-				diff.WriteString(fmt.Sprintf("+%s\n", aLine))
+				fmt.Fprintf(&diff, "+%s\n", aLine)
 			}
 		}
 	}
