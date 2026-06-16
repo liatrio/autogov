@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/go-github/v82/github"
+	"github.com/google/go-github/v88/github"
 	"github.com/liatrio/autogov/pkg/certid"
 	"github.com/liatrio/autogov/pkg/digest"
 	ghclient "github.com/liatrio/autogov/pkg/github"

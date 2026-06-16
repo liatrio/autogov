@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/google/go-github/v82/github"
+	"github.com/google/go-github/v88/github"
 	"github.com/xeipuuv/gojsonschema"
 )
 
@@ -64,7 +64,10 @@ func fetchSchemaContent(schemaName string) (string, error) {
 			return "", fmt.Errorf("failed to load config: %w", err)
 		}
 
-		client := github.NewClient(nil).WithAuthToken(token)
+		client, err := github.NewClient(github.WithAuthToken(token))
+		if err != nil {
+			return "", fmt.Errorf("failed to create GitHub client: %w", err)
+		}
 		path := fmt.Sprintf("%s%s", cfg.SchemasPath, schemaName)
 		content, _, resp, err := client.Repositories.GetContents(
 			context.Background(),

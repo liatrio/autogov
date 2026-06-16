@@ -6,7 +6,7 @@ require (
 	github.com/cli/go-gh/v2 v2.13.0
 	github.com/digitorus/pkcs7 v0.0.0-20250730155240-ffadbf3f398c
 	github.com/go-git/go-git/v5 v5.19.1
-	github.com/google/go-github/v82 v82.0.0
+	github.com/google/go-github/v88 v88.0.0
 	github.com/open-policy-agent/opa v1.17.1
 	github.com/sigstore/cosign/v3 v3.1.1
 	github.com/sigstore/sigstore-go v1.2.1
