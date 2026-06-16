@@ -105,7 +105,10 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 	sourceRef, _ := cmd.Flags().GetString(flagSourceRef)
 	blobPath, _ := cmd.Flags().GetString(flagBlobPath)
 	attestationsPath, _ := cmd.Flags().GetString(flagAttestationsPath)
-	client := ghclient.NewClient()
+	client, err := ghclient.NewClient()
+	if err != nil {
+		return fmt.Errorf("failed to create GitHub client: %w", err)
+	}
 
 	blobPaths, err := cli.ExpandBlobPaths(blobPath)
 	if err != nil {

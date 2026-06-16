@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/google/go-github/v82/github"
+	"github.com/google/go-github/v88/github"
 	"github.com/liatrio/autogov/pkg/digest"
 	ghclient "github.com/liatrio/autogov/pkg/github"
 	"github.com/liatrio/autogov/pkg/offline"
@@ -43,7 +43,10 @@ type AttestationDownloader struct {
 
 // creates a new attestation downloader
 func NewAttestationDownloader(opts DownloadOptions) (*AttestationDownloader, error) {
-	client := ghclient.NewClient()
+	client, err := ghclient.NewClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
+	}
 
 	// defaults
 	if opts.OutputFormat == "" {

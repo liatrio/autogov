@@ -10,7 +10,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
-	gogithub "github.com/google/go-github/v82/github"
+	gogithub "github.com/google/go-github/v88/github"
 )
 
 // PublishOptions contains configuration for publishing a draft release
@@ -48,7 +48,11 @@ func ExecutePublish(opts *PublishOptions) (*PublishResult, error) {
 
 	// initialize GitHub release service if token is available
 	if opts.Token != "" && opts.ReleaseAPI == nil {
-		opts.ReleaseAPI = newGitHubReleaseService(opts.Token)
+		releaseAPI, err := newGitHubReleaseService(opts.Token)
+		if err != nil {
+			return nil, err
+		}
+		opts.ReleaseAPI = releaseAPI
 	}
 
 	// parse owner/repo from git remote

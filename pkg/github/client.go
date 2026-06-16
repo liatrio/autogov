@@ -3,7 +3,7 @@ package github
 import (
 	"os"
 
-	"github.com/google/go-github/v82/github"
+	"github.com/google/go-github/v88/github"
 	"github.com/spf13/viper"
 )
 
@@ -28,10 +28,10 @@ func GetToken() string {
 
 // creates a new GitHub client with authentication token.
 // returns a client with auth token if available, or unauthenticated client otherwise.
-func NewClient() *github.Client {
+func NewClient() (*github.Client, error) {
 	token := GetToken()
 	if token != "" {
-		return github.NewClient(nil).WithAuthToken(token)
+		return github.NewClient(github.WithAuthToken(token))
 	}
-	return github.NewClient(nil)
+	return github.NewClient()
 }

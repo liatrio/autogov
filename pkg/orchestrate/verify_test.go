@@ -4,14 +4,24 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/go-github/v82/github"
+	"github.com/google/go-github/v88/github"
 	"github.com/liatrio/autogov/pkg/certid"
 	"github.com/stretchr/testify/assert"
 )
 
+// mustClient builds a *github.Client for tests, failing the test on construction error.
+func mustClient(t *testing.T, opts ...github.ClientOptionsFunc) *github.Client {
+	t.Helper()
+	c, err := github.NewClient(opts...)
+	if err != nil {
+		t.Fatalf("github.NewClient: %v", err)
+	}
+	return c
+}
+
 func TestVerifyBlobs(t *testing.T) {
 	ctx := context.Background()
-	client := github.NewClient(nil)
+	client := mustClient(t)
 
 	tests := []struct {
 		name      string
@@ -124,7 +134,7 @@ func TestSetupCertIdentityValidation(t *testing.T) {
 
 func TestVerifyBlobsMultipleBlobs(t *testing.T) {
 	ctx := context.Background()
-	client := github.NewClient(nil)
+	client := mustClient(t)
 
 	opts := Options{
 		Repository:   "test/repo",
@@ -141,7 +151,7 @@ func TestVerifyBlobsMultipleBlobs(t *testing.T) {
 
 func TestVerifyBlobsQuietMode(t *testing.T) {
 	ctx := context.Background()
-	client := github.NewClient(nil)
+	client := mustClient(t)
 
 	opts := Options{
 		Repository:   "test/repo",
@@ -174,7 +184,7 @@ func TestSetupCertIdentityValidationCacheDisabled(t *testing.T) {
 
 func TestVerifyBlobsWithCertIdentityValidation(t *testing.T) {
 	ctx := context.Background()
-	client := github.NewClient(nil)
+	client := mustClient(t)
 
 	certOpts := certid.DefaultOptions()
 	certOpts.URL = "https://example.com/cert-identities.json"

@@ -8,9 +8,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-github/v82/github"
+	"github.com/google/go-github/v88/github"
 	"github.com/liatrio/autogov/pkg/root"
 )
+
+// mustClient builds a *github.Client for tests, failing the test on construction error.
+func mustClient(t *testing.T, opts ...github.ClientOptionsFunc) *github.Client {
+	t.Helper()
+	c, err := github.NewClient(opts...)
+	if err != nil {
+		t.Fatalf("github.NewClient: %v", err)
+	}
+	return c
+}
 
 const (
 	testFileName              = "test.txt"
@@ -157,7 +167,7 @@ func TestGetFromGitHub(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var c *github.Client
 			if tt.client == nil && tt.name != errMsgNilClient {
-				c = github.NewClient(nil).WithAuthToken(token)
+				c = mustClient(t, github.WithAuthToken(token))
 			} else {
 				c = tt.client
 			}
@@ -205,7 +215,7 @@ func TestGetFromGitHubWithBlob(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := github.NewClient(nil).WithAuthToken(token)
+			client := mustClient(t, github.WithAuthToken(token))
 			_, err := GetFromGitHub(context.Background(), "", client, tt.opts)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetFromGitHub() error = %v, wantErr %v", err, tt.wantErr)
@@ -229,7 +239,7 @@ func TestValidateInputs(t *testing.T) {
 	}{
 		{
 			name:        "valid inputs",
-			client:      github.NewClient(nil),
+			client:      mustClient(t),
 			org:         "liatrio",
 			artifactRef: validDigest,
 			wantErr:     false,
@@ -244,7 +254,7 @@ func TestValidateInputs(t *testing.T) {
 		},
 		{
 			name:        "empty org",
-			client:      github.NewClient(nil),
+			client:      mustClient(t),
 			org:         "",
 			artifactRef: validDigest,
 			wantErr:     true,
@@ -252,7 +262,7 @@ func TestValidateInputs(t *testing.T) {
 		},
 		{
 			name:        "nil artifact ref",
-			client:      github.NewClient(nil),
+			client:      mustClient(t),
 			org:         "liatrio",
 			artifactRef: nil,
 			wantErr:     true,
@@ -488,7 +498,7 @@ func TestHandleBlobVerification(t *testing.T) {
 			name:        "missing blob path",
 			artifactRef: validDigest,
 			org:         "liatrio",
-			client:      github.NewClient(nil).WithAuthToken(token),
+			client:      mustClient(t, github.WithAuthToken(token)),
 			opts: Options{
 				CertIdentity: verifyCertIdentity,
 				CertIssuer:   testCertIssuer,
@@ -515,7 +525,7 @@ func TestHandleBlobVerification(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := tt.client
 			if tt.client == nil && tt.name != errMsgNilClient {
-				client = github.NewClient(nil).WithAuthToken(token)
+				client = mustClient(t, github.WithAuthToken(token))
 			}
 			_, err := handleBlobVerification(context.Background(), tt.artifactRef, tt.org, client, tt.opts, t.TempDir())
 			if (err != nil) != tt.wantErr {

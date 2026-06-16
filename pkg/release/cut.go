@@ -11,7 +11,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
-	gogithub "github.com/google/go-github/v82/github"
+	gogithub "github.com/google/go-github/v88/github"
 	"github.com/liatrio/autogov/pkg/mutate"
 	"gopkg.in/yaml.v3"
 )
@@ -153,9 +153,12 @@ func (s *githubReleaseService) UpdateRef(ctx context.Context, owner, repo, ref s
 	return s.client.Git.UpdateRef(ctx, owner, repo, ref, updateRef)
 }
 
-func newGitHubReleaseService(token string) ReleaseService {
-	client := gogithub.NewClient(nil).WithAuthToken(token)
-	return &githubReleaseService{client: client}
+func newGitHubReleaseService(token string) (ReleaseService, error) {
+	client, err := gogithub.NewClient(gogithub.WithAuthToken(token))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
+	}
+	return &githubReleaseService{client: client}, nil
 }
 
 // ExecuteCut orchestrates the full release cut flow
@@ -175,7 +178,11 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 
 	// initialize GitHub release service if token is available
 	if opts.Token != "" && opts.ReleaseAPI == nil {
-		opts.ReleaseAPI = newGitHubReleaseService(opts.Token)
+		releaseAPI, err := newGitHubReleaseService(opts.Token)
+		if err != nil {
+			return nil, err
+		}
+		opts.ReleaseAPI = releaseAPI
 	}
 
 	// fail early if api mode requires a token

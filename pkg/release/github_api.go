@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	gogithub "github.com/google/go-github/v82/github"
+	gogithub "github.com/google/go-github/v88/github"
 )
 
 // rawCommit holds commit data returned by the GitHub Compare API.

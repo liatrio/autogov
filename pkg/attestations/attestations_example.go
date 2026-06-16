@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/google/go-github/v82/github"
+	"github.com/google/go-github/v88/github"
 )
 
 // example options
@@ -41,7 +41,11 @@ var (
 // and automatically fetches GitHub's trusted root with fallback to embedded root
 func ExampleGetFromGitHub() {
 	// Create a mock client with a token
-	client := github.NewClient(nil).WithAuthToken("mock-token")
+	client, err := github.NewClient(github.WithAuthToken("mock-token"))
+	if err != nil {
+		fmt.Printf("failed to create GitHub client: %v\n", err)
+		return
+	}
 
 	// Example 1: Verify a container image
 	// The tool will automatically:
@@ -55,7 +59,7 @@ func ExampleGetFromGitHub() {
 		SourceRef:    "refs/tags/v1.0.0",
 	}
 
-	_, err := GetFromGitHub(context.Background(), imageRef, client, opts)
+	_, err = GetFromGitHub(context.Background(), imageRef, client, opts)
 	fmt.Printf("Container verification error: %v\n", err)
 
 	// Example 2: Verify a blob

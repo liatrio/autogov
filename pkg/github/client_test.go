@@ -151,7 +151,10 @@ func TestNewClient(t *testing.T) {
 	defer cleanup()
 
 	t.Run("creates client without token", func(t *testing.T) {
-		client := NewClient()
+		client, err := NewClient()
+		if err != nil {
+			t.Fatalf("NewClient() returned error: %v", err)
+		}
 		if client == nil {
 			t.Error("Expected client to be created")
 		}
@@ -162,7 +165,10 @@ func TestNewClient(t *testing.T) {
 			t.Fatalf("Failed to set GITHUB_TOKEN: %v", err)
 		}
 
-		client := NewClient()
+		client, err := NewClient()
+		if err != nil {
+			t.Fatalf("NewClient() returned error: %v", err)
+		}
 		if client == nil {
 			t.Error("Expected client to be created")
 		}
