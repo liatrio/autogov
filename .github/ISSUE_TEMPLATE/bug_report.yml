@@ -1,0 +1,48 @@
+name: Bug Report
+description: Report a problem with autogov
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please do **not**
+        include secrets, tokens, or private attestation data in this report.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact command(s) and inputs that trigger the issue.
+      placeholder: |
+        1. Run `autogov ...`
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: autogov version
+      description: Output of `autogov version`.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS / architecture
+      placeholder: e.g. macOS 15 arm64, ubuntu-latest
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output / logs
+      description: Paste any error output. Redact tokens and sensitive values.
+      render: shell
+    validations:
+      required: false
