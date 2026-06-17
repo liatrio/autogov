@@ -37,33 +37,36 @@ func ValidateMode(mode ReleaseMode) error {
 
 // CutOptions contains configuration for executing a release cut
 type CutOptions struct {
-	RepoPath        string         // path to git repo (default ".")
-	Branch          string         // expected branch (default "main")
-	Remote          string         // git remote name (default "origin")
-	PlanFile        string         // path to pre-generated plan JSON/YAML
-	MutationsConfig string         // path to mutations config file
-	DryRun          bool           // show what would happen without side effects
-	Publish         bool           // create published release directly (no draft)
-	Mode            ReleaseMode    // "auto" (default), "api", "local"
-	CommitAuthor    string         // bot commit author name
-	CommitEmail     string         // bot commit author email
-	Token           string         // GitHub token for API and push
-	ReleaseAPI      ReleaseService // optional; created from Token if nil
+	RepoPath        string            // path to git repo (default ".")
+	Branch          string            // expected branch (default "main")
+	Remote          string            // git remote name (default "origin")
+	PlanFile        string            // path to pre-generated plan JSON/YAML
+	MutationsConfig string            // path to mutations config file
+	DryRun          bool              // show what would happen without side effects
+	Publish         bool              // create published release directly (no draft)
+	Mode            ReleaseMode       // "auto" (default), "api", "local"
+	CommitAuthor    string            // bot commit author name
+	CommitEmail     string            // bot commit author email
+	Token           string            // GitHub token for API and push
+	ReleaseAPI      ReleaseService    // optional; created from Token if nil
+	Assets          []string          // file paths to upload as release assets
+	AssetLabels     map[string]string // optional asset name -> display label
 }
 
 // CutResult captures the outcome of a release cut
 type CutResult struct {
-	TagName       string   `json:"tag_name"`
-	Version       string   `json:"version"`
-	CommitSHA     string   `json:"commit_sha"`
-	ReleaseURL    string   `json:"release_url,omitempty"`
-	ReleaseID     int64    `json:"release_id,omitempty"`
-	Draft         bool     `json:"draft"`
-	Published     bool     `json:"published"`
-	FilesModified []string `json:"files_modified,omitempty"`
-	DryRun        bool     `json:"dry_run"`
-	NoRelease     bool     `json:"no_release"`
-	Reason        string   `json:"reason,omitempty"`
+	TagName        string   `json:"tag_name"`
+	Version        string   `json:"version"`
+	CommitSHA      string   `json:"commit_sha"`
+	ReleaseURL     string   `json:"release_url,omitempty"`
+	ReleaseID      int64    `json:"release_id,omitempty"`
+	Draft          bool     `json:"draft"`
+	Published      bool     `json:"published"`
+	FilesModified  []string `json:"files_modified,omitempty"`
+	UploadedAssets []string `json:"uploaded_assets,omitempty"`
+	DryRun         bool     `json:"dry_run"`
+	NoRelease      bool     `json:"no_release"`
+	Reason         string   `json:"reason,omitempty"`
 }
 
 // DefaultCutOptions returns options with sensible defaults
@@ -85,6 +88,7 @@ type ReleaseService interface {
 	CreateRelease(ctx context.Context, owner, repo string, release *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error)
 	UpdateRelease(ctx context.Context, owner, repo string, id int64, release *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error)
 	ListReleases(ctx context.Context, owner, repo string, opts *gogithub.ListOptions) ([]*gogithub.RepositoryRelease, *gogithub.Response, error)
+	UploadReleaseAsset(ctx context.Context, owner, repo string, id int64, opts *gogithub.UploadOptions, file *os.File) (*gogithub.ReleaseAsset, *gogithub.Response, error)
 	// read operations (tag discovery, commit comparison, branch validation)
 	ListTags(ctx context.Context, owner, repo string, opts *gogithub.ListOptions) ([]*gogithub.RepositoryTag, *gogithub.Response, error)
 	CompareCommits(ctx context.Context, owner, repo, base, head string, opts *gogithub.ListOptions) (*gogithub.CommitsComparison, *gogithub.Response, error)
@@ -119,6 +123,10 @@ func (s *githubReleaseService) UpdateRelease(ctx context.Context, owner, repo st
 
 func (s *githubReleaseService) ListReleases(ctx context.Context, owner, repo string, opts *gogithub.ListOptions) ([]*gogithub.RepositoryRelease, *gogithub.Response, error) {
 	return s.client.Repositories.ListReleases(ctx, owner, repo, opts)
+}
+
+func (s *githubReleaseService) UploadReleaseAsset(ctx context.Context, owner, repo string, id int64, opts *gogithub.UploadOptions, file *os.File) (*gogithub.ReleaseAsset, *gogithub.Response, error) {
+	return s.client.Repositories.UploadReleaseAsset(ctx, owner, repo, id, opts, file)
 }
 
 func (s *githubReleaseService) ListTags(ctx context.Context, owner, repo string, opts *gogithub.ListOptions) ([]*gogithub.RepositoryTag, *gogithub.Response, error) {
@@ -168,6 +176,11 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 	}
 
 	if err := ValidateMode(opts.Mode); err != nil {
+		return nil, err
+	}
+
+	// fail-fast: every asset path must exist before any commit/tag/push side effects
+	if err := validateAssets(opts.Assets, opts.AssetLabels); err != nil {
 		return nil, err
 	}
 
@@ -257,6 +270,9 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 			action = "published"
 		}
 		fmt.Fprintf(os.Stderr, "dry-run: would create commit, tag, push, and create %s GitHub release\n", action)
+		if len(opts.Assets) > 0 {
+			fmt.Fprintf(os.Stderr, "dry-run: would upload %d asset(s): %s\n", len(opts.Assets), strings.Join(opts.Assets, ", "))
+		}
 		return result, nil
 	}
 
@@ -300,7 +316,72 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 	result.ReleaseURL = releaseURL
 	result.ReleaseID = releaseID
 
+	// step 9: upload release assets (if any)
+	if len(opts.Assets) > 0 {
+		uploaded, err := uploadAssets(ctx, opts.ReleaseAPI, owner, repoName, releaseID, opts.Assets, opts.AssetLabels)
+		if err != nil {
+			return nil, fmt.Errorf("failed to upload release assets: %w", err)
+		}
+		result.UploadedAssets = uploaded
+	}
+
 	return result, nil
+}
+
+// validateAssets verifies each asset path exists and is a regular file, that no two
+// assets share the same upload name (base name), and that every --asset-label refers
+// to one of those names. All checks are fail-fast, before any release side effects —
+// so a duplicate name or stale label can't surface only after the release is created.
+func validateAssets(assets []string, labels map[string]string) error {
+	names := make(map[string]struct{}, len(assets))
+	for _, path := range assets {
+		info, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("asset not found: %s: %w", path, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("asset is a directory, not a file: %s", path)
+		}
+		name := filepath.Base(path)
+		if _, dup := names[name]; dup {
+			return fmt.Errorf("multiple assets resolve to the same name %q; release asset names must be unique", name)
+		}
+		names[name] = struct{}{}
+	}
+	for name := range labels {
+		if _, ok := names[name]; !ok {
+			return fmt.Errorf("--asset-label %q does not match any --asset name", name)
+		}
+	}
+	return nil
+}
+
+// uploadAssets uploads each asset file to the release and returns the uploaded asset
+// names. The asset name is the file's base name; an optional label is looked up by
+// that name in labels. Fails fast on the first upload error.
+func uploadAssets(ctx context.Context, svc ReleaseService, owner, repo string, releaseID int64, assets []string, labels map[string]string) ([]string, error) {
+	uploaded := make([]string, 0, len(assets))
+	for _, path := range assets {
+		name := filepath.Base(path)
+		file, err := os.Open(path)
+		if err != nil {
+			return uploaded, fmt.Errorf("failed to open asset %s: %w", path, err)
+		}
+		uploadOpts := &gogithub.UploadOptions{Name: name, Label: labels[name]}
+		_, resp, uploadErr := svc.UploadReleaseAsset(ctx, owner, repo, releaseID, uploadOpts, file)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		closeErr := file.Close()
+		if uploadErr != nil {
+			return uploaded, fmt.Errorf("failed to upload asset %s: %w", name, uploadErr)
+		}
+		if closeErr != nil {
+			return uploaded, fmt.Errorf("failed to close asset %s: %w", name, closeErr)
+		}
+		uploaded = append(uploaded, name)
+	}
+	return uploaded, nil
 }
 
 // validateWorktree checks that the working tree is clean and on the expected branch.
