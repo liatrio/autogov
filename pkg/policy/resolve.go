@@ -29,7 +29,8 @@ func resolveBundlePath(ctx context.Context, path string, opts *ResolveOptions) (
 		return downloadBundle(ctx, path)
 	case strings.HasSuffix(path, ".tar.gz") || strings.HasSuffix(path, ".tgz"):
 		return extractBundle(path)
-	// Future: case strings.HasPrefix(path, "oci://"):   -> Story 3.1
+	case strings.HasPrefix(path, ociScheme):
+		return pullOCIBundle(ctx, path)
 	// Future: case strings.HasPrefix(path, "ghrel://"): -> Story 3.2
 	default:
 		// local directory: nothing to download or extract, no cleanup needed
