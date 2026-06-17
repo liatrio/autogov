@@ -3,6 +3,7 @@ package release
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	ghpkg "github.com/liatrio/autogov/pkg/github"
 	"github.com/liatrio/autogov/pkg/release"
@@ -48,6 +49,24 @@ func init() {
 	cutCmd.Flags().String("commit-author", "autogov[bot]", "Author name for release commit")
 	cutCmd.Flags().String("commit-email", "autogov[bot]@users.noreply.github.com", "Author email for release commit")
 	cutCmd.Flags().StringP("output", "o", "text", "Output format: text, json")
+	cutCmd.Flags().StringArray("asset", nil, "File to upload as a release asset (repeatable)")
+	cutCmd.Flags().StringArray("asset-label", nil, "Display label for an asset as name=label (repeatable)")
+}
+
+// parseAssetLabels parses repeated name=label pairs into a map keyed by asset name.
+func parseAssetLabels(pairs []string) (map[string]string, error) {
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	labels := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		name, label, ok := strings.Cut(p, "=")
+		if !ok || name == "" {
+			return nil, fmt.Errorf("invalid --asset-label %q: expected name=label", p)
+		}
+		labels[name] = label
+	}
+	return labels, nil
 }
 
 func runCut(cmd *cobra.Command, args []string) error {
@@ -62,6 +81,13 @@ func runCut(cmd *cobra.Command, args []string) error {
 	commitAuthor, _ := cmd.Flags().GetString("commit-author")
 	commitEmail, _ := cmd.Flags().GetString("commit-email")
 	outputFormat, _ := cmd.Flags().GetString("output")
+	assets, _ := cmd.Flags().GetStringArray("asset")
+	assetLabelPairs, _ := cmd.Flags().GetStringArray("asset-label")
+
+	assetLabels, err := parseAssetLabels(assetLabelPairs)
+	if err != nil {
+		return err
+	}
 
 	token := ghpkg.GetToken()
 
@@ -77,6 +103,8 @@ func runCut(cmd *cobra.Command, args []string) error {
 		CommitAuthor:    commitAuthor,
 		CommitEmail:     commitEmail,
 		Token:           token,
+		Assets:          assets,
+		AssetLabels:     assetLabels,
 	}
 
 	result, err := release.ExecuteCut(opts)
@@ -121,6 +149,12 @@ func runCut(cmd *cobra.Command, args []string) error {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Files modified: %d\n", len(result.FilesModified))
 			for _, f := range result.FilesModified {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    - %s\n", f)
+			}
+		}
+		if len(result.UploadedAssets) > 0 {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Assets uploaded: %d\n", len(result.UploadedAssets))
+			for _, a := range result.UploadedAssets {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    - %s\n", a)
 			}
 		}
 		if result.DryRun {
