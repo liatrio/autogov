@@ -1,5 +1,11 @@
 # AutoGov
 
+[![CI](https://github.com/liatrio/autogov/actions/workflows/build.yml/badge.svg)](https://github.com/liatrio/autogov/actions/workflows/build.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/liatrio/autogov.svg)](https://pkg.go.dev/github.com/liatrio/autogov)
+[![Go Report Card](https://goreportcard.com/badge/github.com/liatrio/autogov)](https://goreportcard.com/report/github.com/liatrio/autogov)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/liatrio/autogov/badge)](https://scorecard.dev/viewer/?uri=github.com/liatrio/autogov)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 A unified CLI for attestation verification and release management. Supports [cosign](https://docs.sigstore.dev/cosign/overview/)-based verification with SLSA v1.2 VSA (Verification Summary Attestation) support, integrated OPA policy evaluation, and a full release engine with changelog generation.
 
 > **Note**: This tool supports attestation verification for container images (ghcr.io) and blobs, VSA generation, policy evaluation, and release management (plan, cut, publish) with conventional commit-based changelog generation.
