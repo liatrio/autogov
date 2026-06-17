@@ -58,6 +58,7 @@ jobs:
     permissions:
       contents: write
       actions: read
+      id-token: write # federate the octo-sts release token
     env:
       VSA_FOLDER: ./vsa
     steps:
@@ -113,10 +114,24 @@ jobs:
             exit 1
           fi
           echo "path=$vsa" >> "$GITHUB_OUTPUT"
+      # release cut --publish creates a chore(release) commit and fast-forwards
+      # refs/heads/main. main is governed by the "main protection" ruleset
+      # (required PRs and status checks); the default GITHUB_TOKEN
+      # (github-actions[bot]) is not a bypass actor, so the ref update is rejected.
+      # PREREQUISITES for this job to succeed (one-time governance setup):
+      #   1. add `autogov` to the release-ops repos list in
+      #      liatrio/.github/.github/chainguard/release-ops.sts.yaml
+      #   2. add the octo-sts app to autogov's "main protection" ruleset bypass
+      #      (it is already a bypass actor on the policy-library repositories)
+      - uses: octo-sts/action@f603d3be9d8dd9871a265776e625a27b00effe05 # v1.1.1
+        id: octo-sts-release
+        with:
+          scope: liatrio
+          identity: release-ops
       - name: Cut release and upload assets
         env:
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.octo-sts-release.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.octo-sts-release.outputs.token }}
         run: |
           autogov release cut \
             --plan-file plan.json \
