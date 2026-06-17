@@ -242,7 +242,7 @@ func TestChangelogNoEmojis(t *testing.T) {
 	changelog, err := GenerateChangelog(commits, &Options{Version: "v2.0.0", IncludeAll: true})
 	require.NoError(t, err)
 
-	// the default template must not contain any emoji (AC9)
+	// the default template must not contain any emoji
 	match := emojiPattern.FindString(changelog)
 	assert.Empty(t, match, "changelog must not contain Unicode emoji, found: %s", match)
 	assert.Contains(t, changelog, "Breaking Changes")

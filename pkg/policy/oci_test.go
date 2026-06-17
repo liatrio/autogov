@@ -94,7 +94,7 @@ func TestOCIAuthClient(t *testing.T) {
 		t.Setenv("GH_TOKEN", "secret-token")
 		c := ociAuthClient("ghcr.io", "org")
 		if c.Client != retry.DefaultClient {
-			t.Error("expected retry.DefaultClient transport (AC9)")
+			t.Error("expected retry.DefaultClient transport")
 		}
 		if c.Credential == nil {
 			t.Fatal("expected credential set for ghcr.io with token")
@@ -115,10 +115,10 @@ func TestOCIAuthClient(t *testing.T) {
 		t.Setenv("GITHUB_AUTH_TOKEN", "")
 		c := ociAuthClient("ghcr.io", "org")
 		if c.Client != retry.DefaultClient {
-			t.Error("expected retry.DefaultClient transport (AC9)")
+			t.Error("expected retry.DefaultClient transport")
 		}
 		if c.Credential != nil {
-			t.Error("expected anonymous (nil credential) when no token present (AC8)")
+			t.Error("expected anonymous (nil credential) when no token present")
 		}
 	})
 
@@ -127,10 +127,10 @@ func TestOCIAuthClient(t *testing.T) {
 		t.Setenv("GH_TOKEN", "secret-token")
 		c := ociAuthClient("registry.example.com", "org")
 		if c.Client != retry.DefaultClient {
-			t.Error("expected retry.DefaultClient transport (AC9)")
+			t.Error("expected retry.DefaultClient transport")
 		}
 		if c.Credential != nil {
-			t.Error("token must not be sent to non-ghcr.io hosts (AC3/AC4)")
+			t.Error("token must not be sent to non-ghcr.io hosts")
 		}
 	})
 }
@@ -157,7 +157,7 @@ func TestResolveOCIBundle(t *testing.T) {
 
 	cleanup()
 	if _, statErr := os.Stat(dir); !os.IsNotExist(statErr) {
-		t.Errorf("temp dir %s not removed after cleanup (AC10)", dir)
+		t.Errorf("temp dir %s not removed after cleanup", dir)
 	}
 }
 
@@ -166,7 +166,7 @@ func TestResolveOCIBundleDigestRef(t *testing.T) {
 	store := memory.New()
 	layer := pushBlob(t, store, ocispec.MediaTypeImageLayerGzip, buildTarGz(t, map[string]string{"policy.rego": "package x"}))
 	md := pushManifest(t, store, []ocispec.Descriptor{layer}, "v1")
-	// tag by digest so the in-memory store can resolve a digest reference (AC2)
+	// tag by digest so the in-memory store can resolve a digest reference
 	if err := store.Tag(ctx, md, md.Digest.String()); err != nil {
 		t.Fatalf("tag by digest failed: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestResolveOCIBundleNoLayer(t *testing.T) {
 
 	_, _, err := resolveOCITargetToDir(ctx, store, "v1")
 	if err == nil {
-		t.Fatal("expected error when no gzip bundle layer present (AC7)")
+		t.Fatal("expected error when no gzip bundle layer present")
 	}
 	if !strings.Contains(err.Error(), "no layer with media type") {
 		t.Errorf("unexpected error: %v", err)
@@ -206,7 +206,7 @@ func TestResolveOCIBundleMultipleLayers(t *testing.T) {
 
 	_, _, err := resolveOCITargetToDir(ctx, store, "v1")
 	if err == nil {
-		t.Fatal("expected ambiguous error for multiple matching layers (AC5)")
+		t.Fatal("expected ambiguous error for multiple matching layers")
 	}
 	if !strings.Contains(err.Error(), "ambiguous manifest") {
 		t.Errorf("unexpected error: %v", err)
