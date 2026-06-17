@@ -61,6 +61,11 @@ jobs:
     env:
       VSA_FOLDER: ./vsa
     steps:
+      # Full history is required: the released `autogov release plan` CLI command
+      # discovers the latest tag and walks commits with local go-git (its GitHub
+      # API path is not wired into the standalone `plan` command), so a shallow
+      # clone would not see prior tags. `release cut` itself can use the API, but
+      # the `plan` step that sources VERSION cannot.
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
@@ -69,39 +74,52 @@ jobs:
           go-version: 1.26.4
           cache: true
           cache-dependency-path: go.sum
-      - name: Run go-semantic-release
-        uses: go-semantic-release/action@2e9dc4247a6004f8377781bef4cb9dad273a741f # v1.24.1
-        id: go-semantic-release
-        with:
-          github-token: ${{ github.token }}
-          changelog-generator-opt: emojis=true
-          allow-initial-development-versions: true
-          ghr: false
       - name: Install Task
-        if: steps.go-semantic-release.outputs.version != ''
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
         with:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build binary
-        if: steps.go-semantic-release.outputs.version != ''
-        run: task build
+      - name: Install released autogov CLI
         env:
-          VERSION: v${{ steps.go-semantic-release.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.23.0 --repo liatrio/autogov --pattern autogov --output autogov
+          chmod +x autogov
+          echo "$PWD" >> "$GITHUB_PATH"
+      - name: Plan release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: autogov release plan -o json > plan.json
+      - name: Build binary
+        # next_version from the plan already carries the `v` prefix (Version.String()),
+        # so it is used verbatim — do not add another `v`.
+        run: |
+          VERSION="$(jq -r .next_version plan.json)" task build
+        env:
           COMMIT: ${{ github.sha }}
           DATE: ${{ github.event.head_commit.timestamp }}
       - name: Download VSA artifact
-        if: steps.go-semantic-release.outputs.version != ''
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: verification-summary-attestation-high-perms
           path: ${{ env.VSA_FOLDER }}
-      - name: Upload binary and VSA as release assets
-        if: steps.go-semantic-release.outputs.version != ''
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
-        with:
-          files: |
-            bin/autogov
-            ${{ env.VSA_FOLDER }}/*
-          tag_name: v${{ steps.go-semantic-release.outputs.version }}
-          token: ${{ github.token }}
+      - name: Resolve VSA asset path
+        id: vsa
+        run: |
+          vsa="$(find "${{ env.VSA_FOLDER }}" -maxdepth 1 -name '*.json' | head -1)"
+          if [ -z "$vsa" ]; then
+            echo "no VSA .json found in ${{ env.VSA_FOLDER }}" >&2
+            exit 1
+          fi
+          echo "path=$vsa" >> "$GITHUB_OUTPUT"
+      - name: Cut release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          autogov release cut \
+            --plan-file plan.json \
+            --asset bin/autogov \
+            --asset "${{ steps.vsa.outputs.path }}" \
+            --publish
