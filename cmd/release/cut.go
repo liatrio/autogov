@@ -50,7 +50,7 @@ func init() {
 	cutCmd.Flags().String("commit-email", "autogov[bot]@users.noreply.github.com", "Author email for release commit")
 	cutCmd.Flags().StringP("output", "o", "text", "Output format: text, json")
 	cutCmd.Flags().StringArray("asset", nil, "File to upload as a release asset (repeatable)")
-	cutCmd.Flags().StringArray("asset-label", nil, "Display label for an asset as name=label (repeatable)")
+	cutCmd.Flags().StringArray("asset-label", nil, "Display label for an asset as name=label, where name is the asset's base filename (repeatable)")
 }
 
 // parseAssetLabels parses repeated name=label pairs into a map keyed by asset name.
@@ -61,8 +61,11 @@ func parseAssetLabels(pairs []string) (map[string]string, error) {
 	labels := make(map[string]string, len(pairs))
 	for _, p := range pairs {
 		name, label, ok := strings.Cut(p, "=")
-		if !ok || name == "" {
-			return nil, fmt.Errorf("invalid --asset-label %q: expected name=label", p)
+		if !ok || name == "" || label == "" {
+			return nil, fmt.Errorf("invalid --asset-label %q: expected name=label (both non-empty)", p)
+		}
+		if _, dup := labels[name]; dup {
+			return nil, fmt.Errorf("duplicate --asset-label for %q", name)
 		}
 		labels[name] = label
 	}
@@ -109,6 +112,9 @@ func runCut(cmd *cobra.Command, args []string) error {
 
 	result, err := release.ExecuteCut(opts)
 	if err != nil {
+		if result != nil && result.ReleaseURL != "" {
+			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "note: release was created at %s before the failure (assets uploaded: %d)\n", result.ReleaseURL, len(result.UploadedAssets))
+		}
 		return fmt.Errorf("release cut failed: %w", err)
 	}
 

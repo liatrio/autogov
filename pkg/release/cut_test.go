@@ -60,9 +60,10 @@ type mockReleaseService struct {
 	updateRefErr       error
 
 	// asset operations
-	uploadAssetErr      error
-	uploadedAssetNames  []string
-	uploadedAssetLabels []string
+	uploadAssetErr       error
+	uploadAssetFailAfter int // with uploadAssetErr set, succeed this many uploads before failing
+	uploadedAssetNames   []string
+	uploadedAssetLabels  []string
 }
 
 func (m *mockReleaseService) GetReleaseByTag(_ context.Context, _, _, _ string) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
@@ -130,7 +131,7 @@ func (m *mockReleaseService) ListReleases(_ context.Context, _, _ string, _ *gog
 }
 
 func (m *mockReleaseService) UploadReleaseAsset(_ context.Context, _, _ string, _ int64, opts *gogithub.UploadOptions, _ *os.File) (*gogithub.ReleaseAsset, *gogithub.Response, error) {
-	if m.uploadAssetErr != nil {
+	if m.uploadAssetErr != nil && len(m.uploadedAssetNames) >= m.uploadAssetFailAfter {
 		return nil, mockResp(500), m.uploadAssetErr
 	}
 	m.uploadedAssetNames = append(m.uploadedAssetNames, opts.Name)
@@ -923,10 +924,17 @@ func TestValidateAssets(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "asset not found")
 	})
-	t.Run("directory errors", func(t *testing.T) {
+	t.Run("non-regular file (directory) errors", func(t *testing.T) {
 		err := validateAssets([]string{dir}, nil)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "directory")
+		assert.Contains(t, err.Error(), "not a regular file")
+	})
+	t.Run("empty file errors", func(t *testing.T) {
+		empty := filepath.Join(dir, "empty.bin")
+		require.NoError(t, os.WriteFile(empty, nil, 0o600))
+		err := validateAssets([]string{empty}, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "empty")
 	})
 	t.Run("label matching an asset name is ok", func(t *testing.T) {
 		require.NoError(t, validateAssets([]string{existing}, map[string]string{"asset.txt": "My Asset"}))
@@ -976,4 +984,108 @@ func TestUploadAssets(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to open asset")
 	})
+}
+
+// setupCutScenario builds a repo with a release-worthy commit + remote and a mock
+// wired for a full API cut, for ExecuteCut-level asset tests.
+func setupCutScenario(t *testing.T) (string, *mockReleaseService) {
+	t.Helper()
+	dir, repo := setupTestRepo(t)
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+	sig := &object.Signature{Name: "test", Email: "test@example.com", When: time.Now()}
+	writeFile(t, dir, "feature.txt", "new feature")
+	_, err = wt.Add("feature.txt")
+	require.NoError(t, err)
+	_, err = wt.Commit("feat: add feature", &git.CommitOptions{Author: sig})
+	require.NoError(t, err)
+	_, err = repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{"https://github.com/test/repo.git"},
+	})
+	require.NoError(t, err)
+	mock := &mockReleaseService{
+		createTreeResult:   &gogithub.Tree{SHA: gogithub.Ptr("tree-sha-123")},
+		createCommitResult: &gogithub.Commit{SHA: gogithub.Ptr("abc123def456789012345678901234567890abcd")},
+		createTagResult:    &gogithub.Tag{SHA: gogithub.Ptr("def456789012345678901234567890abcdef1234")},
+		createRefResult:    &gogithub.Reference{},
+		updateRefResult:    &gogithub.Reference{},
+		createRelease: &gogithub.RepositoryRelease{
+			ID:      gogithub.Ptr(int64(99)),
+			HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
+		},
+		getReleaseErr: fmt.Errorf("not found"),
+	}
+	return dir, mock
+}
+
+func TestExecuteCutUploadsAssets(t *testing.T) {
+	dir, mock := setupCutScenario(t)
+	a := filepath.Join(t.TempDir(), "autogov")
+	b := filepath.Join(t.TempDir(), "vsa.json")
+	require.NoError(t, os.WriteFile(a, []byte("bin"), 0o600))
+	require.NoError(t, os.WriteFile(b, []byte("{}"), 0o600))
+
+	opts := &CutOptions{
+		RepoPath: dir, Branch: "master", Remote: "origin",
+		CommitAuthor: "testbot", CommitEmail: "testbot@test.com",
+		Token: "test-token", ReleaseAPI: mock,
+		Assets:      []string{a, b},
+		AssetLabels: map[string]string{"autogov": "Linux x86_64"},
+	}
+
+	result, err := ExecuteCut(opts)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"autogov", "vsa.json"}, result.UploadedAssets)
+	assert.Equal(t, []string{"autogov", "vsa.json"}, mock.uploadedAssetNames, "uploads use base names")
+	assert.Equal(t, []string{"Linux x86_64", ""}, mock.uploadedAssetLabels, "label mapped by base name")
+}
+
+// A failed upload with --publish must leave the release as an unpublished draft and
+// return the partial result (release URL/ID + assets uploaded so far) for recovery.
+func TestExecuteCutPartialUploadFailureReturnsDraftResult(t *testing.T) {
+	dir, mock := setupCutScenario(t)
+	mock.uploadAssetErr = fmt.Errorf("network blip")
+	mock.uploadAssetFailAfter = 1 // first asset uploads, second fails
+	a := filepath.Join(t.TempDir(), "first")
+	b := filepath.Join(t.TempDir(), "second")
+	require.NoError(t, os.WriteFile(a, []byte("1"), 0o600))
+	require.NoError(t, os.WriteFile(b, []byte("2"), 0o600))
+
+	opts := &CutOptions{
+		RepoPath: dir, Branch: "master", Remote: "origin",
+		CommitAuthor: "testbot", CommitEmail: "testbot@test.com",
+		Token: "test-token", ReleaseAPI: mock,
+		Assets:  []string{a, b},
+		Publish: true,
+	}
+
+	result, err := ExecuteCut(opts)
+	require.Error(t, err)
+	require.NotNil(t, result, "partial result must be returned, not nil")
+	assert.Equal(t, int64(99), result.ReleaseID)
+	assert.NotEmpty(t, result.ReleaseURL)
+	assert.Equal(t, []string{"first"}, result.UploadedAssets, "reports the asset that did upload")
+	assert.True(t, result.Draft, "a failed upload must leave the release as a draft")
+	assert.False(t, result.Published, "must not publish when an asset failed to upload")
+}
+
+func TestExecuteCutDryRunSkipsUpload(t *testing.T) {
+	dir, mock := setupCutScenario(t)
+	a := filepath.Join(t.TempDir(), "autogov")
+	require.NoError(t, os.WriteFile(a, []byte("bin"), 0o600))
+
+	opts := &CutOptions{
+		RepoPath: dir, Branch: "master", Remote: "origin",
+		CommitAuthor: "testbot", CommitEmail: "testbot@test.com",
+		Token: "test-token", ReleaseAPI: mock,
+		Assets: []string{a},
+		DryRun: true,
+	}
+
+	result, err := ExecuteCut(opts)
+	require.NoError(t, err)
+	assert.True(t, result.DryRun)
+	assert.Empty(t, mock.uploadedAssetNames, "dry-run must not upload assets")
+	assert.Empty(t, result.UploadedAssets)
 }
