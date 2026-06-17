@@ -549,8 +549,10 @@ func CalculateDigest(policyPath string) (string, error) {
 	// check if it's a directory or file
 	info, err := os.Stat(policyPath)
 	if err != nil {
-		// if path doesn't exist locally, it might be a URL - download and hash content
-		if strings.HasPrefix(policyPath, "http") {
+		// if path doesn't exist locally, it might be a URL - download and hash content.
+		// require an explicit http(s):// scheme so local paths like "http-cache/" are
+		// not misread as URLs.
+		if strings.HasPrefix(policyPath, "http://") || strings.HasPrefix(policyPath, "https://") {
 			return calculateRemoteDigest(policyPath)
 		}
 		return "", fmt.Errorf("policy path not found: %w", err)
@@ -575,7 +577,9 @@ func CalculateDigest(policyPath string) (string, error) {
 // auth: the GitHub token is attached only for GitHub hosts (never leaked to an
 // arbitrary URL), so this no longer diverges from the authenticated download path.
 func calculateRemoteDigest(url string) (string, error) {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request for %s: %w", url, err)
 	}
@@ -583,7 +587,8 @@ func calculateRemoteDigest(url string) (string, error) {
 		req.Header.Set("Authorization", "token "+token)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to download policy from %s: %w", url, err)
 	}
