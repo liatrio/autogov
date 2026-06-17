@@ -108,7 +108,7 @@ func captureLog(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
-// AC4/AC5, Task 6.2: HTTP URL dispatch downloads and extracts the bundle.
+// HTTP URL dispatch downloads and extracts the bundle.
 func TestResolveBundlePathHTTP(t *testing.T) {
 	data := buildTarGz(t, map[string]string{"test.rego": testPolicyContent})
 	server := serveTarGz(t, data)
@@ -127,7 +127,7 @@ func TestResolveBundlePathHTTP(t *testing.T) {
 	}
 }
 
-// Task 6.2 (negative): the tightened prefix only matches http://, https://.
+// Negative: the tightened prefix only matches http://, https://.
 // A bare "httpfoo" path is treated as a local directory passthrough, not a download.
 func TestResolveBundlePathHTTPPrefixTightened(t *testing.T) {
 	localPath, cleanup, err := resolveBundlePath(context.Background(), "httpfoo-not-a-url", nil)
@@ -140,7 +140,7 @@ func TestResolveBundlePathHTTPPrefixTightened(t *testing.T) {
 	}
 }
 
-// AC4/AC5, Task 6.3: tar.gz extraction dispatch.
+// tar.gz extraction dispatch.
 func TestResolveBundlePathTarGz(t *testing.T) {
 	dir := t.TempDir()
 	tarPath := writeTarGzFile(t, dir, map[string]string{"test.rego": testPolicyContent})
@@ -159,7 +159,7 @@ func TestResolveBundlePathTarGz(t *testing.T) {
 	}
 }
 
-// AC4, Task 6.4: directory passthrough returns the path unchanged with a no-op cleanup.
+// Directory passthrough returns the path unchanged with a no-op cleanup.
 func TestResolveBundlePathDirectory(t *testing.T) {
 	dir := t.TempDir()
 
@@ -180,7 +180,7 @@ func TestResolveBundlePathDirectory(t *testing.T) {
 	}
 }
 
-// AC6, Task 6.5: cleanup function actually removes the extracted temp dir.
+// Cleanup function actually removes the extracted temp dir.
 func TestResolveBundlePathCleanupRemovesTempDir(t *testing.T) {
 	dir := t.TempDir()
 	tarPath := writeTarGzFile(t, dir, map[string]string{"test.rego": testPolicyContent})
@@ -201,7 +201,7 @@ func TestResolveBundlePathCleanupRemovesTempDir(t *testing.T) {
 	}
 }
 
-// AC6, Task 6.6: Stop() calls all collected cleanup functions.
+// Stop() calls all collected cleanup functions.
 func TestStopCallsCleanups(t *testing.T) {
 	called := make([]bool, 3)
 	e := &OPAEvaluator{
@@ -219,7 +219,7 @@ func TestStopCallsCleanups(t *testing.T) {
 	}
 }
 
-// AC6, Task 6.6 (integration): NewOPAEvaluator wires the extraction temp dir into
+// Integration: NewOPAEvaluator wires the extraction temp dir into
 // Stop(), which removes it.
 func TestStopRemovesEvaluatorTempDir(t *testing.T) {
 	dir := t.TempDir()
@@ -242,7 +242,7 @@ func TestStopRemovesEvaluatorTempDir(t *testing.T) {
 	}
 }
 
-// AC3, Task 6.7: schemas path served over HTTP is downloaded, extracted, and loaded
+// Schemas path served over HTTP is downloaded, extracted, and loaded
 // (a new capability — previously schemas only supported tar.gz files and directories).
 func TestNewOPAEvaluatorSchemasViaHTTP(t *testing.T) {
 	// bundle: a local directory containing a valid policy
@@ -288,7 +288,7 @@ func TestNewOPAEvaluatorSchemasViaHTTP(t *testing.T) {
 	}
 }
 
-// AC3, Task 3.2: schemas resolution degrades gracefully — a failing schemas path
+// Schemas resolution degrades gracefully — a failing schemas path
 // logs a warning and does not fail evaluator construction.
 func TestNewOPAEvaluatorSchemasGracefulDegradation(t *testing.T) {
 	bundleDir := t.TempDir()
@@ -337,7 +337,7 @@ func countOpaBundleTempDirs(t *testing.T) int {
 	return len(matches)
 }
 
-// AC7 regression (#1/#13): for a .tar.gz bundle, the policy digest now reflects
+// Regression (#1/#13): for a .tar.gz bundle, the policy digest now reflects
 // the extracted directory contents (CalculateDirectory), NOT the archive bytes
 // (CalculateFile). Pins the intentional behavior change so it can't regress
 // silently.

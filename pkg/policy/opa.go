@@ -25,8 +25,8 @@ import (
 
 // handles OPA policy evaluation using the Rego API
 type OPAEvaluator struct {
-	policyPath   string   // original URI (for display/GetPolicyDetails)
-	resolvedPath string   // resolved local path (for CalculateDigest)
+	policyPath   string // original URI (for display/GetPolicyDetails)
+	resolvedPath string // resolved local path (for CalculateDigest)
 	opaVersion   string
 	prepared     *rego.PreparedEvalQuery
 	cleanups     []func() // collected cleanup functions, called in Stop()
@@ -261,10 +261,17 @@ func extractBundle(bundlePath string) (string, func(), error) {
 	return tempDir, cleanup, nil
 }
 
+// maxDecompressedSize bounds the total bytes extractTarGz will write across all
+// entries in one archive. A gzip layer can expand by orders of magnitude, so a
+// small (size-verified) compressed blob can still exhaust disk; this caps the
+// decompressed output. Policy bundles are KB-MB; 512 MiB is generous headroom.
+// A var (not const) so tests can lower it to exercise the gzip-bomb guard.
+var maxDecompressedSize int64 = 512 << 20
+
 // extractTarGz extracts a gzip-compressed tar stream into dest (which must
-// already exist), guarding against path-traversal entries. Shared by
-// downloadBundle (HTTP body) and extractBundle (local file) so the security
-// guard lives in exactly one place.
+// already exist), guarding against path-traversal entries and gzip-bomb
+// decompression. Shared by downloadBundle (HTTP body) and extractBundle (local
+// file) so the security guards live in exactly one place.
 func extractTarGz(r io.Reader, dest string) error {
 	gzr, err := gzip.NewReader(r)
 	if err != nil {
@@ -277,6 +284,7 @@ func extractTarGz(r io.Reader, dest string) error {
 	}()
 
 	tr := tar.NewReader(gzr)
+	var totalWritten int64
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -307,14 +315,19 @@ func extractTarGz(r io.Reader, dest string) error {
 				return fmt.Errorf("failed to create file: %w", err)
 			}
 
-			if _, err := io.Copy(outFile, tr); err != nil {
-				if err := outFile.Close(); err != nil {
-					log.Printf("warning: failed to close file: %v", err)
-				}
-				return fmt.Errorf("failed to write file: %w", err)
-			}
+			// Bound total decompressed output to defend against gzip bombs: read
+			// at most the remaining budget (+1 so an exactly-at-limit overflow is
+			// detectable), accumulate, then reject if the archive blows the cap.
+			written, copyErr := io.Copy(outFile, io.LimitReader(tr, maxDecompressedSize-totalWritten+1))
+			totalWritten += written
 			if err := outFile.Close(); err != nil {
 				log.Printf("warning: failed to close file: %v", err)
+			}
+			if copyErr != nil {
+				return fmt.Errorf("failed to write file: %w", copyErr)
+			}
+			if totalWritten > maxDecompressedSize {
+				return fmt.Errorf("decompressed bundle exceeds maximum size of %d bytes (possible gzip bomb)", maxDecompressedSize)
 			}
 		}
 	}

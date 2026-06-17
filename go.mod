@@ -8,6 +8,7 @@ require (
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/google/go-github/v88 v88.0.0
 	github.com/open-policy-agent/opa v1.17.1
+	github.com/opencontainers/image-spec v1.1.1
 	github.com/sigstore/cosign/v3 v3.1.1
 	github.com/sigstore/sigstore-go v1.2.1
 	github.com/spf13/cobra v1.10.2
@@ -16,7 +17,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/xeipuuv/gojsonschema v1.2.0
 	gopkg.in/yaml.v3 v3.0.1
-	oras.land/oras-go/v2 v2.6.0
+	oras.land/oras-go/v2 v2.6.1
 )
 
 require (
@@ -100,7 +101,6 @@ require (
 	github.com/moby/term v0.5.2 // indirect
 	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect

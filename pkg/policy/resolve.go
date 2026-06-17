@@ -10,8 +10,8 @@ type ResolveOptions struct {
 	// DefaultAsset is the default asset name used for ghrel:// resolution
 	// (e.g., "bundle.tar.gz", "schemas.tar.gz"). Introduced now to stabilize
 	// the dispatcher signature so future schemes (OCI, ghrel) can be added as
-	// independent cases without changing resolveBundlePath's signature. Unused
-	// in this story.
+	// independent cases without changing resolveBundlePath's signature. Not yet
+	// consumed by any implemented scheme (reserved for the ghrel:// case).
 	DefaultAsset string
 }
 
@@ -29,8 +29,9 @@ func resolveBundlePath(ctx context.Context, path string, opts *ResolveOptions) (
 		return downloadBundle(ctx, path)
 	case strings.HasSuffix(path, ".tar.gz") || strings.HasSuffix(path, ".tgz"):
 		return extractBundle(path)
-	// Future: case strings.HasPrefix(path, "oci://"):   -> Story 3.1
-	// Future: case strings.HasPrefix(path, "ghrel://"): -> Story 3.2
+	case strings.HasPrefix(path, ociScheme):
+		return pullOCIBundle(ctx, path)
+	// Future: case strings.HasPrefix(path, "ghrel://"):
 	default:
 		// local directory: nothing to download or extract, no cleanup needed
 		return path, noop, nil

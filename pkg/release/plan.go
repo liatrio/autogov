@@ -16,8 +16,8 @@ import (
 )
 
 // Backward-compatibility aliases and re-exports.
-// TODO(2-12): Remove these once all callers import from pkg/helper/* directly.
-// These exist to avoid breaking existing code during the story 2-10 extraction.
+// TODO: Remove these once all callers import from pkg/helper/* directly.
+// These exist to avoid breaking existing code during the pkg/helper extraction.
 
 // ParsedCommit is an alias for version.ParsedCommit for backward compatibility.
 type ParsedCommit = version.ParsedCommit
@@ -98,7 +98,7 @@ type ReleasePlan struct {
 	// changelog
 	ChangelogPreview string `json:"changelog_preview" yaml:"changelog_preview"`
 
-	// file mutations (placeholder for Story 2.3)
+	// file mutations
 	FileMutations []FileMutation `json:"file_mutations,omitempty" yaml:"file_mutations,omitempty"`
 
 	// status
