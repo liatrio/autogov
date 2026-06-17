@@ -199,9 +199,10 @@ func TestValidateExpectedDigest(t *testing.T) {
 	}
 	invalid := []string{
 		"garbage",
-		"sha256:xyz",                       // non-hex
+		"sha256:xyz",                        // non-hex
 		"sha256:" + strings.Repeat("a", 63), // too short
 		"deadbeef",                          // valid hex but wrong length
+		"sha512:" + strings.Repeat("a", 128), // well-formed but wrong algorithm
 	}
 	for _, v := range invalid {
 		if err := validateExpectedDigest(v); err == nil {
@@ -489,23 +490,33 @@ func TestGHReleaseRetryTransient(t *testing.T) {
 	ctx := context.Background()
 	assetBytes := buildTarGz(t, map[string]string{"policy.rego": "package x"})
 
-	t.Run("503 then success", func(t *testing.T) {
-		client := &fakeGHReleaseClient{
-			resolveQueue: []ghResp{
-				{resp: &gogithub.Response{Response: &http.Response{StatusCode: http.StatusServiceUnavailable}}, err: errors.New("503 service unavailable")},
-				{rel: makeRelease("v1", map[string]int64{"bundle.tar.gz": 1})},
-			},
-			assetByID: map[int64][]byte{1: assetBytes},
-		}
-		_, cleanup, err := resolveGHReleaseToDir(ctx, client, ghRef{Owner: "o", Repo: "r"}, &ResolveOptions{DefaultAsset: "bundle.tar.gz"})
-		if err != nil {
-			t.Fatalf("expected success after retry, got: %v", err)
-		}
-		defer cleanup()
-		if client.latestCalls != 2 {
-			t.Errorf("expected 2 resolve attempts (retry), got %d", client.latestCalls)
-		}
-	})
+	for _, status := range []struct {
+		name string
+		code int
+	}{
+		{"503", http.StatusServiceUnavailable},
+		{"504", http.StatusGatewayTimeout},
+		{"502", http.StatusBadGateway},
+		{"429", http.StatusTooManyRequests},
+	} {
+		t.Run(status.name+" then success", func(t *testing.T) {
+			client := &fakeGHReleaseClient{
+				resolveQueue: []ghResp{
+					{resp: &gogithub.Response{Response: &http.Response{StatusCode: status.code}}, err: errors.New("transient")},
+					{rel: makeRelease("v1", map[string]int64{"bundle.tar.gz": 1})},
+				},
+				assetByID: map[int64][]byte{1: assetBytes},
+			}
+			_, cleanup, err := resolveGHReleaseToDir(ctx, client, ghRef{Owner: "o", Repo: "r"}, &ResolveOptions{DefaultAsset: "bundle.tar.gz"})
+			if err != nil {
+				t.Fatalf("expected success after retry, got: %v", err)
+			}
+			defer cleanup()
+			if client.latestCalls != 2 {
+				t.Errorf("expected 2 resolve attempts (retry), got %d", client.latestCalls)
+			}
+		})
+	}
 
 	t.Run("secondary rate limit honors RetryAfter then succeeds", func(t *testing.T) {
 		retryAfter := time.Millisecond

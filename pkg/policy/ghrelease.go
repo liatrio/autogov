@@ -131,6 +131,11 @@ func validateExpectedDigest(s string) error {
 	if err != nil {
 		return err
 	}
+	// the comparison hashes the asset with SHA-256, so only a sha256 pin can
+	// ever match — reject other algorithms up front rather than after download.
+	if alg != "sha256" {
+		return fmt.Errorf("unsupported digest algorithm %q (only sha256 is supported)", alg)
+	}
 	return digest.ValidateFormat(alg, hexv)
 }
 
@@ -320,7 +325,7 @@ func backoffFor(attempt int) time.Duration {
 // worth retrying.
 func isRetryableStatus(code int) bool {
 	switch code {
-	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable:
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return true
 	default:
 		return false
