@@ -25,8 +25,8 @@ import (
 
 // handles OPA policy evaluation using the Rego API
 type OPAEvaluator struct {
-	policyPath   string   // original URI (for display/GetPolicyDetails)
-	resolvedPath string   // resolved local path (for CalculateDigest)
+	policyPath   string // original URI (for display/GetPolicyDetails)
+	resolvedPath string // resolved local path (for CalculateDigest)
 	opaVersion   string
 	prepared     *rego.PreparedEvalQuery
 	cleanups     []func() // collected cleanup functions, called in Stop()
@@ -265,7 +265,8 @@ func extractBundle(bundlePath string) (string, func(), error) {
 // entries in one archive. A gzip layer can expand by orders of magnitude, so a
 // small (size-verified) compressed blob can still exhaust disk; this caps the
 // decompressed output. Policy bundles are KB-MB; 512 MiB is generous headroom.
-const maxDecompressedSize = 512 << 20
+// A var (not const) so tests can lower it to exercise the gzip-bomb guard.
+var maxDecompressedSize int64 = 512 << 20
 
 // extractTarGz extracts a gzip-compressed tar stream into dest (which must
 // already exist), guarding against path-traversal entries and gzip-bomb

@@ -296,6 +296,27 @@ func TestResolveOCIBundleLayerTooLarge(t *testing.T) {
 	}
 }
 
+// TestExtractTarGzDecompressedCap guards the shared extractTarGz helper (reached
+// by the oci://, http(s)://, and local .tar.gz paths) against gzip bombs: total
+// decompressed output beyond maxDecompressedSize must be rejected even when the
+// compressed input is small.
+func TestExtractTarGzDecompressedCap(t *testing.T) {
+	orig := maxDecompressedSize
+	maxDecompressedSize = 1 << 10 // lower to 1 KiB for the test
+	t.Cleanup(func() { maxDecompressedSize = orig })
+
+	// a single entry whose decompressed size exceeds the lowered cap
+	data := buildTarGz(t, map[string]string{"big.rego": strings.Repeat("a", int(maxDecompressedSize)+2048)})
+
+	err := extractTarGz(bytes.NewReader(data), t.TempDir())
+	if err == nil {
+		t.Fatal("expected extractTarGz to reject content exceeding the decompressed cap")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestPullOCIBundleInvalidReference(t *testing.T) {
 	// a reference without tag/digest must fail fast at parse time (no network)
 	_, _, err := pullOCIBundle(context.Background(), "oci://ghcr.io/org/repo")

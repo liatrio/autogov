@@ -34,10 +34,12 @@ const (
 	dockerImageManifestMediaType = "application/vnd.docker.distribution.manifest.v2+json"
 	// maxOCIBlobSize bounds how many bytes fetchAndVerify will buffer for any
 	// single descriptor (manifest or layer). The size is taken from the
-	// registry-served manifest, so an explicit cap prevents a compromised
-	// registry from forcing an unbounded allocation. Policy bundles are KB-MB;
-	// 128 MiB is generous headroom.
-	maxOCIBlobSize = 128 << 20
+	// registry-served manifest, so an explicit pre-fetch cap prevents a
+	// compromised registry from forcing a large allocation. Mirrors the 32 MiB
+	// ceiling oras-go enforces inside content.ReadAll (v2.6.1) so the pre-fetch
+	// check and the library agree; policy bundles are KB-MB, so this is
+	// generous headroom.
+	maxOCIBlobSize = 32 << 20
 )
 
 // ociFetcher is the subset of oras.ReadOnlyTarget the bundle puller needs:
