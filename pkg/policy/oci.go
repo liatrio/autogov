@@ -28,6 +28,16 @@ const (
 	ghcrHost = "ghcr.io"
 	// dockerManifestListMediaType is the Docker equivalent of an OCI image index.
 	dockerManifestListMediaType = "application/vnd.docker.distribution.manifest.list.v2+json"
+	// dockerImageManifestMediaType is the Docker equivalent of an OCI image
+	// manifest; accepted alongside the OCI type so bundles pushed by either tool
+	// resolve.
+	dockerImageManifestMediaType = "application/vnd.docker.distribution.manifest.v2+json"
+	// maxOCIBlobSize bounds how many bytes fetchAndVerify will buffer for any
+	// single descriptor (manifest or layer). The size is taken from the
+	// registry-served manifest, so an explicit cap prevents a compromised
+	// registry from forcing an unbounded allocation. Policy bundles are KB-MB;
+	// 128 MiB is generous headroom.
+	maxOCIBlobSize = 128 << 20
 )
 
 // ociFetcher is the subset of oras.ReadOnlyTarget the bundle puller needs:
@@ -108,10 +118,19 @@ func resolveOCITargetToDir(ctx context.Context, target ociFetcher, reference str
 		return "", nil, fmt.Errorf("failed to resolve oci reference %q: %w", reference, err)
 	}
 
-	// Multi-arch index traversal is out of scope: ORAS-pushed policy bundles are
-	// single image manifests.
-	if manifestDesc.MediaType == ocispec.MediaTypeImageIndex || manifestDesc.MediaType == dockerManifestListMediaType {
+	// Only image manifests carry the gzipped-tar bundle layer. Positively
+	// allow-list the manifest media types instead of blindly unmarshalling
+	// whatever the registry returns: multi-arch indexes get a clear, dedicated
+	// error, and any other type (config blob, artifact/attestation manifest,
+	// empty, arbitrary JSON) is rejected up front rather than producing a
+	// misleading "no layer found" error after a doomed unmarshal.
+	switch manifestDesc.MediaType {
+	case ocispec.MediaTypeImageManifest, dockerImageManifestMediaType:
+		// expected: an image manifest — proceed.
+	case ocispec.MediaTypeImageIndex, dockerManifestListMediaType:
 		return "", nil, fmt.Errorf("expected an image manifest but got an image index (%s); multi-arch indexes are not supported for policy bundles", manifestDesc.MediaType)
+	default:
+		return "", nil, fmt.Errorf("expected an image manifest but got media type %q", manifestDesc.MediaType)
 	}
 
 	manifestBytes, err := fetchAndVerify(ctx, target, manifestDesc)
@@ -149,8 +168,14 @@ func resolveOCITargetToDir(ctx context.Context, target ociFetcher, reference str
 }
 
 // fetchAndVerify fetches a descriptor's content and verifies it against the
-// descriptor's size and digest (content.ReadAll). The reader is always closed.
+// descriptor's size and digest (content.ReadAll). The descriptor size is
+// registry-supplied, so it is bounded before the fetch: content.ReadAll would
+// otherwise allocate make([]byte, desc.Size) up front, letting a compromised
+// registry force an unbounded allocation. The reader is always closed.
 func fetchAndVerify(ctx context.Context, target ociFetcher, desc ocispec.Descriptor) ([]byte, error) {
+	if desc.Size > maxOCIBlobSize {
+		return nil, fmt.Errorf("oci content %s size %d exceeds maximum allowed %d bytes", desc.Digest, desc.Size, maxOCIBlobSize)
+	}
 	rc, err := target.Fetch(ctx, desc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch %s: %w", desc.Digest, err)

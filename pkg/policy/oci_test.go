@@ -234,6 +234,68 @@ func TestResolveOCIBundleIndexRejected(t *testing.T) {
 	}
 }
 
+func TestResolveOCIBundleDockerManifestListRejected(t *testing.T) {
+	ctx := context.Background()
+	store := memory.New()
+	listBytes := []byte(`{"schemaVersion":2,"mediaType":"` + dockerManifestListMediaType + `","manifests":[]}`)
+	desc := content.NewDescriptorFromBytes(dockerManifestListMediaType, listBytes)
+	if err := store.Push(ctx, desc, bytes.NewReader(listBytes)); err != nil {
+		t.Fatalf("push manifest list: %v", err)
+	}
+	if err := store.Tag(ctx, desc, "multi"); err != nil {
+		t.Fatalf("tag manifest list: %v", err)
+	}
+
+	_, _, err := resolveOCITargetToDir(ctx, store, "multi")
+	if err == nil {
+		t.Fatal("expected error for docker manifest list")
+	}
+	if !strings.Contains(err.Error(), "image index") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveOCIBundleNonManifestRejected(t *testing.T) {
+	ctx := context.Background()
+	store := memory.New()
+	// tag points at content whose media type is neither image manifest nor
+	// index — it must be rejected up front, not blindly unmarshalled.
+	data := []byte("not a manifest")
+	desc := content.NewDescriptorFromBytes("application/vnd.example.unknown", data)
+	if err := store.Push(ctx, desc, bytes.NewReader(data)); err != nil {
+		t.Fatalf("push blob: %v", err)
+	}
+	if err := store.Tag(ctx, desc, "weird"); err != nil {
+		t.Fatalf("tag blob: %v", err)
+	}
+
+	_, _, err := resolveOCITargetToDir(ctx, store, "weird")
+	if err == nil {
+		t.Fatal("expected error for non-manifest media type")
+	}
+	if !strings.Contains(err.Error(), "expected an image manifest but got media type") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveOCIBundleLayerTooLarge(t *testing.T) {
+	ctx := context.Background()
+	store := memory.New()
+	layer := pushBlob(t, store, ocispec.MediaTypeImageLayerGzip, buildTarGz(t, map[string]string{"policy.rego": "package x"}))
+	// the manifest advertises an oversized layer; the size cap must reject it
+	// before content.ReadAll attempts a make([]byte, desc.Size) allocation.
+	layer.Size = maxOCIBlobSize + 1
+	pushManifest(t, store, []ocispec.Descriptor{layer}, "v1")
+
+	_, _, err := resolveOCITargetToDir(ctx, store, "v1")
+	if err == nil {
+		t.Fatal("expected error for oversized layer descriptor")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestPullOCIBundleInvalidReference(t *testing.T) {
 	// a reference without tag/digest must fail fast at parse time (no network)
 	_, _, err := pullOCIBundle(context.Background(), "oci://ghcr.io/org/repo")
