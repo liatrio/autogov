@@ -91,11 +91,11 @@ func parseGHReleaseReference(uri string) (ghRef, error) {
 		return ghRef{}, malformed
 	}
 
-	// reject a userinfo authority (e.g. ghrel://alice@github.com/repo): net/url
-	// would parse the owner as the host and silently drop "alice", pulling an
-	// unexpected repo. GitHub owners cannot contain "@", so userinfo is always a
-	// malformed reference.
-	if u.User != nil {
+	// reject a userinfo authority (ghrel://alice@github.com/repo) or a port
+	// (ghrel://owner:8080/repo): in both cases net/url would fold the extra token
+	// into the owner and resolve an unexpected repo. GitHub owners contain neither
+	// "@" nor ":", so either is always a malformed reference.
+	if u.User != nil || u.Port() != "" {
 		return ghRef{}, malformed
 	}
 
@@ -241,7 +241,10 @@ func resolveGHReleaseToDir(ctx context.Context, client ghReleaseClient, ref ghRe
 	// so a bare-hex flag value still matches. Enforce BEFORE extracting so a
 	// mismatch leaves no temp dir behind.
 	if opts != nil && opts.ExpectedDigest != "" {
-		if digest.Normalize(got) != digest.Normalize(opts.ExpectedDigest) {
+		// compare case-insensitively: CalculateReader emits lowercase hex, but a
+		// user may paste an uppercase pin from a checksum tool — that is a valid
+		// match, not tampering.
+		if !strings.EqualFold(digest.Normalize(got), digest.Normalize(opts.ExpectedDigest)) {
 			return "", nil, fmt.Errorf("policy bundle digest mismatch: expected %s, got %s", digest.Normalize(opts.ExpectedDigest), got)
 		}
 	}

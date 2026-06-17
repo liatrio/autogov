@@ -172,6 +172,7 @@ func TestParseGHReleaseEdgeCases(t *testing.T) {
 	// wrong resolution rather than the AC8 clean parse error.
 	reject := []struct{ name, uri string }{
 		{"userinfo authority", "ghrel://alice@github.com/policies"},
+		{"port in authority", "ghrel://owner:8080/repo"},
 		{"extra path segment", "ghrel://owner/a/b"},
 		{"trailing slash", "ghrel://owner/repo/"},
 		{"empty tag", "ghrel://owner/repo@"},
@@ -438,6 +439,17 @@ func TestGHReleaseDigestVerification(t *testing.T) {
 			&ResolveOptions{DefaultAsset: "bundle.tar.gz", ExpectedDigest: hexOnly})
 		if err != nil {
 			t.Fatalf("expected bare-hex digest to match after normalize, got: %v", err)
+		}
+		cleanup()
+	})
+
+	t.Run("uppercase-hex digest matches (case-insensitive)", func(t *testing.T) {
+		_, hexOnly, _ := digest.Parse(realDigest)
+		upperPin := "sha256:" + strings.ToUpper(hexOnly)
+		_, cleanup, err := resolveGHReleaseToDir(ctx, newClient(), ghRef{Owner: "o", Repo: "r"},
+			&ResolveOptions{DefaultAsset: "bundle.tar.gz", ExpectedDigest: upperPin})
+		if err != nil {
+			t.Fatalf("expected uppercase-hex pin to match a lowercase digest, got: %v", err)
 		}
 		cleanup()
 	})
