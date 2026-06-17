@@ -32,4 +32,13 @@ func TestParseAssetLabels(t *testing.T) {
 		_, err := parseAssetLabels([]string{"=label"})
 		require.Error(t, err)
 	})
+	t.Run("rejects an empty label value", func(t *testing.T) {
+		_, err := parseAssetLabels([]string{"name="})
+		require.Error(t, err)
+	})
+	t.Run("rejects duplicate keys", func(t *testing.T) {
+		_, err := parseAssetLabels([]string{"bin=A", "bin=B"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "duplicate")
+	})
 }

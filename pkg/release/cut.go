@@ -271,7 +271,11 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 		}
 		fmt.Fprintf(os.Stderr, "dry-run: would create commit, tag, push, and create %s GitHub release\n", action)
 		if len(opts.Assets) > 0 {
-			fmt.Fprintf(os.Stderr, "dry-run: would upload %d asset(s): %s\n", len(opts.Assets), strings.Join(opts.Assets, ", "))
+			names := make([]string, len(opts.Assets))
+			for i, p := range opts.Assets {
+				names[i] = filepath.Base(p)
+			}
+			fmt.Fprintf(os.Stderr, "dry-run: would upload %d asset(s): %s\n", len(names), strings.Join(names, ", "))
 		}
 		return result, nil
 	}
@@ -308,30 +312,56 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 		return nil, fmt.Errorf("failed to update branch ref: %w", err)
 	}
 
-	// step 8: create GitHub release (draft or published based on --publish flag)
-	releaseURL, releaseID, err := createGitHubRelease(repo, opts, plan, !opts.Publish)
+	// step 8: always create the release as a draft first, so assets are uploaded
+	// before it becomes visible/published. With --publish we flip it in step 10 —
+	// this avoids a window where a published release shows zero/partial assets.
+	releaseURL, releaseID, err := createGitHubRelease(repo, opts, plan, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GitHub release: %w", err)
 	}
 	result.ReleaseURL = releaseURL
 	result.ReleaseID = releaseID
+	result.Draft = true
+	result.Published = false
 
-	// step 9: upload release assets (if any)
+	// step 9: upload release assets (if any). On failure return the PARTIAL result:
+	// the release/tag already exist and immutability blocks a re-cut, so the caller
+	// needs the release URL/ID and the names that did upload in order to recover.
 	if len(opts.Assets) > 0 {
-		uploaded, err := uploadAssets(ctx, opts.ReleaseAPI, owner, repoName, releaseID, opts.Assets, opts.AssetLabels)
-		if err != nil {
-			return nil, fmt.Errorf("failed to upload release assets: %w", err)
-		}
+		uploaded, uploadErr := uploadAssets(ctx, opts.ReleaseAPI, owner, repoName, releaseID, opts.Assets, opts.AssetLabels)
 		result.UploadedAssets = uploaded
+		if uploadErr != nil {
+			return result, fmt.Errorf("failed to upload release assets: %w", uploadErr)
+		}
+	}
+
+	// step 10: publish (flip draft -> published) only after assets are uploaded.
+	if opts.Publish {
+		if err := markReleasePublished(ctx, opts.ReleaseAPI, owner, repoName, releaseID); err != nil {
+			return result, fmt.Errorf("failed to publish release: %w", err)
+		}
+		result.Draft = false
+		result.Published = true
 	}
 
 	return result, nil
 }
 
-// validateAssets verifies each asset path exists and is a regular file, that no two
-// assets share the same upload name (base name), and that every --asset-label refers
-// to one of those names. All checks are fail-fast, before any release side effects —
-// so a duplicate name or stale label can't surface only after the release is created.
+// markReleasePublished flips a draft release to published via the GitHub API.
+func markReleasePublished(ctx context.Context, svc ReleaseService, owner, repo string, releaseID int64) error {
+	rel := &gogithub.RepositoryRelease{Draft: gogithub.Ptr(false)}
+	_, resp, err := svc.UpdateRelease(ctx, owner, repo, releaseID, rel)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	return err
+}
+
+// validateAssets checks the requested assets fail-fast, before any release side
+// effects: each path must exist and be a non-empty regular file, no two assets may
+// share an upload name (base name), and every --asset-label must match one of those
+// names. (A file removed between this check and the upload would still fail later,
+// once the release exists — but the common mistakes are caught up front.)
 func validateAssets(assets []string, labels map[string]string) error {
 	names := make(map[string]struct{}, len(assets))
 	for _, path := range assets {
@@ -339,8 +369,11 @@ func validateAssets(assets []string, labels map[string]string) error {
 		if err != nil {
 			return fmt.Errorf("asset not found: %s: %w", path, err)
 		}
-		if info.IsDir() {
-			return fmt.Errorf("asset is a directory, not a file: %s", path)
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("asset is not a regular file: %s", path)
+		}
+		if info.Size() == 0 {
+			return fmt.Errorf("asset is empty (0 bytes): %s", path)
 		}
 		name := filepath.Base(path)
 		if _, dup := names[name]; dup {
@@ -350,7 +383,7 @@ func validateAssets(assets []string, labels map[string]string) error {
 	}
 	for name := range labels {
 		if _, ok := names[name]; !ok {
-			return fmt.Errorf("--asset-label %q does not match any --asset name", name)
+			return fmt.Errorf("--asset-label %q does not match any --asset name (the name is the file's base name)", name)
 		}
 	}
 	return nil
