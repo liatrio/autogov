@@ -38,7 +38,11 @@ Examples:
   autogov verify attestation --blob-path artifact.tar.gz --repo org/repo
 
   # Verify with OPA policy evaluation
-  autogov verify attestation --blob-path artifact.tar.gz --repo org/repo --policy-bundle-path policies/`,
+  autogov verify attestation --blob-path artifact.tar.gz --repo org/repo --policy-bundle-path policies/
+
+  # Pull the policy bundle from a GitHub release asset (latest release)
+  autogov verify attestation --blob-path artifact.tar.gz --repo org/repo \
+    --policy-bundle-path ghrel://org/policy-library --policy-bundle-digest sha256:...`,
 		RunE:    runAttestation,
 		PreRunE: preRunAttestation,
 	}
@@ -53,9 +57,10 @@ Examples:
 	cmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final results")
 	cmd.Flags().String(flagCertIdentityList, "", "URL or file path to the certificate identity list (optional)")
 	cmd.Flags().Bool(flagNoCache, false, "Disable caching of the certificate identity list")
-	cmd.Flags().String(flagPolicyBundlePath, "", "Path to OPA policy bundle directory or .tar.gz file for policy evaluation")
-	cmd.Flags().String(flagPolicySchemasPath, "", "Path to directory or .tar.gz file containing JSON schemas for OPA policy validation")
+	cmd.Flags().String(flagPolicyBundlePath, "", "Policy bundle source: local dir, .tar.gz, http(s):// URL, oci://registry/repo:tag, or ghrel://owner/repo[@tag][?asset=bundle.tar.gz]. Without @tag, ghrel:// uses the latest release (GitHub's most recent non-prerelease, non-draft, which may differ from an OCI :latest tag)")
+	cmd.Flags().String(flagPolicySchemasPath, "", "JSON schemas source for OPA validation: local dir, .tar.gz, http(s):// URL, oci://, or ghrel://owner/repo[@tag][?asset=schemas.tar.gz] (default asset schemas.tar.gz)")
 	cmd.Flags().String(flagPolicyDataPath, "", "Path to JSON file containing additional OPA data")
+	cmd.Flags().String(flagPolicyBundleDigest, "", "Expected SHA-256 of the downloaded policy bundle asset (sha256:...); enforced for ghrel:// bundle paths. Distinct from --image-digest")
 	cmd.Flags().Bool(flagFailOnPolicyError, false, "Exit with error when policy evaluation fails (default: false)")
 	cmd.Flags().Bool(flagGenerateVSA, false, "Generate Verification Summary Attestation after successful verification")
 	cmd.Flags().String(flagVSAOutput, "", "Output path for generated VSA (required if --generate-vsa is used)")
@@ -90,6 +95,8 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 	viper.Set("quiet", quiet)
 	failOnPolicyError, _ := cmd.Flags().GetBool(flagFailOnPolicyError)
 	viper.Set("fail-on-policy-error", failOnPolicyError)
+	policyBundleDigest, _ := cmd.Flags().GetString(flagPolicyBundleDigest)
+	viper.Set("policy-bundle-digest", policyBundleDigest)
 
 	if !quiet {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Starting verification process...")

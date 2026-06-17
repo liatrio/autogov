@@ -8,11 +8,19 @@ import (
 // ResolveOptions configures path resolution behavior.
 type ResolveOptions struct {
 	// DefaultAsset is the default asset name used for ghrel:// resolution
-	// (e.g., "bundle.tar.gz", "schemas.tar.gz"). Introduced now to stabilize
-	// the dispatcher signature so future schemes (OCI, ghrel) can be added as
-	// independent cases without changing resolveBundlePath's signature. Not yet
-	// consumed by any implemented scheme (reserved for the ghrel:// case).
+	// (e.g., "bundle.tar.gz", "schemas.tar.gz"). Stabilizing this on the
+	// dispatcher signature lets new schemes (OCI, ghrel) be added as
+	// independent cases without changing resolveBundlePath's signature.
+	// Consumed by the ghrel:// case to pick the release asset when the
+	// reference omits an explicit ?asset= query.
 	DefaultAsset string
+	// ExpectedDigest, when non-empty, pins the SHA-256 of the downloaded
+	// ghrel:// bundle archive (sha256:hex or bare hex). The ghrel resolver
+	// hard-fails on a mismatch. It is an opt-in integrity check on the archive
+	// bytes, distinct from the SLSA-aligned digest of the extracted contents
+	// computed by CalculateDigest, and is only set for the bundle path (never
+	// the schemas asset).
+	ExpectedDigest string
 }
 
 // resolveBundlePath resolves a policy bundle/schemas path to a local directory.
@@ -31,7 +39,10 @@ func resolveBundlePath(ctx context.Context, path string, opts *ResolveOptions) (
 		return extractBundle(path)
 	case strings.HasPrefix(path, ociScheme):
 		return pullOCIBundle(ctx, path)
-	// Future: case strings.HasPrefix(path, "ghrel://"):
+	case strings.HasPrefix(path, ghrelScheme):
+		// first (and only) case that consumes opts: DefaultAsset selects the
+		// release asset and ExpectedDigest enforces archive integrity.
+		return downloadGHReleaseBundle(ctx, path, opts)
 	default:
 		// local directory: nothing to download or extract, no cleanup needed
 		return path, noop, nil
