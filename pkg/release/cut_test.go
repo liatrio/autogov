@@ -1144,13 +1144,13 @@ func TestExecuteCutDryRunSkipsUpload(t *testing.T) {
 // requested — without recreating the commit or tag.
 func TestExecuteCutResumeUploadsMissingAssets(t *testing.T) {
 	dir, mock := setupCutScenario(t)
-	mock.getReleaseErr = nil
-	mock.getRelease = &gogithub.RepositoryRelease{
+	mock.listReleases = []*gogithub.RepositoryRelease{{
 		ID:      gogithub.Ptr(int64(777)),
+		TagName: gogithub.Ptr("v1.1.0"),
 		HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
 		Draft:   gogithub.Ptr(true),
 		Assets:  []*gogithub.ReleaseAsset{{Name: gogithub.Ptr("first"), State: gogithub.Ptr("uploaded")}},
-	}
+	}}
 
 	a := filepath.Join(t.TempDir(), "first")
 	b := filepath.Join(t.TempDir(), "second")
@@ -1181,16 +1181,16 @@ func TestExecuteCutResumeUploadsMissingAssets(t *testing.T) {
 // re-run of a completed-but-unpublished cut.
 func TestExecuteCutResumePublishesWhenAllAssetsPresent(t *testing.T) {
 	dir, mock := setupCutScenario(t)
-	mock.getReleaseErr = nil
-	mock.getRelease = &gogithub.RepositoryRelease{
+	mock.listReleases = []*gogithub.RepositoryRelease{{
 		ID:      gogithub.Ptr(int64(777)),
+		TagName: gogithub.Ptr("v1.1.0"),
 		HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
 		Draft:   gogithub.Ptr(true),
 		Assets: []*gogithub.ReleaseAsset{
 			{Name: gogithub.Ptr("first"), State: gogithub.Ptr("uploaded")},
 			{Name: gogithub.Ptr("second"), State: gogithub.Ptr("uploaded")},
 		},
-	}
+	}}
 
 	a := filepath.Join(t.TempDir(), "first")
 	b := filepath.Join(t.TempDir(), "second")
@@ -1216,13 +1216,13 @@ func TestExecuteCutResumePublishesWhenAllAssetsPresent(t *testing.T) {
 // resume, not skipped — otherwise resume would publish a release with a half-written asset.
 func TestExecuteCutResumeReuploadsIncompleteAsset(t *testing.T) {
 	dir, mock := setupCutScenario(t)
-	mock.getReleaseErr = nil
-	mock.getRelease = &gogithub.RepositoryRelease{
+	mock.listReleases = []*gogithub.RepositoryRelease{{
 		ID:      gogithub.Ptr(int64(777)),
+		TagName: gogithub.Ptr("v1.1.0"),
 		HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
 		Draft:   gogithub.Ptr(true),
 		Assets:  []*gogithub.ReleaseAsset{{Name: gogithub.Ptr("first"), State: gogithub.Ptr("open")}},
-	}
+	}}
 
 	a := filepath.Join(t.TempDir(), "first")
 	require.NoError(t, os.WriteFile(a, []byte("1"), 0o600))
@@ -1245,10 +1245,13 @@ func TestExecuteCutResumeReuploadsIncompleteAsset(t *testing.T) {
 func TestExecuteCutResumeRejectsPublishedRelease(t *testing.T) {
 	dir, mock := setupCutScenario(t)
 	mock.getReleaseErr = nil
-	mock.getRelease = &gogithub.RepositoryRelease{
-		ID:    gogithub.Ptr(int64(99)),
-		Draft: gogithub.Ptr(false),
+	published := &gogithub.RepositoryRelease{
+		ID:      gogithub.Ptr(int64(99)),
+		TagName: gogithub.Ptr("v1.1.0"),
+		Draft:   gogithub.Ptr(false),
 	}
+	mock.getRelease = published                                 // checkImmutability path
+	mock.listReleases = []*gogithub.RepositoryRelease{published} // detectResume must NOT resume a published release
 
 	opts := &CutOptions{
 		RepoPath: dir, Branch: "master", Remote: "origin",
@@ -1265,12 +1268,12 @@ func TestExecuteCutResumeRejectsPublishedRelease(t *testing.T) {
 // Dry-run on a resumable state reports the draft it would resume and performs no writes.
 func TestExecuteCutResumeDryRunMakesNoWrites(t *testing.T) {
 	dir, mock := setupCutScenario(t)
-	mock.getReleaseErr = nil
-	mock.getRelease = &gogithub.RepositoryRelease{
+	mock.listReleases = []*gogithub.RepositoryRelease{{
 		ID:      gogithub.Ptr(int64(777)),
+		TagName: gogithub.Ptr("v1.1.0"),
 		HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
 		Draft:   gogithub.Ptr(true),
-	}
+	}}
 
 	a := filepath.Join(t.TempDir(), "first")
 	require.NoError(t, os.WriteFile(a, []byte("1"), 0o600))

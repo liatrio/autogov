@@ -93,7 +93,8 @@ type ReleaseService interface {
 	ListTags(ctx context.Context, owner, repo string, opts *gogithub.ListOptions) ([]*gogithub.RepositoryTag, *gogithub.Response, error)
 	CompareCommits(ctx context.Context, owner, repo, base, head string, opts *gogithub.ListOptions) (*gogithub.CommitsComparison, *gogithub.Response, error)
 	GetBranch(ctx context.Context, owner, repo, branch string, maxRedirects int) (*gogithub.Branch, *gogithub.Response, error)
-	// git data operations (commits/tags created via API are auto-signed by GitHub per SLSA v1.2)
+	// git data operations. Commits created via the API are auto-signed/verified by GitHub
+	// (SLSA v1.2); annotated tag objects are NOT signed (see createAnnotatedTagViaAPI).
 	CreateTree(ctx context.Context, owner, repo, baseTree string, entries []*gogithub.TreeEntry) (*gogithub.Tree, *gogithub.Response, error)
 	CreateCommit(ctx context.Context, owner, repo string, commit gogithub.Commit, opts *gogithub.CreateCommitOptions) (*gogithub.Commit, *gogithub.Response, error)
 	CreateTag(ctx context.Context, owner, repo string, tag gogithub.CreateTag) (*gogithub.Tag, *gogithub.Response, error)
@@ -453,22 +454,58 @@ func uploadAssets(ctx context.Context, svc ReleaseService, owner, repo string, r
 	return uploaded, nil
 }
 
-// detectResume checks whether a prior cut for tagName was interrupted, leaving a draft
-// release behind that can be resumed. It returns that draft release (to resume into) or
-// nil for a fresh cut. A published (non-draft) release is immutable and returns an error.
-// A missing release (or any lookup error, e.g. 404) is treated as a fresh cut.
+// detectResume looks for a DRAFT release left behind by an interrupted cut for tagName,
+// which can be resumed. GitHub's "get release by tag" endpoint 404s on drafts, so we must
+// enumerate releases (ListReleases includes drafts for callers with push access) and match
+// by tag name. Returns the draft to resume into, or nil for a fresh cut — including when a
+// published release exists for the tag: published immutability is enforced by
+// checkImmutability, which runs on the non-resume path.
 func detectResume(ctx context.Context, opts *CutOptions, owner, repoName, tagName string) (*gogithub.RepositoryRelease, error) {
-	rel, resp, err := opts.ReleaseAPI.GetReleaseByTag(ctx, owner, repoName, tagName)
-	if resp != nil {
-		_ = resp.Body.Close()
+	rel, err := findReleaseByTag(ctx, opts.ReleaseAPI, owner, repoName, tagName)
+	if err != nil {
+		// non-fatal: degrade to a fresh cut. The immutability check still guards the tag,
+		// so we don't silently bypass it — we just don't resume.
+		fmt.Fprintf(os.Stderr, "warning: could not list releases to check for a resumable draft: %v\n", err)
+		return nil, nil
 	}
-	if err != nil || rel == nil {
-		return nil, nil // no release for this tag → fresh cut
-	}
-	if !rel.GetDraft() {
-		return nil, fmt.Errorf("published release already exists for tag %s (id: %d)", tagName, rel.GetID())
+	if rel == nil || !rel.GetDraft() {
+		return nil, nil // no release, or a published release (handled by checkImmutability)
 	}
 	return rel, nil // draft release → resumable
+}
+
+// findReleaseByTag returns the release whose tag_name equals tagName, or nil if none is
+// found. It pages through ListReleases (newest first) rather than GetReleaseByTag because
+// the latter omits draft releases. Bounded to a sane number of pages.
+func findReleaseByTag(ctx context.Context, svc ReleaseService, owner, repo, tagName string) (*gogithub.RepositoryRelease, error) {
+	opts := &gogithub.ListOptions{PerPage: 100}
+	for page := 0; page < 10; page++ {
+		rels, resp, err := svc.ListReleases(ctx, owner, repo, opts)
+		if err != nil {
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
+			return nil, err
+		}
+		for _, r := range rels {
+			if r.GetTagName() == tagName {
+				if resp != nil {
+					_ = resp.Body.Close()
+				}
+				return r, nil
+			}
+		}
+		next := 0
+		if resp != nil {
+			next = resp.NextPage
+			_ = resp.Body.Close()
+		}
+		if next == 0 {
+			break
+		}
+		opts.Page = next
+	}
+	return nil, nil
 }
 
 // executeResume completes an interrupted cut whose draft release already exists. It
@@ -725,7 +762,9 @@ func checkImmutability(repo *git.Repository, opts *CutOptions, tagName string) e
 		}
 	}
 
-	// check for published (non-draft) GitHub release
+	// check for a published (non-draft) GitHub release. GetReleaseByTag 404s on drafts, so
+	// a returned release is always a published conflict; resumable drafts are handled
+	// earlier by detectResume.
 	if opts.ReleaseAPI != nil {
 		repoName := GetRepositoryName(repo)
 		parts := strings.SplitN(repoName, "/", 2)
@@ -736,12 +775,8 @@ func checkImmutability(repo *git.Repository, opts *CutOptions, tagName string) e
 			if resp != nil {
 				_ = resp.Body.Close()
 			}
-			if err == nil && rel != nil {
-				if !rel.GetDraft() {
-					return fmt.Errorf("published release already exists for tag %s (id: %d)", tagName, rel.GetID())
-				}
-				// draft release exists — allowed (re-cut scenario)
-				fmt.Fprintf(os.Stderr, "note: existing draft release found for %s, will be superseded\n", tagName)
+			if err == nil && rel != nil && !rel.GetDraft() {
+				return fmt.Errorf("published release already exists for tag %s (id: %d)", tagName, rel.GetID())
 			}
 		}
 	}
