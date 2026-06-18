@@ -147,7 +147,7 @@ func runMetadata(_ *cobra.Command, _ []string) error {
 	} else if envPolicyRef := os.Getenv("POLICY_REF"); envPolicyRef != "" {
 		opts.PolicyRef = envPolicyRef
 	} else {
-		opts.PolicyRef = "https://github.com/liatrio/liatrio-rego-policy-library"
+		opts.PolicyRef = "https://github.com/liatrio/autogov-policy-library"
 	}
 
 	// set control ids
