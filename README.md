@@ -458,7 +458,7 @@ Verify a container image:
 export GITHUB_AUTH_TOKEN=your_token
 autogov verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
-  --repo liatrio/demo-gh-autogov-workflows \
+  --repo owner/repo \
   --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
   --source-ref refs/heads/main
 ```
@@ -480,7 +480,7 @@ Using environment variables:
 export GITHUB_AUTH_TOKEN=your_token
 export CERT_IDENTITY="https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da"
 export CERT_ISSUER=https://token.actions.githubusercontent.com
-autogov verify --repo liatrio/demo-gh-autogov-workflows -d "sha256:702bea33d240c2f0a1d87fe649a49b52f533bde2005b3c1bc0be7859dd5e4226"
+autogov verify --repo owner/repo -d "sha256:702bea33d240c2f0a1d87fe649a49b52f533bde2005b3c1bc0be7859dd5e4226"
 ```
 
 Verify with certificate identity validation:
@@ -489,7 +489,7 @@ Verify with certificate identity validation:
 export GITHUB_AUTH_TOKEN=your_token
 autogov verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
-  --repo liatrio/demo-gh-autogov-workflows \
+  --repo owner/repo \
   --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
   --cert-identity-list "https://raw.githubusercontent.com/liatrio/liatrio-gh-autogov-workflows/refs/heads/main/cert-identities.json"
 ```
@@ -500,7 +500,7 @@ Generate enhanced VSA with policy evaluation:
 export GITHUB_AUTH_TOKEN=your_token
 autogov verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
-  --repo liatrio/demo-gh-autogov-workflows \
+  --repo owner/repo \
   --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
   --generate-vsa \
   --vsa-output ./verification-summary.json \
@@ -544,7 +544,7 @@ EOF
 export GITHUB_AUTH_TOKEN=your_token
 autogov verify \
   --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
-  --repo liatrio/demo-gh-autogov-workflows \
+  --repo owner/repo \
   --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
   --generate-vsa \
   --vsa-output ./verification-summary.json \
