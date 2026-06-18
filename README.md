@@ -215,9 +215,9 @@ autogov offline \
 - `--generate-vsa`: Generate Verification Summary Attestation after successful verification
 - `--vsa-output`: Output path for generated VSA (required if `--generate-vsa` is used)
 - `--policy-uri`: Policy URI for VSA generation (required if `--generate-vsa` is used)
-- `--policy-bundle-path`: Path to OPA policy bundle directory or `.tar.gz` file
+- `--policy-bundle-path`: Policy bundle source — local directory, `.tar.gz`, `http(s)://` URL, `oci://registry/repo:tag`, or `ghrel://owner/repo[@tag][?asset=bundle.tar.gz]` (without `@tag`, `ghrel://` uses the latest release)
 - `--policy-data-path`: Path to JSON file containing additional OPA data (e.g., vulnerability thresholds)
-- `--policy-schemas-path`: Path to directory or `.tar.gz` file containing JSON schemas for OPA policy validation
+- `--policy-schemas-path`: JSON schemas source for OPA validation — local directory, `.tar.gz`, `http(s)://` URL, `oci://`, or `ghrel://owner/repo[@tag][?asset=schemas.tar.gz]` (default asset `schemas.tar.gz`)
 - `--fail-on-policy-error`: Exit with error when policy evaluation fails (default: false)
 - `-q, --quiet`: Only show errors and final results
 
@@ -263,8 +263,8 @@ The tool supports generating SLSA v1.2 Verification Summary Attestations (VSAs) 
 
 - `--generate-vsa`: Generate a VSA after successful verification with comprehensive validation
 - `--vsa-output`: Path to save the generated VSA (e.g., `./verification-summary.json`)
-- `--policy-bundle-path`: Path or URL to OPA policy bundle for evaluation
-- `--policy-schemas-path`: Path to directory or .tar.gz file containing JSON schemas for OPA policy validation
+- `--policy-bundle-path`: Policy bundle source — local directory, `.tar.gz`, `http(s)://` URL, `oci://registry/repo:tag`, or `ghrel://owner/repo[@tag][?asset=bundle.tar.gz]`
+- `--policy-schemas-path`: JSON schemas source — local directory, `.tar.gz`, `http(s)://` URL, `oci://`, or `ghrel://owner/repo[@tag][?asset=schemas.tar.gz]`
 - `--policy-data-path`: Path to JSON file containing additional OPA data (e.g., vulnerability thresholds)
 - `--policy-uri`: Policy URI for VSA generation (required if --generate-vsa is used)
 - `--fail-on-policy-error`: Exit with error code 1 when policy evaluation fails (default: false - exit code 0)
@@ -505,7 +505,7 @@ autogov verify \
   --generate-vsa \
   --vsa-output ./verification-summary.json \
   --policy-uri "https://github.com/liatrio/liatrio-rego-policy-library" \
-  --policy-bundle-path "ghcr.io/liatrio/liatrio-rego-policy-library:latest"
+  --policy-bundle-path "oci://ghcr.io/liatrio/liatrio-rego-policy-library:latest"
 ```
 
 Verify a cosign-signed artifact using public Sigstore:
