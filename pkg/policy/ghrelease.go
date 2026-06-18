@@ -102,7 +102,8 @@ func parseGHReleaseReference(uri string) (ghRef, error) {
 	owner := u.Host
 	pathPart := strings.TrimPrefix(u.Path, "/")
 	repo, tag, hasTag := strings.Cut(pathPart, "@")
-	asset := u.Query().Get("asset")
+	query := u.Query()
+	asset := query.Get("asset")
 
 	switch {
 	case owner == "" || repo == "":
@@ -116,6 +117,11 @@ func parseGHReleaseReference(uri string) (ghRef, error) {
 		// a trailing "@" with no tag (ghrel://owner/repo@) is a likely typo that
 		// would silently fall through to the latest release, defeating an
 		// explicit pin; reject it rather than guess.
+		return ghRef{}, malformed
+	case query.Has("asset") && asset == "":
+		// an explicit but empty ?asset= (ghrel://owner/repo?asset=) is a likely
+		// typo that would silently fall back to the default asset; reject it
+		// rather than guess, mirroring the trailing-"@" empty-tag case.
 		return ghRef{}, malformed
 	}
 
@@ -208,6 +214,12 @@ func resolveGHReleaseToDir(ctx context.Context, client ghReleaseClient, ref ghRe
 	rc, _, err := client.DownloadReleaseAsset(ctx, ref.Owner, ref.Repo, assetID, http.DefaultClient)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to download asset %q (id %d) from %s/%s: %w", assetName, assetID, ref.Owner, ref.Repo, err)
+	}
+	if rc == nil {
+		// DownloadReleaseAsset returns exactly one of (reader, redirectURL);
+		// passing http.DefaultClient always yields the reader, but guard so a nil
+		// body can never nil-deref the deferred Close below.
+		return "", nil, fmt.Errorf("no readable body for asset %q (id %d) from %s/%s", assetName, assetID, ref.Owner, ref.Repo)
 	}
 	defer func() {
 		if closeErr := rc.Close(); closeErr != nil {

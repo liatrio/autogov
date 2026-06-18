@@ -176,6 +176,7 @@ func TestParseGHReleaseEdgeCases(t *testing.T) {
 		{"extra path segment", "ghrel://owner/a/b"},
 		{"trailing slash", "ghrel://owner/repo/"},
 		{"empty tag", "ghrel://owner/repo@"},
+		{"empty asset", "ghrel://owner/repo?asset="},
 	}
 	for _, tt := range reject {
 		t.Run(tt.name+" rejected", func(t *testing.T) {
