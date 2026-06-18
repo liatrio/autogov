@@ -66,8 +66,20 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 		}
 	}()
 
-	// resolve the bundle path (URL download, tar.gz extraction, or local dir)
-	bundlePath, bundleCleanup, err := resolveBundlePath(ctx, policyBundlePath, &ResolveOptions{DefaultAsset: "bundle.tar.gz"})
+	// resolve the bundle path (local dir, .tar.gz, http(s)://, oci://, or ghrel://).
+	// --policy-bundle-digest pins the downloaded ghrel:// asset's archive SHA-256;
+	// warn (don't fail) when it is set for a path that cannot honor it, so it never
+	// gives a false sense of integrity for local/http/oci/tar.gz bundle paths.
+	expectedDigest := viper.GetString("policy-bundle-digest")
+	if expectedDigest != "" {
+		if !strings.HasPrefix(policyBundlePath, ghrelScheme) {
+			log.Printf("warning: --policy-bundle-digest is only enforced for ghrel:// bundle paths; ignoring it for %q", policyBundlePath)
+		} else if err := validateExpectedDigest(expectedDigest); err != nil {
+			// fail fast on a malformed pin, before any network I/O
+			return nil, fmt.Errorf("invalid --policy-bundle-digest %q: %w", expectedDigest, err)
+		}
+	}
+	bundlePath, bundleCleanup, err := resolveBundlePath(ctx, policyBundlePath, &ResolveOptions{DefaultAsset: "bundle.tar.gz", ExpectedDigest: expectedDigest})
 	cleanups = append(cleanups, bundleCleanup)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve bundle path: %w", err)
@@ -94,7 +106,11 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 		if schemasPath == policyBundlePath {
 			// schemas default to the bundle path (generate.go). Reuse the already
 			// resolved bundle directory instead of resolving it a second time —
-			// otherwise an http(s):// bundle would be downloaded twice.
+			// otherwise an http(s):// bundle would be downloaded twice. ghrel://
+			// and oci:// reuse here too (consistent across remote schemes); a
+			// separate schemas.tar.gz asset is fetched only when an explicit,
+			// distinct --policy-schemas-path is given. Revisit in Story 3.4 once
+			// the policy-library asset packaging is fixed.
 			actualSchemasPath = bundlePath
 		} else {
 			// resolve the schemas path (URL download, tar.gz extraction, or local dir).

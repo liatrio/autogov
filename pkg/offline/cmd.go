@@ -19,6 +19,8 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 	viper.Set("quiet", quiet)
 	failOnPolicyError, _ := cmd.Flags().GetBool("fail-on-policy-error")
 	viper.Set("fail-on-policy-error", failOnPolicyError)
+	policyBundleDigest, _ := cmd.Flags().GetString("policy-bundle-digest")
+	viper.Set("policy-bundle-digest", policyBundleDigest)
 	blobPath, _ := cmd.Flags().GetString("blob-path")
 	imageDigest, _ := cmd.Flags().GetString("image-digest")
 	attestationsPath, _ := cmd.Flags().GetString("attestations")

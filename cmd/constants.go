@@ -12,8 +12,9 @@ const (
 	flagGenerateVSA       = "generate-vsa"
 	flagVSAOutput         = "vsa-output"
 	flagPolicyURI         = "policy-uri"
-	flagPolicyBundlePath  = "policy-bundle-path"
-	flagPolicySchemasPath = "policy-schemas-path"
-	flagPolicyDataPath    = "policy-data-path"
-	flagFailOnPolicyError = "fail-on-policy-error"
+	flagPolicyBundlePath   = "policy-bundle-path"
+	flagPolicySchemasPath  = "policy-schemas-path"
+	flagPolicyDataPath     = "policy-data-path"
+	flagPolicyBundleDigest = "policy-bundle-digest"
+	flagFailOnPolicyError  = "fail-on-policy-error"
 )
