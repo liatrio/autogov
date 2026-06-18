@@ -1138,3 +1138,159 @@ func TestExecuteCutDryRunSkipsUpload(t *testing.T) {
 	assert.Empty(t, mock.uploadedAssetNames, "dry-run must not upload assets")
 	assert.Empty(t, result.UploadedAssets)
 }
+
+// A cut interrupted after the draft release was created (some assets uploaded) must
+// resume: reuse the existing draft, upload only the missing assets, and publish if
+// requested — without recreating the commit or tag.
+func TestExecuteCutResumeUploadsMissingAssets(t *testing.T) {
+	dir, mock := setupCutScenario(t)
+	mock.listReleases = []*gogithub.RepositoryRelease{{
+		ID:      gogithub.Ptr(int64(777)),
+		TagName: gogithub.Ptr("v1.1.0"),
+		HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
+		Draft:   gogithub.Ptr(true),
+		Assets:  []*gogithub.ReleaseAsset{{Name: gogithub.Ptr("first"), State: gogithub.Ptr("uploaded")}},
+	}}
+
+	a := filepath.Join(t.TempDir(), "first")
+	b := filepath.Join(t.TempDir(), "second")
+	require.NoError(t, os.WriteFile(a, []byte("1"), 0o600))
+	require.NoError(t, os.WriteFile(b, []byte("2"), 0o600))
+
+	opts := &CutOptions{
+		RepoPath: dir, Branch: "master", Remote: "origin",
+		CommitAuthor: "testbot", CommitEmail: "testbot@test.com",
+		Token: "test-token", ReleaseAPI: mock,
+		Assets:  []string{a, b},
+		Publish: true,
+	}
+
+	result, err := ExecuteCut(opts)
+	require.NoError(t, err)
+	assert.Equal(t, int64(777), result.ReleaseID, "reuses the existing draft release")
+	assert.Equal(t, []string{"second"}, mock.uploadedAssetNames, "uploads only the missing asset")
+	assert.Equal(t, []string{"second"}, result.UploadedAssets)
+	assert.True(t, result.Published, "publishes once assets are complete")
+	assert.False(t, result.Draft)
+	assert.Empty(t, mock.lastCreateTagArg.Tag, "resume must not recreate the tag")
+	assert.Empty(t, mock.deletedRefs, "resume must not roll back any ref")
+}
+
+// Resuming when every requested asset is already attached uploads nothing and just flips
+// the draft to published — covers both resume-after-publish-failure and an idempotent
+// re-run of a completed-but-unpublished cut.
+func TestExecuteCutResumePublishesWhenAllAssetsPresent(t *testing.T) {
+	dir, mock := setupCutScenario(t)
+	mock.listReleases = []*gogithub.RepositoryRelease{{
+		ID:      gogithub.Ptr(int64(777)),
+		TagName: gogithub.Ptr("v1.1.0"),
+		HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
+		Draft:   gogithub.Ptr(true),
+		Assets: []*gogithub.ReleaseAsset{
+			{Name: gogithub.Ptr("first"), State: gogithub.Ptr("uploaded")},
+			{Name: gogithub.Ptr("second"), State: gogithub.Ptr("uploaded")},
+		},
+	}}
+
+	a := filepath.Join(t.TempDir(), "first")
+	b := filepath.Join(t.TempDir(), "second")
+	require.NoError(t, os.WriteFile(a, []byte("1"), 0o600))
+	require.NoError(t, os.WriteFile(b, []byte("2"), 0o600))
+
+	opts := &CutOptions{
+		RepoPath: dir, Branch: "master", Remote: "origin",
+		CommitAuthor: "testbot", CommitEmail: "testbot@test.com",
+		Token: "test-token", ReleaseAPI: mock,
+		Assets:  []string{a, b},
+		Publish: true,
+	}
+
+	result, err := ExecuteCut(opts)
+	require.NoError(t, err)
+	assert.Empty(t, mock.uploadedAssetNames, "no re-upload when all assets are already present")
+	assert.Empty(t, result.UploadedAssets)
+	assert.True(t, result.Published)
+}
+
+// An asset left in a non-"uploaded" state by an interrupted upload must be re-uploaded on
+// resume, not skipped — otherwise resume would publish a release with a half-written asset.
+func TestExecuteCutResumeReuploadsIncompleteAsset(t *testing.T) {
+	dir, mock := setupCutScenario(t)
+	mock.listReleases = []*gogithub.RepositoryRelease{{
+		ID:      gogithub.Ptr(int64(777)),
+		TagName: gogithub.Ptr("v1.1.0"),
+		HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
+		Draft:   gogithub.Ptr(true),
+		Assets:  []*gogithub.ReleaseAsset{{Name: gogithub.Ptr("first"), State: gogithub.Ptr("open")}},
+	}}
+
+	a := filepath.Join(t.TempDir(), "first")
+	require.NoError(t, os.WriteFile(a, []byte("1"), 0o600))
+
+	opts := &CutOptions{
+		RepoPath: dir, Branch: "master", Remote: "origin",
+		CommitAuthor: "testbot", CommitEmail: "testbot@test.com",
+		Token: "test-token", ReleaseAPI: mock,
+		Assets: []string{a},
+	}
+
+	result, err := ExecuteCut(opts)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"first"}, mock.uploadedAssetNames, "a non-uploaded asset must be re-uploaded, not skipped")
+	assert.Equal(t, []string{"first"}, result.UploadedAssets)
+}
+
+// A published (non-draft) release for the computed tag is immutable: the cut must fail
+// fast and must not resume or recreate a tag.
+func TestExecuteCutResumeRejectsPublishedRelease(t *testing.T) {
+	dir, mock := setupCutScenario(t)
+	mock.getReleaseErr = nil
+	published := &gogithub.RepositoryRelease{
+		ID:      gogithub.Ptr(int64(99)),
+		TagName: gogithub.Ptr("v1.1.0"),
+		Draft:   gogithub.Ptr(false),
+	}
+	mock.getRelease = published                                 // checkImmutability path
+	mock.listReleases = []*gogithub.RepositoryRelease{published} // detectResume must NOT resume a published release
+
+	opts := &CutOptions{
+		RepoPath: dir, Branch: "master", Remote: "origin",
+		CommitAuthor: "testbot", CommitEmail: "testbot@test.com",
+		Token: "test-token", ReleaseAPI: mock,
+	}
+
+	_, err := ExecuteCut(opts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "published release already exists")
+	assert.Empty(t, mock.lastCreateTagArg.Tag, "must not create a tag for a published release")
+}
+
+// Dry-run on a resumable state reports the draft it would resume and performs no writes.
+func TestExecuteCutResumeDryRunMakesNoWrites(t *testing.T) {
+	dir, mock := setupCutScenario(t)
+	mock.listReleases = []*gogithub.RepositoryRelease{{
+		ID:      gogithub.Ptr(int64(777)),
+		TagName: gogithub.Ptr("v1.1.0"),
+		HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
+		Draft:   gogithub.Ptr(true),
+	}}
+
+	a := filepath.Join(t.TempDir(), "first")
+	require.NoError(t, os.WriteFile(a, []byte("1"), 0o600))
+
+	opts := &CutOptions{
+		RepoPath: dir, Branch: "master", Remote: "origin",
+		CommitAuthor: "testbot", CommitEmail: "testbot@test.com",
+		Token: "test-token", ReleaseAPI: mock,
+		Assets:  []string{a},
+		Publish: true,
+		DryRun:  true,
+	}
+
+	result, err := ExecuteCut(opts)
+	require.NoError(t, err)
+	assert.True(t, result.DryRun)
+	assert.Equal(t, int64(777), result.ReleaseID, "reports the draft it would resume")
+	assert.Empty(t, mock.uploadedAssetNames, "dry-run resume must not upload")
+	assert.False(t, result.Published, "dry-run must not publish")
+}

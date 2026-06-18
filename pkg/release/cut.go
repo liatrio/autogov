@@ -93,7 +93,8 @@ type ReleaseService interface {
 	ListTags(ctx context.Context, owner, repo string, opts *gogithub.ListOptions) ([]*gogithub.RepositoryTag, *gogithub.Response, error)
 	CompareCommits(ctx context.Context, owner, repo, base, head string, opts *gogithub.ListOptions) (*gogithub.CommitsComparison, *gogithub.Response, error)
 	GetBranch(ctx context.Context, owner, repo, branch string, maxRedirects int) (*gogithub.Branch, *gogithub.Response, error)
-	// git data operations (commits/tags created via API are auto-signed by GitHub per SLSA v1.2)
+	// git data operations. Commits created via the API are auto-signed/verified by GitHub
+	// (SLSA v1.2); annotated tag objects are NOT signed (see createAnnotatedTagViaAPI).
 	CreateTree(ctx context.Context, owner, repo, baseTree string, entries []*gogithub.TreeEntry) (*gogithub.Tree, *gogithub.Response, error)
 	CreateCommit(ctx context.Context, owner, repo string, commit gogithub.Commit, opts *gogithub.CreateCommitOptions) (*gogithub.Commit, *gogithub.Response, error)
 	CreateTag(ctx context.Context, owner, repo string, tag gogithub.CreateTag) (*gogithub.Tag, *gogithub.Response, error)
@@ -240,9 +241,26 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 
 	tagName := plan.NextVersion // already has v prefix from Version.String()
 
-	// step 3: immutability checks
-	if err := checkImmutability(repo, opts, tagName); err != nil {
-		return nil, fmt.Errorf("immutability check failed: %w", err)
+	// step 3: resume detection + immutability. A prior cut for this exact tag may have
+	// been interrupted after the tag was created — unlike the step-7 branch-ref failure
+	// (rolled back per #249), a failure in steps 8–10 leaves the tag, commit, and a draft
+	// release in place. Detect that draft and resume into it instead of failing the
+	// immutability check.
+	var resumeRelease *gogithub.RepositoryRelease
+	if opts.ReleaseAPI != nil {
+		owner, repoName, parseErr := parseOwnerRepo(repo)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		resumeRelease, err = detectResume(context.Background(), opts, owner, repoName, tagName)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if resumeRelease == nil {
+		if err := checkImmutability(repo, opts, tagName); err != nil {
+			return nil, fmt.Errorf("immutability check failed: %w", err)
+		}
 	}
 
 	result := &CutResult{
@@ -251,6 +269,13 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 		Draft:     !opts.Publish,
 		Published: opts.Publish,
 		DryRun:    opts.DryRun,
+	}
+
+	// resume completes the interrupted cut: reuse the existing draft release, upload only
+	// the missing assets, and publish if requested. Mutations/commit/tag/branch are
+	// already on the remote and must not be repeated.
+	if resumeRelease != nil {
+		return executeResume(opts, repo, result, resumeRelease, tagName)
 	}
 
 	// step 4: apply file mutations (if configured)
@@ -427,6 +452,136 @@ func uploadAssets(ctx context.Context, svc ReleaseService, owner, repo string, r
 		uploaded = append(uploaded, name)
 	}
 	return uploaded, nil
+}
+
+// detectResume looks for a DRAFT release left behind by an interrupted cut for tagName,
+// which can be resumed. GitHub's "get release by tag" endpoint 404s on drafts, so we must
+// enumerate releases (ListReleases includes drafts for callers with push access) and match
+// by tag name. Returns the draft to resume into, or nil for a fresh cut — including when a
+// published release exists for the tag: published immutability is enforced by
+// checkImmutability, which runs on the non-resume path.
+func detectResume(ctx context.Context, opts *CutOptions, owner, repoName, tagName string) (*gogithub.RepositoryRelease, error) {
+	rel, err := findReleaseByTag(ctx, opts.ReleaseAPI, owner, repoName, tagName)
+	if err != nil {
+		// non-fatal: degrade to a fresh cut. The immutability check still guards the tag,
+		// so we don't silently bypass it — we just don't resume.
+		fmt.Fprintf(os.Stderr, "warning: could not list releases to check for a resumable draft: %v\n", err)
+		return nil, nil
+	}
+	if rel == nil || !rel.GetDraft() {
+		return nil, nil // no release, or a published release (handled by checkImmutability)
+	}
+	return rel, nil // draft release → resumable
+}
+
+// findReleaseByTag returns the release whose tag_name equals tagName, or nil if none is
+// found. It pages through ListReleases (newest first) rather than GetReleaseByTag because
+// the latter omits draft releases. Bounded to a sane number of pages.
+func findReleaseByTag(ctx context.Context, svc ReleaseService, owner, repo, tagName string) (*gogithub.RepositoryRelease, error) {
+	opts := &gogithub.ListOptions{PerPage: 100}
+	for page := 0; page < 10; page++ {
+		rels, resp, err := svc.ListReleases(ctx, owner, repo, opts)
+		if err != nil {
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
+			return nil, err
+		}
+		for _, r := range rels {
+			if r.GetTagName() == tagName {
+				if resp != nil {
+					_ = resp.Body.Close()
+				}
+				return r, nil
+			}
+		}
+		next := 0
+		if resp != nil {
+			next = resp.NextPage
+			_ = resp.Body.Close()
+		}
+		if next == 0 {
+			break
+		}
+		opts.Page = next
+	}
+	return nil, nil
+}
+
+// executeResume completes an interrupted cut whose draft release already exists. It
+// uploads only the assets not already attached and publishes if requested; it never
+// re-runs mutations or recreates the commit/tag/branch.
+func executeResume(opts *CutOptions, repo *git.Repository, result *CutResult, rel *gogithub.RepositoryRelease, tagName string) (*CutResult, error) {
+	result.ReleaseURL = rel.GetHTMLURL()
+	result.ReleaseID = rel.GetID()
+	result.Draft = true
+	result.Published = false
+
+	skip := existingAssetNames(rel)
+	toUpload := assetsToUpload(opts.Assets, skip)
+
+	if opts.DryRun {
+		fmt.Fprintf(os.Stderr, "dry-run: would resume interrupted cut for %s (reuse draft release id %d), upload %d missing asset(s)\n", tagName, result.ReleaseID, len(toUpload))
+		if opts.Publish {
+			fmt.Fprintln(os.Stderr, "dry-run: would then publish the release")
+		}
+		return result, nil
+	}
+
+	owner, repoName, err := parseOwnerRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+
+	fmt.Fprintf(os.Stderr, "note: resuming interrupted cut for %s — reusing draft release, %d asset(s) to upload\n", tagName, len(toUpload))
+
+	if len(toUpload) > 0 {
+		uploaded, uploadErr := uploadAssets(ctx, opts.ReleaseAPI, owner, repoName, result.ReleaseID, toUpload, opts.AssetLabels)
+		result.UploadedAssets = uploaded
+		if uploadErr != nil {
+			return result, fmt.Errorf("failed to upload release assets: %w", uploadErr)
+		}
+	}
+
+	if opts.Publish {
+		if err := markReleasePublished(ctx, opts.ReleaseAPI, owner, repoName, result.ReleaseID); err != nil {
+			return result, fmt.Errorf("failed to publish release: %w", err)
+		}
+		result.Draft = false
+		result.Published = true
+	}
+
+	return result, nil
+}
+
+// existingAssetNames returns the set of fully-uploaded asset names attached to rel. Only
+// assets in GitHub's "uploaded" state count as present: an asset left in a partial state
+// by an interrupted upload must be re-uploaded, not skipped, so resume never publishes a
+// release with a half-written asset.
+func existingAssetNames(rel *gogithub.RepositoryRelease) map[string]struct{} {
+	names := make(map[string]struct{}, len(rel.Assets))
+	for _, a := range rel.Assets {
+		if a.GetState() != "uploaded" {
+			continue
+		}
+		names[a.GetName()] = struct{}{}
+	}
+	return names
+}
+
+// assetsToUpload filters asset paths down to those whose upload name (base name) is not
+// already present in skip, making re-upload on a resumed cut idempotent.
+func assetsToUpload(assets []string, skip map[string]struct{}) []string {
+	out := make([]string, 0, len(assets))
+	for _, p := range assets {
+		if _, done := skip[filepath.Base(p)]; done {
+			fmt.Fprintf(os.Stderr, "note: asset %s already attached to the release, skipping\n", filepath.Base(p))
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // validateWorktree checks that the working tree is clean and on the expected branch.
@@ -607,7 +762,9 @@ func checkImmutability(repo *git.Repository, opts *CutOptions, tagName string) e
 		}
 	}
 
-	// check for published (non-draft) GitHub release
+	// check for a published (non-draft) GitHub release. GetReleaseByTag 404s on drafts, so
+	// a returned release is always a published conflict; resumable drafts are handled
+	// earlier by detectResume.
 	if opts.ReleaseAPI != nil {
 		repoName := GetRepositoryName(repo)
 		parts := strings.SplitN(repoName, "/", 2)
@@ -618,12 +775,8 @@ func checkImmutability(repo *git.Repository, opts *CutOptions, tagName string) e
 			if resp != nil {
 				_ = resp.Body.Close()
 			}
-			if err == nil && rel != nil {
-				if !rel.GetDraft() {
-					return fmt.Errorf("published release already exists for tag %s (id: %d)", tagName, rel.GetID())
-				}
-				// draft release exists — allowed (re-cut scenario)
-				fmt.Fprintf(os.Stderr, "note: existing draft release found for %s, will be superseded\n", tagName)
+			if err == nil && rel != nil && !rel.GetDraft() {
+				return fmt.Errorf("published release already exists for tag %s (id: %d)", tagName, rel.GetID())
 			}
 		}
 	}
@@ -758,11 +911,15 @@ func buildCommitMessage(plan *ReleasePlan) string {
 	return sb.String()
 }
 
-// createAnnotatedTagViaAPI creates an annotated tag via GitHub's Git Data API (auto-signed/verified)
+// createAnnotatedTagViaAPI creates an annotated tag via GitHub's Git Data API. NOTE:
+// unlike commits, annotated tag objects created via the API are NOT GPG-signed by
+// GitHub — the tag is unsigned and anchors its integrity through the verified commit
+// it points to.
 func createAnnotatedTagViaAPI(ctx context.Context, opts *CutOptions, tagName, commitSHA string, plan *ReleasePlan, owner, repoName string) error {
 	tagMessage := fmt.Sprintf("Release %s\n\n%s", tagName, plan.ChangelogPreview)
 
-	// omit tagger so GitHub auto-signs as the authenticated identity
+	// omit tagger so the tag records the authenticated identity (the tag object itself
+	// is not signed by GitHub — see the note on this function)
 	tag := gogithub.CreateTag{
 		Tag:     tagName,
 		Message: tagMessage,
