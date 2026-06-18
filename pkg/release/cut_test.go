@@ -58,6 +58,8 @@ type mockReleaseService struct {
 	createRefErr       error
 	updateRefResult    *gogithub.Reference
 	updateRefErr       error
+	deleteRefErr       error
+	deletedRefs        []string // captured for assertions
 
 	// asset operations
 	uploadAssetErr       error
@@ -158,6 +160,14 @@ func (m *mockReleaseService) CreateRef(_ context.Context, _, _ string, _ gogithu
 
 func (m *mockReleaseService) UpdateRef(_ context.Context, _, _, _ string, _ gogithub.UpdateRef) (*gogithub.Reference, *gogithub.Response, error) {
 	return m.updateRefResult, mockResp(200), m.updateRefErr
+}
+
+func (m *mockReleaseService) DeleteRef(_ context.Context, _, _, ref string) (*gogithub.Response, error) {
+	if m.deleteRefErr != nil {
+		return mockResp(500), m.deleteRefErr
+	}
+	m.deletedRefs = append(m.deletedRefs, ref)
+	return mockResp(204), nil
 }
 
 // helper to create a test repo with an initial commit and tag
@@ -558,6 +568,45 @@ func TestExecuteCutFullFlowViaAPI(t *testing.T) {
 	assert.True(t, result.Draft)
 	assert.Equal(t, int64(42), result.ReleaseID)
 	assert.Equal(t, "https://github.com/test/repo/releases/tag/v1.1.0", result.ReleaseURL)
+}
+
+// When the branch-ref update fails after the tag was created, the just-created tag must
+// be rolled back so a retry is not blocked by the immutability check.
+func TestExecuteCutBranchRefFailureRollsBackTag(t *testing.T) {
+	dir, mock := setupCutScenario(t)
+	mock.updateRefErr = fmt.Errorf("422 Update is not a fast forward")
+
+	opts := &CutOptions{
+		RepoPath: dir, Branch: "master", Remote: "origin",
+		CommitAuthor: "testbot", CommitEmail: "testbot@test.com",
+		Token: "test-token", ReleaseAPI: mock,
+	}
+
+	_, err := ExecuteCut(opts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to update branch ref")
+	assert.Equal(t, []string{"refs/tags/v1.1.0"}, mock.deletedRefs, "orphan tag must be rolled back")
+	assert.Contains(t, err.Error(), "rolled back tag v1.1.0")
+}
+
+// If the branch-ref update fails AND the tag rollback also fails, the error must name the
+// orphan tag and the manual recovery step explicitly.
+func TestExecuteCutBranchRefFailureRollbackFailsSurfacesRecovery(t *testing.T) {
+	dir, mock := setupCutScenario(t)
+	mock.updateRefErr = fmt.Errorf("422 Update is not a fast forward")
+	mock.deleteRefErr = fmt.Errorf("403 forbidden")
+
+	opts := &CutOptions{
+		RepoPath: dir, Branch: "master", Remote: "origin",
+		CommitAuthor: "testbot", CommitEmail: "testbot@test.com",
+		Token: "test-token", ReleaseAPI: mock,
+	}
+
+	_, err := ExecuteCut(opts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to update branch ref")
+	assert.Contains(t, err.Error(), "delete refs/tags/v1.1.0 before retrying",
+		"must name the orphan tag and the manual recovery step")
 }
 
 func TestExecuteCutRequiresTokenForNonDryRun(t *testing.T) {

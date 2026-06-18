@@ -99,6 +99,7 @@ type ReleaseService interface {
 	CreateTag(ctx context.Context, owner, repo string, tag gogithub.CreateTag) (*gogithub.Tag, *gogithub.Response, error)
 	CreateRef(ctx context.Context, owner, repo string, ref gogithub.CreateRef) (*gogithub.Reference, *gogithub.Response, error)
 	UpdateRef(ctx context.Context, owner, repo, ref string, updateRef gogithub.UpdateRef) (*gogithub.Reference, *gogithub.Response, error)
+	DeleteRef(ctx context.Context, owner, repo, ref string) (*gogithub.Response, error)
 }
 
 type githubReleaseService struct {
@@ -159,6 +160,10 @@ func (s *githubReleaseService) CreateRef(ctx context.Context, owner, repo string
 
 func (s *githubReleaseService) UpdateRef(ctx context.Context, owner, repo, ref string, updateRef gogithub.UpdateRef) (*gogithub.Reference, *gogithub.Response, error) {
 	return s.client.Git.UpdateRef(ctx, owner, repo, ref, updateRef)
+}
+
+func (s *githubReleaseService) DeleteRef(ctx context.Context, owner, repo, ref string) (*gogithub.Response, error) {
+	return s.client.Git.DeleteRef(ctx, owner, repo, ref)
 }
 
 func newGitHubReleaseService(token string) (ReleaseService, error) {
@@ -307,9 +312,16 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 		return nil, fmt.Errorf("failed to create tag %s: %w", tagName, err)
 	}
 
-	// step 7: update branch ref to point at new commit
+	// step 7: update branch ref to point at new commit. The tag was created in step 6,
+	// so a failure here (e.g. a concurrent push to the branch turning the fast-forward
+	// into a 422) would otherwise leave refs/tags/<version> orphaned on the remote — a
+	// retry then trips checkImmutability ("tag already exists"). Roll the tag back so the
+	// next run is clean; if the rollback itself fails, surface the manual recovery step.
 	if err := updateBranchRef(ctx, opts, owner, repoName, opts.Branch, commitSHA); err != nil {
-		return nil, fmt.Errorf("failed to update branch ref: %w", err)
+		if delErr := deleteTagRef(ctx, opts, owner, repoName, tagName); delErr != nil {
+			return nil, fmt.Errorf("failed to update branch ref: %w; release tag %s could not be rolled back (%v): delete refs/tags/%s before retrying", err, tagName, delErr, tagName)
+		}
+		return nil, fmt.Errorf("failed to update branch ref: %w (rolled back tag %s)", err, tagName)
 	}
 
 	// step 8: always create the release as a draft first, so assets are uploaded
@@ -796,6 +808,21 @@ func updateBranchRef(ctx context.Context, opts *CutOptions, owner, repoName, bra
 	}
 	if err != nil {
 		return fmt.Errorf("failed to update branch ref: %w", err)
+	}
+
+	return nil
+}
+
+// deleteTagRef removes refs/tags/<tagName> from the remote. It is used to roll back a
+// just-created tag when a later step of the cut fails, so a retry is not blocked by the
+// immutability check.
+func deleteTagRef(ctx context.Context, opts *CutOptions, owner, repoName, tagName string) error {
+	resp, err := opts.ReleaseAPI.DeleteRef(ctx, owner, repoName, "refs/tags/"+tagName)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil {
+		return fmt.Errorf("failed to delete tag ref refs/tags/%s: %w", tagName, err)
 	}
 
 	return nil
