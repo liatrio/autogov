@@ -60,7 +60,10 @@ jobs:
       actions: read
       id-token: write # federate the octo-sts release token
     env:
-      VSA_FOLDER: ./vsa
+      # write build artifacts OUTSIDE the repo tree so release cut's clean-tree
+      # check (go-git Status().IsClean(), which counts untracked files) passes —
+      # plan.json + the downloaded VSA must not dirty the worktree.
+      VSA_FOLDER: ${{ runner.temp }}/vsa
     steps:
       # Full history is required: the released `autogov release plan` CLI command
       # discovers the latest tag and walks commits with local go-git (its GitHub
@@ -91,12 +94,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: autogov release plan -o json > plan.json
+        run: autogov release plan -o json > "$RUNNER_TEMP/plan.json"
       - name: Build binary
         # next_version from the plan already carries the `v` prefix (Version.String()),
         # so it is used verbatim — do not add another `v`.
         run: |
-          VERSION="$(jq -r .next_version plan.json)" task build
+          VERSION="$(jq -r .next_version "$RUNNER_TEMP/plan.json")" task build
         env:
           COMMIT: ${{ github.sha }}
           DATE: ${{ github.event.head_commit.timestamp }}
@@ -114,15 +117,12 @@ jobs:
             exit 1
           fi
           echo "path=$vsa" >> "$GITHUB_OUTPUT"
-      # release cut --publish creates a chore(release) commit and fast-forwards
-      # refs/heads/main. main is governed by the "main protection" ruleset
-      # (required PRs and status checks); the default GITHUB_TOKEN
-      # (github-actions[bot]) is not a bypass actor, so the ref update is rejected.
-      # PREREQUISITES for this job to succeed (one-time governance setup):
-      #   1. add `autogov` to the release-ops repos list in
-      #      liatrio/.github/.github/chainguard/release-ops.sts.yaml
-      #   2. add the octo-sts app to autogov's "main protection" ruleset bypass
-      #      (it is already a bypass actor on the policy-library repositories)
+      # release cut --publish creates a chore(release) commit (with [skip ci], so it
+      # does not re-trigger this workflow) and fast-forwards refs/heads/main. main is
+      # governed by the "main protection" ruleset; the octo-sts release-ops token
+      # below is a bypass actor (governance in place: autogov is in
+      # release-ops.sts.yaml and octo-sts is on the ruleset bypass), so the push is
+      # accepted.
       - uses: octo-sts/action@f603d3be9d8dd9871a265776e625a27b00effe05 # v1.1.1
         id: octo-sts-release
         with:
@@ -134,7 +134,7 @@ jobs:
           GITHUB_TOKEN: ${{ steps.octo-sts-release.outputs.token }}
         run: |
           autogov release cut \
-            --plan-file plan.json \
+            --plan-file "$RUNNER_TEMP/plan.json" \
             --asset bin/autogov \
             --asset "${{ steps.vsa.outputs.path }}" \
             --publish
