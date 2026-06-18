@@ -17,7 +17,7 @@ func TestLoadConfig(t *testing.T) {
 		cfg, err := LoadConfig()
 		assert.NoError(t, err)
 		assert.Equal(t, "liatrio", cfg.PolicyRepo.Owner)
-		assert.Equal(t, "demo-gh-autogov-policy-library", cfg.PolicyRepo.Name)
+		assert.Equal(t, "liatrio-rego-policy-library", cfg.PolicyRepo.Name)
 		assert.Equal(t, "main", cfg.PolicyRepo.Ref)
 		assert.Equal(t, "schemas/", cfg.SchemasPath)
 	})
