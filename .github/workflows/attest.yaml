@@ -9,7 +9,6 @@ on:
       - CONTRIBUTING.md
       - renovate.json
       - docs/**
-      - .github/dependabot.yml
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
