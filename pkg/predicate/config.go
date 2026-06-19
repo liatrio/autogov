@@ -17,6 +17,9 @@ var embeddedMetadataSchema string
 //go:embed schemas/dependency-vulnerability-schema.json
 var embeddedDepscanSchema string
 
+//go:embed schemas/test-result-schema.json
+var embeddedTestResultSchema string
+
 // PolicyRepo represents policy repository configuration.
 type PolicyRepo struct {
 	Owner string
@@ -50,6 +53,8 @@ func getEmbeddedSchema(schemaName string) string {
 		return embeddedMetadataSchema
 	case "dependency-vulnerability-schema.json":
 		return embeddedDepscanSchema
+	case "test-result-schema.json":
+		return embeddedTestResultSchema
 	default:
 		return ""
 	}
@@ -144,4 +149,9 @@ func ValidateMetadata(data []byte) error {
 // ValidateDepscan validates dependency scan attestation data against its schema.
 func ValidateDepscan(data []byte) error {
 	return ValidateJSON(data, "dependency-vulnerability-schema.json")
+}
+
+// ValidateTestResult validates test-result attestation data against its schema.
+func ValidateTestResult(data []byte) error {
+	return ValidateJSON(data, "test-result-schema.json")
 }
