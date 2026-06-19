@@ -11,7 +11,7 @@ import (
 const (
 	testImageRef          = "ghcr.io/liatrio/test-image:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	testImageRef2         = "ghcr.io/test/image:v1.0.0@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-	testPolicyURI         = "https://github.com/liatrio/liatrio-rego-policy-library/policies/test-policy"
+	testPolicyURI         = "https://github.com/liatrio/autogov-policy-library/policies/test-policy"
 	testExamplePolicyURI  = "https://example.com/policy"
 	testGenerateVSAError  = "GenerateVSAWithOptions failed: %v"
 	testGenerateVSAError2 = "GenerateVSA failed: %v"

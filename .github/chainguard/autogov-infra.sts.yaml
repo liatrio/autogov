@@ -1,4 +1,4 @@
 issuer: https://token.actions.githubusercontent.com
-subject_pattern: "repo:liatrio/liatrio-gh-autogov-workflows:*"
+subject_pattern: "repo:liatrio/autogov-workflows:*"
 permissions:
   contents: read

@@ -35,7 +35,7 @@ func LoadConfig() (*Config, error) {
 	cfg := &Config{
 		PolicyRepo: PolicyRepo{
 			Owner: GetEnvOrDefault(EnvPolicyRepoOwner, "liatrio"),
-			Name:  GetEnvOrDefault(EnvPolicyRepoName, "liatrio-rego-policy-library"), // canonical policy library; update on repo rename
+			Name:  GetEnvOrDefault(EnvPolicyRepoName, "autogov-policy-library"), // canonical policy library; update on repo rename
 			Ref:   GetEnvOrDefault(EnvPolicyVersion, "main"),
 		},
 		SchemasPath: GetEnvOrDefault(EnvSchemasPath, "schemas/"),
