@@ -11,18 +11,18 @@ import (
 const (
 	// cert identity patterns — prefer immutable refs (SHAs or tags) per SLSA requirements.
 	// See: https://slsa.dev/spec/v1.2/requirements
-	ExampleWorkflowSHARef    = "https://github.com/OWNER/REPO/.github/workflows/rw-hp-attest-image.yaml@f1a9b0be784bc27ba9076d76b75025d77ba18919"
-	ExampleWorkflowTagRef    = "https://github.com/OWNER/REPO/.github/workflows/rw-hp-attest-image.yaml@refs/tags/v1.0.0"
-	ExampleWorkflowCommitRef = "https://github.com/OWNER/REPO/.github/workflows/rw-hp-attest-image.yaml@refs/pull/123/merge"
+	ExampleWorkflowSHARef    = "https://github.com/OWNER/REPO/.github/workflows/rw-attest-image.yaml@f1a9b0be784bc27ba9076d76b75025d77ba18919"
+	ExampleWorkflowTagRef    = "https://github.com/OWNER/REPO/.github/workflows/rw-attest-image.yaml@refs/tags/v1.0.0"
+	ExampleWorkflowCommitRef = "https://github.com/OWNER/REPO/.github/workflows/rw-attest-image.yaml@refs/pull/123/merge"
 	// ExampleWorkflowMainRef is a mutable branch ref; avoid in production cert-identity lists.
-	ExampleWorkflowMainRef = "https://github.com/OWNER/REPO/.github/workflows/rw-hp-attest-image.yaml@refs/heads/main"
+	ExampleWorkflowMainRef = "https://github.com/OWNER/REPO/.github/workflows/rw-attest-image.yaml@refs/heads/main"
 )
 
 // example container/blob options
 var (
 	ExampleContainerOptions = Options{
 		SourceRef:    "refs/tags/v1.0.0",
-		CertIdentity: "https://github.com/myorg/myrepo/.github/workflows/rw-hp-attest-image.yaml@f1a9b0be784bc27ba9076d76b75025d77ba18919",
+		CertIdentity: "https://github.com/myorg/myrepo/.github/workflows/rw-attest-image.yaml@f1a9b0be784bc27ba9076d76b75025d77ba18919",
 		CertIssuer:   DefaultCertIssuer,
 		Quiet:        false,
 	}
@@ -30,7 +30,7 @@ var (
 	ExampleBlobOptions = Options{
 		BlobPath:     "/path/to/my/file.txt",
 		SourceRef:    "refs/tags/v1.0.0",
-		CertIdentity: "https://github.com/myorg/myrepo/.github/workflows/rw-hp-attest-blob.yaml@f1a9b0be784bc27ba9076d76b75025d77ba18919",
+		CertIdentity: "https://github.com/myorg/myrepo/.github/workflows/rw-attest-blob.yaml@f1a9b0be784bc27ba9076d76b75025d77ba18919",
 		CertIssuer:   DefaultCertIssuer,
 		Quiet:        false,
 	}
