@@ -18,6 +18,12 @@ const (
 
 	// DepscanPredicateTypeURI is the in-toto vulnerability predicate type.
 	DepscanPredicateTypeURI = "https://in-toto.io/attestation/vulns/v0.2"
+
+	// CodeScanPredicateTypeURI is the custom autogov code-scan predicate type.
+	// No in-toto standard exists for SARIF/code-scanning results, so this mirrors
+	// the metadata predicate precedent. Kept at v0.1 until the SARIF mapping soaks
+	// against real scanner output — the URI is permanent once published.
+	CodeScanPredicateTypeURI = "https://autogov.dev/attestation/code-scan/v0.1"
 )
 
 // Metadata represents the predicate portion of a metadata attestation.
