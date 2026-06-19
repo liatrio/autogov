@@ -20,7 +20,7 @@ The generated VSA includes comprehensive metadata about the verification and pol
       "result": "PASSED",
       "violations": [],
       "evaluation_time": "2024-01-20T15:30:00Z",
-      "policy_bundle": "ghcr.io/liatrio/liatrio-rego-policy-library:latest",
+      "policy_bundle": "ghcr.io/liatrio/autogov-policy-library:latest",
       "opa_version": "v1.8.0",
       "governance_rules": ["governance.allow", "governance.violations"],
       "details": {
@@ -65,7 +65,7 @@ The tool generates SLSA v1.2 compliant Verification Summary Attestations (VSAs) 
 2. Verify signatures using sigstore-go
 3. Evaluate OPA/Rego policies
 4. Generate comprehensive VSA
-5. Store VSA in OCI registry
+5. Write VSA to output file
 ```
 
 **Enhanced VSA Features:**
