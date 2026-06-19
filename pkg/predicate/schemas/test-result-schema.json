@@ -35,7 +35,51 @@
       "type": "object",
       "properties": {
         "result": {
-          "type": "string"
+          "type": "string",
+          "enum": ["PASSED", "WARNED", "FAILED"]
+        },
+        "configuration": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "uri": {
+                "type": "string"
+              },
+              "digest": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "content": {
+                "type": "string"
+              },
+              "downloadLocation": {
+                "type": "string"
+              },
+              "mediaType": {
+                "type": "string"
+              },
+              "annotations": {
+                "type": "object"
+              }
+            },
+            "anyOf": [
+              {
+                "required": ["uri"]
+              },
+              {
+                "required": ["digest"]
+              },
+              {
+                "required": ["content"]
+              }
+            ]
+          }
         },
         "url": {
           "type": "string"
@@ -59,7 +103,7 @@
           }
         }
       },
-      "required": ["result", "passedTests", "warnedTests", "failedTests"]
+      "required": ["result", "configuration"]
     }
   },
   "required": ["_type", "subject", "predicateType", "predicate"]

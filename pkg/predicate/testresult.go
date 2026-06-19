@@ -13,8 +13,21 @@ const TestResultPredicateTypeURI = "https://in-toto.io/attestation/test-result/v
 // Result values for the in-toto test-result predicate.
 const (
 	TestResultPassed = "PASSED"
+	TestResultWarned = "WARNED"
 	TestResultFailed = "FAILED"
 )
+
+// ResourceDescriptor is an in-toto v1 ResourceDescriptor. Per spec a descriptor
+// must specify at least one of uri, digest, or content.
+type ResourceDescriptor struct {
+	Name             string            `json:"name,omitempty"`
+	URI              string            `json:"uri,omitempty"`
+	Digest           map[string]string `json:"digest,omitempty"`
+	Content          string            `json:"content,omitempty"`
+	DownloadLocation string            `json:"downloadLocation,omitempty"`
+	MediaType        string            `json:"mediaType,omitempty"`
+	Annotations      map[string]any    `json:"annotations,omitempty"`
+}
 
 // TestResult represents the predicate portion of an in-toto test-result
 // attestation (https://in-toto.io/attestation/test-result/v0.1).
@@ -24,9 +37,12 @@ type TestResult struct {
 	SubjectPath string       `json:"-"`
 	Digest      string       `json:"-"`
 
-	// Result is the overall outcome: PASSED when no failed/errored tests, else FAILED.
+	// Result is one of PASSED, WARNED, or FAILED.
 	Result string `json:"result"`
-	// URL optionally links to the full test report.
+	// Configuration references the configuration used for the test run. Required
+	// by the spec; may be an empty list when no configuration is referenced.
+	Configuration []ResourceDescriptor `json:"configuration"`
+	// URL optionally links to the test run (e.g. logs).
 	URL string `json:"url,omitempty"`
 	// PassedTests, WarnedTests, FailedTests hold test identifiers by outcome.
 	// Skipped tests map to warnedTests. Never null (empty arrays preferred).
@@ -43,6 +59,7 @@ type TestResultOptions struct {
 	Digest      string
 	ResultsPath string
 	URL         string
+	ConfigURI   string
 }
 
 // junitTestSuites models the JUnit <testsuites> root.
@@ -106,14 +123,19 @@ func NewTestResult(opts TestResultOptions) (*TestResult, error) {
 	}
 
 	t := &TestResult{
-		Type:        opts.Type,
-		SubjectName: opts.SubjectName,
-		SubjectPath: opts.SubjectPath,
-		Digest:      opts.Digest,
-		URL:         opts.URL,
-		PassedTests: []string{},
-		WarnedTests: []string{},
-		FailedTests: []string{},
+		Type:          opts.Type,
+		SubjectName:   opts.SubjectName,
+		SubjectPath:   opts.SubjectPath,
+		Digest:        opts.Digest,
+		URL:           opts.URL,
+		Configuration: []ResourceDescriptor{},
+		PassedTests:   []string{},
+		WarnedTests:   []string{},
+		FailedTests:   []string{},
+	}
+
+	if opts.ConfigURI != "" {
+		t.Configuration = append(t.Configuration, ResourceDescriptor{URI: opts.ConfigURI})
 	}
 
 	for _, s := range suites {
@@ -129,9 +151,12 @@ func NewTestResult(opts TestResultOptions) (*TestResult, error) {
 		}
 	}
 
-	if len(t.FailedTests) > 0 {
+	switch {
+	case len(t.FailedTests) > 0:
 		t.Result = TestResultFailed
-	} else {
+	case len(t.WarnedTests) > 0:
+		t.Result = TestResultWarned
+	default:
 		t.Result = TestResultPassed
 	}
 

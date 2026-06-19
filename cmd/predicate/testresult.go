@@ -34,6 +34,7 @@ var (
 	testResultOutput        string
 	testResultType          string
 	testResultURL           string
+	testResultConfigURI     string
 )
 
 func init() {
@@ -45,6 +46,7 @@ func init() {
 	flags.StringVar(&testResultOutput, "output", "", "Output file path (defaults to stdout)")
 	flags.StringVar(&testResultType, "type", "image", "Type of artifact (image or blob)")
 	flags.StringVar(&testResultURL, "url", "", "Optional URL linking to the full test report")
+	flags.StringVar(&testResultConfigURI, "config-uri", "", "Optional URI of the test configuration (populates the required in-toto 'configuration' field)")
 	cobra.CheckErr(testResultCmd.MarkFlagRequired("results-path"))
 }
 
@@ -56,6 +58,7 @@ func runTestResult(_ *cobra.Command, _ []string) error {
 	opts.SubjectPath = testResultSubjectPath
 	opts.Digest = testResultSubjectDigest
 	opts.URL = testResultURL
+	opts.ConfigURI = testResultConfigURI
 
 	switch testResultType {
 	case "image":
