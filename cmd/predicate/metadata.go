@@ -33,7 +33,7 @@ func init() {
 	flags.StringVar(&metadataSubjectDigest, "subject-digest", "", "SHA256 digest of the subject (required for image type)")
 	flags.StringVar(&metadataOutput, "output", "", "Output file path (defaults to stdout)")
 	flags.StringVar(&metadataType, "type", "image", "Type of artifact (image or blob)")
-	flags.StringVar(&metadataPolicyRef, "policy-ref", "", "Policy reference URL (defaults to demo policy library)")
+	flags.StringVar(&metadataPolicyRef, "policy-ref", "", "Policy reference URL (defaults to autogov-policy-library)")
 }
 
 // getWorkflowPermissions returns permissions from WORKFLOW_PERMISSIONS env var or defaults.

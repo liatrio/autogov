@@ -34,7 +34,7 @@ A unified CLI for attestation verification and release management. Supports [cos
 
 ## Requirements
 
-- Go 1.25 or higher
+- Go 1.26 or higher
 - GitHub personal access token with read access to packages
 - Access to the GitHub Container Registry (ghcr.io)
 - Docker login to ghcr.io (`docker login ghcr.io`) for container image verification
@@ -54,7 +54,7 @@ A unified CLI for attestation verification and release management. Supports [cos
 - **Configuration Mutations**: Update version strings across JSON, YAML, and TOML files during releases
 - **Production Ready**: Comprehensive error handling, caching, and monitoring support
 
-This tool verifies GitHub Artifact Attestations using the sigstore-go v1.1.4 API and supports attestations in the Sigstore bundle format used by [GitHub Artifact Attestations, npm Provenance, Homebrew Provenance, etc](https://blog.sigstore.dev/cosign-verify-bundles/).
+This tool verifies GitHub Artifact Attestations using the sigstore-go v1.2.1 API and supports attestations in the Sigstore bundle format used by [GitHub Artifact Attestations, npm Provenance, Homebrew Provenance, etc](https://blog.sigstore.dev/cosign-verify-bundles/).
 
 ## Verification Process
 
@@ -123,8 +123,10 @@ go install github.com/liatrio/autogov@latest
 
 ### Online Verification
 
+`verify` is a parent command with four subcommands: `attestation` (GitHub artifact attestations), `git` (gitsign commit signatures), `source` (source provenance), and `policy` (repository policy enforcement). Artifact verification uses the `attestation` subcommand:
+
 ```bash
-autogov verify --repo <owner/repo> [options]
+autogov verify attestation --repo <owner/repo> [options]
 ```
 
 #### Required Flags
@@ -254,7 +256,7 @@ The `auto` mode examines the attestation certificate issuer to determine the app
 
 The tool supports validating certificate identities against a source of truth list:
 
-- `--cert-identity-list`: URL to the certificate identity list for validation. If provided, validates the cert-identity against this source (optional). Example: `https://raw.githubusercontent.com/liatrio/liatrio-gh-autogov-workflows/refs/heads/main/cert-identities.json`
+- `--cert-identity-list`: URL to the certificate identity list for validation. If provided, validates the cert-identity against this source (optional). Example: `https://raw.githubusercontent.com/liatrio/autogov-workflows/refs/heads/main/cert-identities.json`
 - `--no-cache`: Disable caching of the certificate identity list
 
 #### VSA and Policy Flags
@@ -282,7 +284,7 @@ The certificate identity source of truth is a JSON file with the following struc
       "sha": "d709edc9cc501e27f390b7818c9262075ee9e0da",
       "status": "latest",
       "identities": [
-        "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da"
+        "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da"
       ],
       "added": "2025-03-14"
     },
@@ -291,7 +293,7 @@ The certificate identity source of truth is a JSON file with the following struc
       "sha": "a8d9bc3a1e5601d657f87f089a234717899712b1",
       "status": "approved",
       "identities": [
-        "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-attest-blob.yaml@a8d9bc3a1e5601d657f87f089a234717899712b1"
+        "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@a8d9bc3a1e5601d657f87f089a234717899712b1"
       ],
       "added": "2025-02-22",
       "expires": "2026-02-22"
@@ -301,7 +303,7 @@ The certificate identity source of truth is a JSON file with the following struc
       "sha": "3f1e90cc8b4fd742c2cd3e4d81d6079c63fbaf67",
       "status": "revoked",
       "identities": [
-        "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@3f1e90cc8b4fd742c2cd3e4d81d6079c63fbaf67"
+        "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@3f1e90cc8b4fd742c2cd3e4d81d6079c63fbaf67"
       ],
       "added": "2024-11-29",
       "revoked": "2025-01-30",
@@ -456,8 +458,8 @@ Verify a container image:
 
 ```bash
 export GITHUB_AUTH_TOKEN=your_token
-autogov verify \
-  --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
+autogov verify attestation \
+  --cert-identity "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
   --repo owner/repo \
   --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
   --source-ref refs/heads/main
@@ -467,9 +469,9 @@ Verify a blob file:
 
 ```bash
 export GITHUB_AUTH_TOKEN=your_token
-autogov verify \
-  --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-blob.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
-  --repo owner/repo
+autogov verify attestation \
+  --cert-identity "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
+  --repo owner/repo \
   --blob-path path/to/your/file \
   --source-ref refs/heads/main
 ```
@@ -478,34 +480,34 @@ Using environment variables:
 
 ```bash
 export GITHUB_AUTH_TOKEN=your_token
-export CERT_IDENTITY="https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da"
+export CERT_IDENTITY="https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da"
 export CERT_ISSUER=https://token.actions.githubusercontent.com
-autogov verify --repo owner/repo -d "sha256:702bea33d240c2f0a1d87fe649a49b52f533bde2005b3c1bc0be7859dd5e4226"
+autogov verify attestation --repo owner/repo -d "sha256:702bea33d240c2f0a1d87fe649a49b52f533bde2005b3c1bc0be7859dd5e4226"
 ```
 
 Verify with certificate identity validation:
 
 ```bash
 export GITHUB_AUTH_TOKEN=your_token
-autogov verify \
-  --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
+autogov verify attestation \
+  --cert-identity "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
   --repo owner/repo \
   --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
-  --cert-identity-list "https://raw.githubusercontent.com/liatrio/liatrio-gh-autogov-workflows/refs/heads/main/cert-identities.json"
+  --cert-identity-list "https://raw.githubusercontent.com/liatrio/autogov-workflows/refs/heads/main/cert-identities.json"
 ```
 
 Generate enhanced VSA with policy evaluation:
 
 ```bash
 export GITHUB_AUTH_TOKEN=your_token
-autogov verify \
-  --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
+autogov verify attestation \
+  --cert-identity "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
   --repo owner/repo \
   --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
   --generate-vsa \
   --vsa-output ./verification-summary.json \
-  --policy-uri "https://github.com/liatrio/liatrio-rego-policy-library" \
-  --policy-bundle-path "oci://ghcr.io/liatrio/liatrio-rego-policy-library:latest"
+  --policy-uri "https://github.com/liatrio/autogov-policy-library" \
+  --policy-bundle-path "oci://ghcr.io/liatrio/autogov-policy-library:latest"
 ```
 
 Verify a cosign-signed artifact using public Sigstore:
@@ -542,13 +544,13 @@ cat > thresholds.json << 'EOF'
 EOF
 
 export GITHUB_AUTH_TOKEN=your_token
-autogov verify \
-  --cert-identity "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
+autogov verify attestation \
+  --cert-identity "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
   --repo owner/repo \
   --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
   --generate-vsa \
   --vsa-output ./verification-summary.json \
-  --policy-uri "https://github.com/liatrio/liatrio-rego-policy-library" \
+  --policy-uri "https://github.com/liatrio/autogov-policy-library" \
   --policy-bundle-path bundle.tar.gz \
   --policy-data-path thresholds.json \
   --fail-on-policy-error
@@ -569,7 +571,7 @@ The tool provides detailed output about the verification process, including huma
 Starting verification process...
 ---
 Certificate identity validation enabled
-Using identity source: https://raw.githubusercontent.com/liatrio/liatrio-gh-autogov-workflows/main/cert-identities.json
+Using identity source: https://raw.githubusercontent.com/liatrio/autogov-workflows/main/cert-identities.json
 ---
 ✓ Certificate identity validated against source of truth
 Verifying attestation 1 (Vulnerability Scan: https://in-toto.io/attestation/vulns/v0.2)...
@@ -663,7 +665,7 @@ If you encounter any other issues, please [open an issue](https://github.com/lia
 
 ### Prerequisites
 
-- Go 1.25 or higher
+- Go 1.26 or higher
 - GitHub CLI (`gh`) for trusted root fetching
 - Docker for container registry access
 - golangci-lint for code quality checks
@@ -730,7 +732,7 @@ go test -bench=. ./...
 go build -o bin/autogov-debug .
 
 # run with delve
-dlv debug . -- verify --repo "owner/repo" -d "sha256:..."
+dlv debug . -- verify attestation --repo "owner/repo" -d "sha256:..."
 
 # run tests with race detector
 go test -race ./...

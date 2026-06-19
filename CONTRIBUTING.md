@@ -6,7 +6,7 @@ Thank you for your interest in contributing to AutoGov! This document provides g
 
 ### Prerequisites
 
-- Go 1.25 or higher
+- Go 1.26 or higher
 - GitHub CLI (`gh`) for trusted root fetching
 - Docker for container registry access
 - golangci-lint for code quality checks

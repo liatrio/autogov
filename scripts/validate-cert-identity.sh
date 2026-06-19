@@ -12,13 +12,13 @@ if [ ! -f cert-identities.json ]; then
     {
       "name": "HP Attest Image",
       "version": "1.0.0",
-      "identity": "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-hp-attest-image.yaml@refs/heads/main",
+      "identity": "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-image.yaml@refs/heads/main",
       "added": "2024-10-22"
     },
     {
       "name": "LP Attest Blob",
       "version": "1.0.0",
-      "identity": "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-attest-blob.yaml@refs/heads/main",
+      "identity": "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@refs/heads/main",
       "added": "2024-10-22"
     }
   ],
@@ -26,21 +26,21 @@ if [ ! -f cert-identities.json ]; then
     {
       "name": "LP Attest Blob main",
       "version": "0.9.0",
-      "identity": "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-attest-blob.yaml@refs/heads/main",
+      "identity": "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@refs/heads/main",
       "added": "2024-10-22",
       "expires": "2026-10-22"
     },
     {
       "name": "LP Attest Blob main (non-normalized)",
       "version": "0.9.0",
-      "identity": "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-attest-blob.yaml@main",
+      "identity": "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@main",
       "added": "2024-10-22",
       "expires": "2026-10-22"
     },
     {
       "name": "LP Attest Blob commit SHA",
       "version": "0.8.0",
-      "identity": "https://github.com/liatrio/liatrio-gh-autogov-workflows/.github/workflows/rw-lp-attest-blob.yaml@6177b4481c00308b3839969c3eca88c96a91775f",
+      "identity": "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@6177b4481c00308b3839969c3eca88c96a91775f",
       "added": "2024-10-22",
       "expires": "2026-10-22"
     }
