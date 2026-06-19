@@ -10,7 +10,20 @@ import (
 var testResultCmd = &cobra.Command{
 	Use:   "test-result",
 	Short: "Generate test-result attestation predicate from JUnit XML",
-	RunE:  runTestResult,
+	Long: `Generate an in-toto test-result attestation predicate from a JUnit XML report.
+
+JUnit XML is the common interchange format emitted by most test runners, so this
+is framework-agnostic — point --results-path at the report your tool produces:
+
+  pytest:   pytest --junitxml=report.xml
+  go:       go test -v ./... | go-junit-report > report.xml
+  jest:     jest --reporters=default --reporters=jest-junit
+  maven:    target/surefire-reports/*.xml (or aggregate them)
+  gradle:   build/test-results/test/*.xml
+
+Test cases are classified into passedTests, warnedTests (skipped), and failedTests
+(failure or error); result is FAILED when any test failed or errored, else PASSED.`,
+	RunE: runTestResult,
 }
 
 var (
@@ -25,7 +38,7 @@ var (
 
 func init() {
 	flags := testResultCmd.Flags()
-	flags.StringVar(&testResultResultsPath, "results-path", "", "Path to JUnit XML test report")
+	flags.StringVar(&testResultResultsPath, "results-path", "", "Path to a JUnit XML test report (from pytest --junitxml, go-junit-report, jest-junit, surefire, etc.)")
 	flags.StringVar(&testResultSubjectName, "subject-name", "", "Name of the subject being tested (required for image type)")
 	flags.StringVar(&testResultSubjectPath, "subject-path", "", "Path to the subject file (required for blob type)")
 	flags.StringVar(&testResultSubjectDigest, "subject-digest", "", "Digest of the subject (required for image type, auto-calculated for blobs)")
