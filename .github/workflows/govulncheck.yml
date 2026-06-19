@@ -5,14 +5,12 @@ on:
     branches: [main]
     paths-ignore:
       - '*.md'
-      - catalog-info.yaml
       - renovate.json
       - docs/**
   pull_request:
     branches: [main]
     paths-ignore:
       - '*.md'
-      - catalog-info.yaml
       - renovate.json
       - docs/**
   schedule:

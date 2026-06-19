@@ -7,7 +7,6 @@ on:
     paths-ignore:
       - README.md
       - CONTRIBUTING.md
-      - catalog-info.yaml
       - renovate.json
       - docs/**
       - .github/dependabot.yml
