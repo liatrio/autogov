@@ -229,7 +229,7 @@ func NewSourceReview(ctx context.Context, svc ReviewService, opts SourceReviewOp
 	// and silently fail the self-approval exclusion (a real reviewer's id never
 	// equals 0), so a solo author could otherwise clear the gate; an empty head SHA
 	// would make every approval look fresh. Fail closed as incompleteness instead.
-	if selected.GetUser() == nil || prHeadSHA == "" {
+	if selected.GetUser() == nil || prAuthorID == 0 || prHeadSHA == "" {
 		c.ReviewToolingComplete = false
 		return c, nil
 	}
