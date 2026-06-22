@@ -97,6 +97,16 @@ const (
 	// Spec: https://github.com/liatrio/autogov (custom predicate type)
 	PredicateTypeAutogovCodeScan = "https://autogov.dev/attestation/code-scan/v0.1"
 
+	// PredicateTypeAutogovSourceReview represents AutoGov-specific source-review attestation.
+	// This custom predicate type records the human PR-review/approval evidence for the
+	// source revision that produced an artifact (which PR merged it, who approved, how
+	// many distinct approvals, whether self-approval was excluded, whether changes were
+	// requested) — the change-management/two-person-review evidence for SLSA's source
+	// track. No in-toto/SLSA standard exists for source review, so this mirrors the
+	// metadata/code-scan precedent.
+	// Spec: https://github.com/liatrio/autogov (custom predicate type)
+	PredicateTypeAutogovSourceReview = "https://autogov.dev/attestation/source-review/v0.1"
+
 	// PredicateTypeSCAI represents SCAI (Software Supply Chain Attribute Integrity) report.
 	// This predicate type provides evidence-based assertions about software artifact and
 	// supply chain attributes or behavior.
@@ -223,6 +233,12 @@ var PredicateTypeRegistry = map[string]PredicateTypeInfo{
 		URI:         PredicateTypeAutogovCodeScan,
 		ShortName:   "AutoGov Code Scan",
 		Description: "AutoGov custom code-scan attestation summarizing static analysis (SARIF) results by level and security-severity",
+		Spec:        "https://github.com/liatrio/autogov",
+	},
+	PredicateTypeAutogovSourceReview: {
+		URI:         PredicateTypeAutogovSourceReview,
+		ShortName:   "AutoGov Source Review",
+		Description: "AutoGov custom source-review attestation recording PR-approval evidence (approvers, distinct approvals, changes-requested) for the source revision",
 		Spec:        "https://github.com/liatrio/autogov",
 	},
 	PredicateTypeSCAI: {

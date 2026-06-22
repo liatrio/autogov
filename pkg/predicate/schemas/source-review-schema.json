@@ -1,0 +1,154 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "_type": {
+      "type": "string",
+      "const": "https://in-toto.io/Statement/v1"
+    },
+    "subject": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "object",
+            "properties": {
+              "sha256": {
+                "type": "string"
+              }
+            },
+            "required": ["sha256"]
+          }
+        },
+        "required": ["name", "digest"]
+      }
+    },
+    "predicateType": {
+      "type": "string",
+      "const": "https://autogov.dev/attestation/source-review/v0.1"
+    },
+    "predicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sourceRepository": { "type": "string", "maxLength": 512 },
+        "sourceRevision": { "type": "string", "maxLength": 64 },
+        "ref": { "type": "string", "maxLength": 512 },
+        "pullRequest": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "number": { "type": "integer", "minimum": 0 },
+            "url": { "type": "string", "maxLength": 512 },
+            "author": { "type": "string", "maxLength": 512 },
+            "mergedAt": { "type": "string", "maxLength": 64 },
+            "mergeCommitSha": { "type": "string", "maxLength": 64 }
+          },
+          "required": ["number"]
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "approvals": { "type": "integer", "minimum": 0 },
+            "distinctApprovers": { "type": "integer", "minimum": 0 },
+            "changesRequested": { "type": "integer", "minimum": 0 },
+            "requiredApprovals": { "type": "integer", "minimum": 0 },
+            "requirementMet": { "type": "boolean" },
+            "selfApprovalExcluded": { "type": "boolean" },
+            "codeownerReviewMet": { "type": ["boolean", "null"] }
+          },
+          "required": [
+            "approvals",
+            "distinctApprovers",
+            "changesRequested",
+            "requiredApprovals",
+            "requirementMet",
+            "selfApprovalExcluded",
+            "codeownerReviewMet"
+          ]
+        },
+        "approversIncluded": { "type": "boolean" },
+        "approvers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "login": { "type": "string", "maxLength": 512 },
+              "association": {
+                "type": "string",
+                "enum": [
+                  "OWNER",
+                  "MEMBER",
+                  "COLLABORATOR",
+                  "CONTRIBUTOR",
+                  "FIRST_TIMER",
+                  "FIRST_TIME_CONTRIBUTOR",
+                  "MANNEQUIN",
+                  "NONE"
+                ]
+              },
+              "submittedAt": { "type": "string", "maxLength": 64 },
+              "commitId": { "type": "string", "maxLength": 64 },
+              "stale": { "type": "boolean" },
+              "isBot": { "type": "boolean" }
+            },
+            "required": ["login", "stale", "isBot"]
+          }
+        },
+        "branchProtection": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requireReviews": { "type": "boolean" },
+            "requiredApprovingReviewCount": { "type": "integer", "minimum": 0 },
+            "dismissStaleReviews": { "type": "boolean" },
+            "requireCodeownerReview": { "type": "boolean" },
+            "requireLastPushApproval": { "type": "boolean" }
+          },
+          "required": ["requireReviews", "requiredApprovingReviewCount"]
+        },
+        "reviewDecision": { "type": "string", "maxLength": 64 },
+        "configuration": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "uri": { "type": "string" },
+              "digest": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              },
+              "content": { "type": "string" },
+              "downloadLocation": { "type": "string" },
+              "mediaType": { "type": "string" },
+              "annotations": { "type": "object" }
+            },
+            "anyOf": [
+              { "required": ["uri"] },
+              { "required": ["digest"] },
+              { "required": ["content"] }
+            ]
+          }
+        },
+        "reviewToolingComplete": { "type": "boolean" }
+      },
+      "required": [
+        "sourceRepository",
+        "sourceRevision",
+        "summary",
+        "approversIncluded",
+        "configuration",
+        "reviewToolingComplete"
+      ]
+    }
+  },
+  "required": ["_type", "subject", "predicateType", "predicate"]
+}
