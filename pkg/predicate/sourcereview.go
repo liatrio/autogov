@@ -183,9 +183,6 @@ func NewSourceReview(ctx context.Context, svc ReviewService, opts SourceReviewOp
 		ApproversIncluded:     opts.IncludeApprovers,
 		ReviewToolingComplete: true,
 	}
-	if opts.IncludeApprovers {
-		c.Approvers = []SourceReviewApprover{}
-	}
 	if opts.ConfigURI != "" {
 		c.Configuration = append(c.Configuration, ResourceDescriptor{URI: truncateRunes(opts.ConfigURI, srMaxStringLen)})
 	}
@@ -290,7 +287,10 @@ func NewSourceReview(ctx context.Context, svc ReviewService, opts SourceReviewOp
 		}
 	}
 
-	// deterministic order for a reproducible signed artifact.
+	// deterministic order for a reproducible signed artifact. The cap is a DoS
+	// backstop (real PRs never approach it); the distinct count below is computed
+	// AFTER truncation, so summary.distinctApprovers and approvers[] stay
+	// consistent and any truncation undercounts (fail-closed).
 	sortApprovers(approvers)
 	if len(approvers) > srMaxApprovers {
 		approvers = approvers[:srMaxApprovers]

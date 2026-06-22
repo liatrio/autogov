@@ -75,6 +75,7 @@
         "approversIncluded": { "type": "boolean" },
         "approvers": {
           "type": "array",
+          "maxItems": 1000,
           "items": {
             "type": "object",
             "additionalProperties": false,
