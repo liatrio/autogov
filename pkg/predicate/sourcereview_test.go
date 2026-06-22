@@ -34,6 +34,8 @@ type mockReviewService struct {
 	protErr    error
 	rules      *gh.BranchRules
 	rulesErr   error
+	rulesPages [][]*gh.PullRequestBranchRule // if set, ListRulesForBranch returns these page-by-page
+	rulesCall  int
 }
 
 func srResp() *gh.Response {
@@ -53,7 +55,22 @@ func (m *mockReviewService) GetBranchProtection(_ context.Context, _, _, _ strin
 }
 
 func (m *mockReviewService) ListRulesForBranch(_ context.Context, _, _, _ string, _ *gh.ListOptions) (*gh.BranchRules, *gh.Response, error) {
-	return m.rules, srResp(), m.rulesErr
+	if m.rulesErr != nil {
+		return nil, srResp(), m.rulesErr
+	}
+	if m.rulesPages != nil {
+		page := m.rulesCall
+		m.rulesCall++
+		if page >= len(m.rulesPages) {
+			return &gh.BranchRules{}, srResp(), nil
+		}
+		resp := srResp()
+		if page+1 < len(m.rulesPages) {
+			resp.NextPage = page + 1
+		}
+		return &gh.BranchRules{PullRequest: m.rulesPages[page]}, resp, nil
+	}
+	return m.rules, srResp(), nil
 }
 
 func srUser(login string, id int64, typ string) *gh.User {
@@ -574,6 +591,57 @@ func TestNewSourceReview_RecordsRequireLastPushApproval(t *testing.T) {
 		t.Errorf("branchProtection.requireLastPushApproval not recorded: %+v", c.BranchProtection)
 	}
 	srValidate(t, c)
+}
+
+func TestNewSourceReview_NilAuthorFailsClosed(t *testing.T) {
+	// adversarial (M1): a nil PR author makes prAuthorID 0, which would silently
+	// fail the self-approval exclusion (no real reviewer id is 0) — a solo author
+	// could then clear min_approvals. Must fail closed instead.
+	pr := srMergedPR()
+	pr.User = nil
+	m := &mockReviewService{
+		prs:     []*gh.PullRequest{pr},
+		reviews: []*gh.PullRequestReview{srReview(srUser("solo", 7, "User"), reviewStateApproved, srHeadSHA, srBaseTime.Add(time.Minute))},
+	}
+	c := srBuild(t, m, srOpts())
+	if c.ReviewToolingComplete {
+		t.Error("reviewToolingComplete = true; a nil PR author must fail closed (cannot exclude self-approval)")
+	}
+	if c.Summary.DistinctApprovers != 0 {
+		t.Errorf("distinct = %d, want 0 (bailed before counting)", c.Summary.DistinctApprovers)
+	}
+}
+
+func TestNewSourceReview_TrimsCommitSHA(t *testing.T) {
+	// L2: a stray newline/space on --commit-sha must not cause a silent no-match.
+	opts := srOpts()
+	opts.CommitSHA = "  " + srSourceSHA + "\n"
+	m := &mockReviewService{
+		prs:     []*gh.PullRequest{srMergedPR()},
+		reviews: []*gh.PullRequestReview{srReview(srUser("alice", 2, "User"), reviewStateApproved, srHeadSHA, srBaseTime.Add(time.Minute))},
+	}
+	c := srBuild(t, m, opts)
+	if !c.ReviewToolingComplete || c.PullRequest == nil {
+		t.Errorf("whitespace commit-sha should still match: complete=%v pr=%v", c.ReviewToolingComplete, c.PullRequest)
+	}
+	if c.SourceRevision != srSourceSHA {
+		t.Errorf("sourceRevision = %q, want trimmed %q", c.SourceRevision, srSourceSHA)
+	}
+}
+
+func TestNewSourceReview_PaginatesBranchRules(t *testing.T) {
+	// M3: requiredApprovals must reflect rules across ALL pages, not just page 1.
+	page1 := []*gh.PullRequestBranchRule{{Parameters: gh.PullRequestRuleParameters{RequiredApprovingReviewCount: 1}}}
+	page2 := []*gh.PullRequestBranchRule{{Parameters: gh.PullRequestRuleParameters{RequiredApprovingReviewCount: 4}}}
+	m := &mockReviewService{
+		prs:        []*gh.PullRequest{srMergedPR()},
+		reviews:    []*gh.PullRequestReview{srReview(srUser("alice", 2, "User"), reviewStateApproved, srHeadSHA, srBaseTime.Add(time.Minute))},
+		rulesPages: [][]*gh.PullRequestBranchRule{page1, page2},
+	}
+	c := srBuild(t, m, srOpts())
+	if c.BranchProtection == nil || c.Summary.RequiredApprovals != 4 {
+		t.Errorf("requiredApprovals = %v, want 4 (max across paginated rules)", c.Summary)
+	}
 }
 
 // TestSourceReview_PredicateTypeConsistency locks the predicate type URI across

@@ -165,11 +165,12 @@ func NewSourceReview(ctx context.Context, svc ReviewService, opts SourceReviewOp
 	if opts.Owner == "" || opts.Repo == "" {
 		return nil, fmt.Errorf("owner and repo are required")
 	}
-	if opts.CommitSHA == "" {
+	commitSHA := strings.TrimSpace(opts.CommitSHA)
+	if commitSHA == "" {
 		return nil, fmt.Errorf("commit SHA is required")
 	}
 
-	queriedSHA := truncateRunes(opts.CommitSHA, srMaxSHALen)
+	queriedSHA := truncateRunes(commitSHA, srMaxSHALen)
 
 	c := &SourceReview{
 		Type:                  opts.Type,
@@ -223,6 +224,16 @@ func NewSourceReview(ctx context.Context, svc ReviewService, opts SourceReviewOp
 		MergeCommitSha: truncateRunes(selected.GetMergeCommitSHA(), srMaxSHALen),
 	}
 
+	// We cannot proceed safely without the PR author id (to exclude self-approval)
+	// or the PR head SHA (to judge staleness). A nil author would make prAuthorID 0
+	// and silently fail the self-approval exclusion (a real reviewer's id never
+	// equals 0), so a solo author could otherwise clear the gate; an empty head SHA
+	// would make every approval look fresh. Fail closed as incompleteness instead.
+	if selected.GetUser() == nil || prHeadSHA == "" {
+		c.ReviewToolingComplete = false
+		return c, nil
+	}
+
 	// step 8 (fetched before staleness in step 4, which needs dismissStale):
 	// branch protection + rulesets are best-effort. A 404 / no-admin just leaves
 	// the threshold unknown; it does NOT make the result incomplete, because the
@@ -248,7 +259,9 @@ func NewSourceReview(ctx context.Context, svc ReviewService, opts SourceReviewOp
 	for _, r := range latest {
 		uid := r.GetUser().GetID()
 		state := strings.ToUpper(r.GetState())
-		// step 3: a self-approval is never counted and never blocks.
+		// step 3: the PR author's own review is never counted — a self-approval
+		// cannot satisfy the gate, and a self CHANGES_REQUESTED cannot block it
+		// (both are dropped here, before the approver/changes-requested tallies).
 		if uid == prAuthorID {
 			if state == reviewStateApproved {
 				selfApproved = true
@@ -410,30 +423,24 @@ func fetchReviewControls(ctx context.Context, svc ReviewService, owner, repo, br
 		}
 	}
 
-	rules, resp2, err2 := svc.ListRulesForBranch(ctx, owner, repo, branch, &gh.ListOptions{})
-	if resp2 != nil {
-		_ = resp2.Body.Close()
-	}
-	if err2 == nil && rules != nil {
-		for _, r := range rules.PullRequest {
-			if r == nil {
-				continue
-			}
-			have = true
-			requireReviews = true
-			p := r.GetParameters()
-			if p.RequiredApprovingReviewCount > rsCount {
-				rsCount = p.RequiredApprovingReviewCount
-			}
-			if p.DismissStaleReviewsOnPush {
-				dismissStale = true
-			}
-			if p.RequireCodeOwnerReview {
-				requireCodeowner = true
-			}
-			if p.RequireLastPushApproval {
-				requireLastPush = true
-			}
+	for _, r := range listPullRequestRules(ctx, svc, owner, repo, branch) {
+		if r == nil {
+			continue
+		}
+		have = true
+		requireReviews = true
+		p := r.GetParameters()
+		if p.RequiredApprovingReviewCount > rsCount {
+			rsCount = p.RequiredApprovingReviewCount
+		}
+		if p.DismissStaleReviewsOnPush {
+			dismissStale = true
+		}
+		if p.RequireCodeOwnerReview {
+			requireCodeowner = true
+		}
+		if p.RequireLastPushApproval {
+			requireLastPush = true
 		}
 	}
 
@@ -448,6 +455,30 @@ func fetchReviewControls(ctx context.Context, svc ReviewService, owner, repo, br
 		RequireCodeownerReview:       requireCodeowner,
 		RequireLastPushApproval:      requireLastPush,
 	}
+}
+
+// listPullRequestRules paginates ListRulesForBranch and returns the pull_request
+// branch rules across all pages (best-effort: stops on the first error with
+// whatever was collected, since rulesets only feed evidence-only thresholds).
+func listPullRequestRules(ctx context.Context, svc ReviewService, owner, repo, branch string) []*gh.PullRequestBranchRule {
+	const maxPages = 10
+	opts := &gh.ListOptions{PerPage: 100}
+	var all []*gh.PullRequestBranchRule
+	for attempt := 0; attempt < maxPages; attempt++ {
+		rules, resp, err := svc.ListRulesForBranch(ctx, owner, repo, branch, opts)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		if err != nil || rules == nil {
+			break
+		}
+		all = append(all, rules.PullRequest...)
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	return all
 }
 
 // listReviews paginates ListReviews for a pull request.
