@@ -23,6 +23,9 @@ var embeddedTestResultSchema string
 //go:embed schemas/code-scan-schema.json
 var embeddedCodeScanSchema string
 
+//go:embed schemas/source-review-schema.json
+var embeddedSourceReviewSchema string
+
 // PolicyRepo represents policy repository configuration.
 type PolicyRepo struct {
 	Owner string
@@ -60,6 +63,8 @@ func getEmbeddedSchema(schemaName string) string {
 		return embeddedTestResultSchema
 	case "code-scan-schema.json":
 		return embeddedCodeScanSchema
+	case "source-review-schema.json":
+		return embeddedSourceReviewSchema
 	default:
 		return ""
 	}
@@ -164,4 +169,9 @@ func ValidateTestResult(data []byte) error {
 // ValidateCodeScan validates code-scan attestation data against its schema.
 func ValidateCodeScan(data []byte) error {
 	return ValidateJSON(data, "code-scan-schema.json")
+}
+
+// ValidateSourceReview validates source-review attestation data against its schema.
+func ValidateSourceReview(data []byte) error {
+	return ValidateJSON(data, "source-review-schema.json")
 }

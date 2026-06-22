@@ -66,6 +66,8 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 			verificationResults["attestation.vulnerability"] = true
 		case attestations.PredicateTypeAutogovCodeScan:
 			verificationResults["attestation.code_scan"] = true
+		case attestations.PredicateTypeAutogovSourceReview:
+			verificationResults["attestation.source_review"] = true
 		default:
 			verificationResults["attestation."+attType] = true
 		}
