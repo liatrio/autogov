@@ -30,10 +30,7 @@ build-errors.log
 *.log
 
 # vscode specific files
-.vscode/*
-!.vscode/settings.json
-!.vscode/extensions.json
-!.vscode/launch.json.example
+.vscode/
 .air.toml
 
 # agent config dirs
