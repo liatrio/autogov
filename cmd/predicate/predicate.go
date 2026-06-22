@@ -6,11 +6,12 @@ import "github.com/spf13/cobra"
 var PredicateCmd = &cobra.Command{
 	Use:   "predicate",
 	Short: "Generate attestation predicates",
-	Long:  "Generate attestation predicates for metadata, dependency scan, and test-result attestations.",
+	Long:  "Generate attestation predicates for metadata, dependency scan, test-result, and code-scan attestations.",
 }
 
 func init() {
 	PredicateCmd.AddCommand(metadataCmd)
 	PredicateCmd.AddCommand(depscanCmd)
 	PredicateCmd.AddCommand(testResultCmd)
+	PredicateCmd.AddCommand(codeScanCmd)
 }

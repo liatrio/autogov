@@ -90,6 +90,13 @@ const (
 	// Spec: https://github.com/liatrio/autogov (custom predicate type)
 	PredicateTypeAutogovMetadata = "https://autogov.dev/attestation/metadata/v1"
 
+	// PredicateTypeAutogovCodeScan represents AutoGov-specific code-scan attestation.
+	// This custom predicate type summarizes static analysis (SARIF) results — findings
+	// bucketed by SARIF level and security-severity — for policy gating. No in-toto
+	// standard exists for SARIF/code-scanning, so this mirrors the metadata precedent.
+	// Spec: https://github.com/liatrio/autogov (custom predicate type)
+	PredicateTypeAutogovCodeScan = "https://autogov.dev/attestation/code-scan/v0.1"
+
 	// PredicateTypeSCAI represents SCAI (Software Supply Chain Attribute Integrity) report.
 	// This predicate type provides evidence-based assertions about software artifact and
 	// supply chain attributes or behavior.
@@ -210,6 +217,12 @@ var PredicateTypeRegistry = map[string]PredicateTypeInfo{
 		URI:         PredicateTypeAutogovMetadata,
 		ShortName:   "AutoGov Metadata",
 		Description: "AutoGov custom metadata attestation containing artifact, repository, owner, runner, workflow, and compliance information",
+		Spec:        "https://github.com/liatrio/autogov",
+	},
+	PredicateTypeAutogovCodeScan: {
+		URI:         PredicateTypeAutogovCodeScan,
+		ShortName:   "AutoGov Code Scan",
+		Description: "AutoGov custom code-scan attestation summarizing static analysis (SARIF) results by level and security-severity",
 		Spec:        "https://github.com/liatrio/autogov",
 	},
 	PredicateTypeSCAI: {
