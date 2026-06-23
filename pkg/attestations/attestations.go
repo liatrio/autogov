@@ -98,7 +98,7 @@ type Options struct {
 	Quiet bool
 	// options for cert-identity validation
 	CertIdentityValidation *certid.Options
-	// resolved signer allowlist (D1 union of --cert-identity + valid list SANs);
+	// resolved signer allowlist (union of --cert-identity + valid list SANs);
 	// when set, each attestation must match at least one entry (OR semantics).
 	// resolved once upstream (orchestrate) to avoid reloading the list per blob.
 	AcceptedIdentities []string
@@ -163,7 +163,7 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 	var artifactRef *Digest
 	var err error
 
-	// resolve the accepted signer allowlist (D1 union: --cert-identity as-typed ∪
+	// resolve the accepted signer allowlist (union: --cert-identity as-typed ∪
 	// revocation-checked list SANs) when not pre-resolved upstream. orchestrate
 	// resolves once per invocation; this fallback covers direct callers. fail-closed.
 	if len(opts.AcceptedIdentities) == 0 && opts.CertIdentityValidation != nil {

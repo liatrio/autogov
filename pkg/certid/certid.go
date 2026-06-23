@@ -411,7 +411,7 @@ func (v *Validator) GetValidIdentitySANs() ([]string, error) {
 	return sans, nil
 }
 
-// builds the effective signer allowlist (D1 union): certIdentity accepted
+// builds the effective signer allowlist (union): certIdentity accepted
 // as-typed (operator vouches — NOT revocation-checked) unioned with the
 // revocation-checked valid SANs from the configured list (if any). The list is
 // loaded at most once. Fail-closed: any validator/load/resolution error is
@@ -435,7 +435,7 @@ func ResolveAcceptedIdentities(ctx context.Context, certIdentity string, listOpt
 		accepted = append(accepted, s)
 	}
 
-	// D1: --cert-identity is accepted as-typed (not list-membership or revocation checked)
+	// --cert-identity is accepted as-typed (not list-membership or revocation checked)
 	add(certIdentity)
 
 	if listOpts != nil {

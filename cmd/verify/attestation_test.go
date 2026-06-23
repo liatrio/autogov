@@ -19,7 +19,7 @@ func newVerifyAttestationCmd() *cobra.Command {
 }
 
 // captureStderr redirects os.Stderr for the duration of fn and returns what was written.
-// the D2 unsafe-mode warning is written to os.Stderr directly (not cmd.ErrOrStderr) so it
+// the unsafe-mode warning is written to os.Stderr directly (not cmd.ErrOrStderr) so it
 // survives stdout capture and quiet CI runs — so the test must capture os.Stderr.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
@@ -42,7 +42,7 @@ func captureStderr(t *testing.T, fn func()) string {
 }
 
 func TestVerifyAttestation_OfflineEnforcesCertIdentityList(t *testing.T) {
-	// #257 + AC7 + AC8: the offline branch must resolve and enforce --cert-identity-list
+	// the offline branch must resolve and enforce --cert-identity-list
 	// (it ignored the list entirely before). a malformed list fails closed rather than
 	// silently falling through to accept-any.
 	t.Setenv("GITHUB_TOKEN", "dummy-token-for-prerun")
@@ -83,7 +83,7 @@ func TestVerifyAttestation_OfflineEnforcesCertIdentityList(t *testing.T) {
 }
 
 func TestVerifyAttestation_UnsafeWarningUngatedByQuiet(t *testing.T) {
-	// AC5 / D2: when neither --cert-identity nor --cert-identity-list is set, a single
+	// when neither --cert-identity nor --cert-identity-list is set, a single
 	// warning goes to stderr, is "warning:"-prefixed, and fires even under --quiet.
 	t.Setenv("GITHUB_TOKEN", "dummy-token-for-prerun")
 

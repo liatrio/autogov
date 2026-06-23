@@ -127,7 +127,7 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to expand blob paths: %w", err)
 	}
 
-	// D2: when neither a single identity nor a list is enforced, verification accepts
+	// when neither a single identity nor a list is enforced, verification accepts
 	// any valid Fulcio signature (unsafe). warn exactly once on stderr, ungated by
 	// --quiet and off the stdout summary, so it survives quiet CI runs and stdout capture.
 	if certIdentity == "" && certIdentityList == "" {
@@ -143,7 +143,7 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Blob path: %s\n", blobPath)
 		}
 
-		// resolve the signer allowlist once (D1 union) and enforce it on the offline
+		// resolve the signer allowlist once (union) and enforce it on the offline
 		// path too — previously the offline branch ignored --cert-identity-list entirely.
 		certOpts := orchestrate.SetupCertIdentityValidation(certIdentityList, noCache, quiet)
 		accepted, err := certid.ResolveAcceptedIdentities(cmd.Context(), certIdentity, certOpts)

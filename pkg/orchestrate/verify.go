@@ -29,7 +29,7 @@ type Options struct {
 
 // verifies multiple blob files and returns all signatures
 func VerifyBlobs(ctx context.Context, client *github.Client, opts Options) ([]oci.Signature, error) {
-	// resolve the signer allowlist ONCE per invocation (D1 union) so the identity
+	// resolve the signer allowlist ONCE per invocation (union) so the identity
 	// list is loaded at most once — not once per blob. fail-closed on errors.
 	accepted := opts.AcceptedIdentities
 	if len(accepted) == 0 {

@@ -35,7 +35,7 @@ type VerifyOptions struct {
 	Quiet              bool     // suppress output messages
 	SourceRef          string   // expected source repository ref (e.g., refs/heads/main)
 	TrustedRootSource  string   // trusted root source: github, public, or auto
-	AcceptedIdentities []string // resolved signer allowlist (D1 union); each attestation must match at least one (OR semantics)
+	AcceptedIdentities []string // resolved signer allowlist (union of --cert-identity and the list); each attestation must match at least one (OR semantics)
 }
 
 // attestation subject

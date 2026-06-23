@@ -450,7 +450,7 @@ func TestVerifyAttestation(t *testing.T) {
 }
 
 func TestGetFromGitHubCertIdentityListFailsClosed(t *testing.T) {
-	// #257 + AC8 at the attestations layer: a configured but malformed identity list must
+	// at the attestations layer, a configured but malformed identity list must
 	// fail closed in GetFromGitHub's fallback resolution — never silently ignored or
 	// degraded to accept-any. (resolution runs before any GitHub API call, so no token
 	// is required to exercise this path.)

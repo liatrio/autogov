@@ -206,7 +206,7 @@ func TestVerifyBlobsWithCertIdentityValidation(t *testing.T) {
 }
 
 func TestVerifyBlobsCertIdentityListFailsClosed(t *testing.T) {
-	// #257 + AC8 (online): a malformed identity list must fail closed in VerifyBlobs,
+	// a malformed identity list must fail closed in VerifyBlobs (online),
 	// never silently fall through to accept-any (WithoutIdentitiesUnsafe).
 	ctx := context.Background()
 	client := mustClient(t)

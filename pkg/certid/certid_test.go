@@ -448,22 +448,34 @@ func TestGetValidIdentitySANs(t *testing.T) {
 }
 
 func TestIsValidIdentityRevocationOrderIndependent(t *testing.T) {
-	// a SAN named in a status:"revoked" entry must be rejected regardless of whether
-	// the revoked entry is listed before OR after a valid entry naming the same SAN
-	// (revocation is checked across all entries before any match is accepted).
+	// a SAN/sha named in a status:"revoked" entry must be rejected regardless of whether
+	// the revoked entry is listed before OR after a valid entry naming it (revocation is
+	// checked across all entries before any match is accepted). both the SAN-match and the
+	// sha-match revocation paths are exercised so neither invariant can silently regress.
 	today := time.Now().Format("2006-01-02")
 	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
 
+	// by-SAN: the revoked entry names the SAN in its identities list
 	const san = "https://github.com/liatrio/test-repo/.github/workflows/dup.yaml@refs/tags/v1.0.0"
-	approved := `{"version": "1.0.0", "sha": "aaaaaaaaaaaaaaaa", "status": "approved", "identities": ["` + san + `"], "added": "` + today + `", "expires": "` + tomorrow + `"}`
-	revoked := `{"version": "0.9.0", "sha": "bbbbbbbbbbbbbbbb", "status": "revoked", "identities": ["` + san + `"], "added": "` + today + `", "revoked": "` + today + `", "reason": "compromised"}`
+	approvedSAN := `{"version": "1.0.0", "sha": "aaaaaaaaaaaaaaaa", "status": "approved", "identities": ["` + san + `"], "added": "` + today + `", "expires": "` + tomorrow + `"}`
+	revokedSAN := `{"version": "0.9.0", "sha": "bbbbbbbbbbbbbbbb", "status": "revoked", "identities": ["` + san + `"], "added": "` + today + `", "revoked": "` + today + `", "reason": "compromised"}`
+
+	// by-sha: the candidate SAN embeds a 40-hex sha and a separate revoked entry revokes
+	// that sha (with no matching SAN), exercising the id.Sha == certSHA revocation path
+	const revokedSha = "1111111111111111111111111111111111111111"
+	const shaSAN = "https://github.com/liatrio/test-repo/.github/workflows/sha.yaml@" + revokedSha
+	approvedSha := `{"version": "1.0.0", "sha": "cccccccccccccccc", "status": "approved", "identities": ["` + shaSAN + `"], "added": "` + today + `", "expires": "` + tomorrow + `"}`
+	revokedShaEntry := `{"version": "0.9.0", "sha": "` + revokedSha + `", "status": "revoked", "identities": [], "added": "` + today + `", "revoked": "` + today + `", "reason": "sha compromised"}`
 
 	cases := []struct {
-		name string
-		body string
+		name  string
+		body  string
+		query string
 	}{
-		{"revoked listed before approved", `{"identities": [` + revoked + `,` + approved + `], "metadata": {}}`},
-		{"approved listed before revoked", `{"identities": [` + approved + `,` + revoked + `], "metadata": {}}`},
+		{"by-SAN, revoked before approved", `{"identities": [` + revokedSAN + `,` + approvedSAN + `], "metadata": {}}`, san},
+		{"by-SAN, approved before revoked", `{"identities": [` + approvedSAN + `,` + revokedSAN + `], "metadata": {}}`, san},
+		{"by-sha, revoked before approved", `{"identities": [` + revokedShaEntry + `,` + approvedSha + `], "metadata": {}}`, shaSAN},
+		{"by-sha, approved before revoked", `{"identities": [` + approvedSha + `,` + revokedShaEntry + `], "metadata": {}}`, shaSAN},
 	}
 
 	for _, tc := range cases {
@@ -479,7 +491,7 @@ func TestIsValidIdentityRevocationOrderIndependent(t *testing.T) {
 			if err := v.LoadIdentities(context.Background()); err != nil {
 				t.Fatalf("LoadIdentities: %v", err)
 			}
-			ok, err := v.IsValidIdentity(san)
+			ok, err := v.IsValidIdentity(tc.query)
 			if ok || err == nil || !strings.Contains(err.Error(), "revoked") {
 				t.Errorf("expected (false, revoked) regardless of entry order, got ok=%v err=%v", ok, err)
 			}
@@ -534,7 +546,7 @@ func TestResolveAcceptedIdentities(t *testing.T) {
 		}
 	})
 
-	t.Run("union of cert-identity and list, deduped (D1)", func(t *testing.T) {
+	t.Run("union of cert-identity and list, deduped", func(t *testing.T) {
 		opts := Options{URL: writeList(t, validList), DisableCache: true}
 		got, err := ResolveAcceptedIdentities(context.Background(), extIdentity, &opts)
 		if err != nil {
@@ -589,7 +601,7 @@ func TestResolveAcceptedIdentities(t *testing.T) {
 	}`
 
 	t.Run("list configured but all revoked/expired fails closed (SLSA: never accept-any)", func(t *testing.T) {
-		// #257/AC1: a list the operator asked to enforce that resolves to zero acceptable
+		// #257: a list the operator asked to enforce that resolves to zero acceptable
 		// identities (no --cert-identity) must NOT degrade to WithoutIdentitiesUnsafe.
 		opts := Options{URL: writeList(t, allInvalidList), DisableCache: true}
 		got, err := ResolveAcceptedIdentities(context.Background(), "", &opts)
@@ -601,7 +613,7 @@ func TestResolveAcceptedIdentities(t *testing.T) {
 		}
 	})
 
-	t.Run("cert-identity present is accepted even when the list resolves empty (D1 as-typed)", func(t *testing.T) {
+	t.Run("cert-identity present is accepted even when the list resolves empty (accepted as-typed)", func(t *testing.T) {
 		// the empty-allowlist guard must only bite when accepted is truly empty; a
 		// supplied --cert-identity (accepted as-typed) keeps the run valid.
 		opts := Options{URL: writeList(t, allInvalidList), DisableCache: true}

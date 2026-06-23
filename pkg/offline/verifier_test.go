@@ -12,7 +12,7 @@ import (
 // the offline policy build is driven by AcceptedIdentities: a non-empty allowlist
 // (even with an empty --cert-identity) takes the identity branch — observable via the
 // issuer-default warning it emits — instead of the accept-any (WithoutIdentitiesUnsafe)
-// branch. this is the offline counterpart of the online multi-identity policy (AC7).
+// branch. this is the offline counterpart of the online multi-identity policy.
 func TestOfflineAcceptedIdentitiesSelectsIdentityBranch(t *testing.T) {
 	dir := t.TempDir()
 
