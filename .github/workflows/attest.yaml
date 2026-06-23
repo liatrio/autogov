@@ -68,11 +68,9 @@ jobs:
       # API path is not wired into the standalone `plan` command), so a shallow
       # clone would not see prior tags. `release cut` itself can use the API, but
       # the `plan` step that computes the next version cannot.
-      # The released asset is the exact binary the attest-blob job already built,
-      # attested, and verify-blob verified (the blob-build-artifact-high-perms
-      # artifact) — not a rebuild — so the published bytes carry the attestations
-      # and match the VSA subject digest (closes #268). No Go toolchain is needed
-      # here: plan and cut run the downloaded autogov CLI.
+      # The released asset is the attested blob-build-artifact-high-perms binary
+      # (not a rebuild), so its digest carries the attestations. No Go toolchain is
+      # needed here: plan and cut run the downloaded autogov CLI.
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
@@ -89,9 +87,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: autogov release plan -o json > "$RUNNER_TEMP/plan.json"
       - name: Download attested binary
-        # the blob-build-artifact-high-perms artifact is the binary the attest-blob
-        # job built + attested and verify-blob verified; publishing it (instead of a
-        # rebuild) makes the release asset's digest the attested one.
+        # the attested + verified binary from attest-blob (not a rebuild)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: blob-build-artifact-high-perms
