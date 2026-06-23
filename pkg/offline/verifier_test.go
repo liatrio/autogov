@@ -2,10 +2,154 @@ package offline
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	bundleutils "github.com/liatrio/autogov/pkg/bundle"
 )
+
+// the offline policy build is driven by AcceptedIdentities: a non-empty allowlist
+// (even with an empty --cert-identity) takes the identity branch — observable via the
+// issuer-default warning it emits — instead of the accept-any (WithoutIdentitiesUnsafe)
+// branch. this is the offline counterpart of the online multi-identity policy.
+func TestOfflineAcceptedIdentitiesSelectsIdentityBranch(t *testing.T) {
+	dir := t.TempDir()
+
+	rootPath := filepath.Join(dir, "root.json")
+	if err := os.WriteFile(rootPath, []byte(`{
+		"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1",
+		"tlogs": [], "certificateAuthorities": [], "ctlogs": [], "timestampAuthorities": []
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	bundlePath := filepath.Join(dir, "bundle.json")
+	if err := os.WriteFile(bundlePath, []byte(`{"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.1", "verificationMaterial": {"x509CertificateChain": {"certificates": [{"rawBytes": "dGVzdA=="}]}}, "dsseEnvelope": {"payload": "dGVzdA==", "payloadType": "application/vnd.in-toto+json", "signatures": [{"sig": "dGVzdA=="}]}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	const issuerWarning = "no OIDC issuer specified"
+
+	newV := func(t *testing.T, opts VerifyOptions) *OfflineVerifier {
+		t.Helper()
+		opts.SkipTLogVerify = true
+		opts.Quiet = true
+		v, err := NewOfflineVerifier(rootPath, opts)
+		if err != nil {
+			t.Fatalf("NewOfflineVerifier: %v", err)
+		}
+		if err := v.LoadBundlesFromFile(bundlePath); err != nil {
+			t.Fatalf("LoadBundlesFromFile: %v", err)
+		}
+		return v
+	}
+
+	hasWarning := func(res *VerificationResult, sub string) bool {
+		for _, att := range res.Attestations {
+			for _, w := range att.Warnings {
+				if strings.Contains(w, sub) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	// allowlist supplied, no explicit issuer → identity branch → issuer-default warning
+	withList := newV(t, VerifyOptions{AcceptedIdentities: []string{"https://github.com/liatrio/test/.github/workflows/wf.yml@refs/heads/main"}})
+	res, err := withList.VerifyArtifactDigest("")
+	if err != nil {
+		t.Fatalf("VerifyArtifactDigest (allowlist): %v", err)
+	}
+	if !hasWarning(res, issuerWarning) {
+		t.Errorf("expected identity branch (issuer-default warning) when AcceptedIdentities is set; attestations: %+v", res.Attestations)
+	}
+
+	// no identities at all → accept-any branch → no issuer warning
+	none := newV(t, VerifyOptions{})
+	res2, err := none.VerifyArtifactDigest("")
+	if err != nil {
+		t.Fatalf("VerifyArtifactDigest (none): %v", err)
+	}
+	if hasWarning(res2, issuerWarning) {
+		t.Errorf("expected accept-any branch (no issuer warning) when no identities supplied; attestations: %+v", res2.Attestations)
+	}
+}
+
+// when an allowlist is enforced, a multi-bundle set where one bundle verifies but another
+// is signed by a non-allowlisted signer must fail overall (the #258 image+VSA case) —
+// offline parity with the online path. Without an allowlist, a non-allowlisted signer
+// error is tolerated (accept-any) and only integrity failures fail the run.
+func TestAggregateHasFailures(t *testing.T) {
+	verified := AttestationResult{Verified: true}
+	identityFail := AttestationResult{Verified: false, Error: "no matching CertificateIdentity found, got [https://github.com/x/.github/workflows/rogue.yml@refs/heads/main]"}
+	integrityFail := AttestationResult{Verified: false, Error: "verification failed: artifact digest does not match"}
+
+	cases := []struct {
+		name      string
+		enforcing bool
+		atts      []AttestationResult
+		want      bool
+	}{
+		{"enforced: one verified + one non-allowlisted signer fails overall", true, []AttestationResult{verified, identityFail}, true},
+		{"enforced: all verified", true, []AttestationResult{verified, verified}, false},
+		{"enforced: integrity failure", true, []AttestationResult{verified, integrityFail}, true},
+		{"no allowlist: non-allowlisted signer tolerated", false, []AttestationResult{verified, identityFail}, false},
+		{"no allowlist: integrity failure still fails", false, []AttestationResult{integrityFail}, true},
+		{"no allowlist: all verified", false, []AttestationResult{verified}, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := aggregateHasFailures(tc.enforcing, tc.atts); got != tc.want {
+				t.Errorf("aggregateHasFailures(enforcing=%v) = %v, want %v", tc.enforcing, got, tc.want)
+			}
+		})
+	}
+}
+
+// a direct caller passing an empty SAN in the allowlist must fail closed — an empty
+// subject makes sigstore's identity matcher match ANY cert from the issuer (accept-any).
+func TestEmptyAcceptedIdentityFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	rootPath := filepath.Join(dir, "root.json")
+	if err := os.WriteFile(rootPath, []byte(`{
+		"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1",
+		"tlogs": [], "certificateAuthorities": [], "ctlogs": [], "timestampAuthorities": []
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	bundlePath := filepath.Join(dir, "bundle.json")
+	if err := os.WriteFile(bundlePath, []byte(`{"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.1", "verificationMaterial": {"x509CertificateChain": {"certificates": [{"rawBytes": "dGVzdA=="}]}}, "dsseEnvelope": {"payload": "dGVzdA==", "payloadType": "application/vnd.in-toto+json", "signatures": [{"sig": "dGVzdA=="}]}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := NewOfflineVerifier(rootPath, VerifyOptions{SkipTLogVerify: true, Quiet: true, AcceptedIdentities: []string{""}})
+	if err != nil {
+		t.Fatalf("NewOfflineVerifier: %v", err)
+	}
+	if err := v.LoadBundlesFromFile(bundlePath); err != nil {
+		t.Fatalf("LoadBundlesFromFile: %v", err)
+	}
+
+	res, err := v.VerifyArtifactDigest("")
+	if err != nil {
+		t.Fatalf("VerifyArtifactDigest: %v", err)
+	}
+	if res.Verified {
+		t.Error("expected verification to fail closed for an empty accepted identity")
+	}
+	found := false
+	for _, a := range res.Attestations {
+		if strings.Contains(a.Error, "empty certificate identity") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected an 'empty certificate identity' error; attestations: %+v", res.Attestations)
+	}
+}
 
 func TestNewOfflineVerifier(t *testing.T) {
 	// create temporary trusted root file

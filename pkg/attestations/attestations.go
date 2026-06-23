@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -97,6 +98,10 @@ type Options struct {
 	Quiet bool
 	// options for cert-identity validation
 	CertIdentityValidation *certid.Options
+	// resolved signer allowlist (union of --cert-identity + valid list SANs);
+	// when set, each attestation must match at least one entry (OR semantics).
+	// resolved once upstream (orchestrate) to avoid reloading the list per blob.
+	AcceptedIdentities []string
 }
 
 // parses a full OCI ref into components
@@ -158,31 +163,18 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 	var artifactRef *Digest
 	var err error
 
-	// validate certificate identity if validation options provided
-	if opts.CertIdentity != "" && opts.CertIdentityValidation != nil {
-		// create cert identity validator
-		validator, err := certid.NewValidator(*opts.CertIdentityValidation)
+	// resolve the accepted signer allowlist (union: --cert-identity as-typed ∪
+	// revocation-checked list SANs) when not pre-resolved upstream. orchestrate
+	// resolves once per invocation; this fallback covers direct callers. fail-closed.
+	if len(opts.AcceptedIdentities) == 0 && opts.CertIdentityValidation != nil {
+		accepted, err := certid.ResolveAcceptedIdentities(ctx, opts.CertIdentity, opts.CertIdentityValidation)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create certificate identity validator: %w", err)
+			return nil, err
 		}
-
-		// load identities
-		if err := validator.LoadIdentities(ctx); err != nil {
-			return nil, fmt.Errorf("failed to load certificate identities: %w", err)
-		}
-
-		// validate certificate identity
-		valid, err := validator.IsValidIdentity(opts.CertIdentity)
-		if err != nil {
-			return nil, fmt.Errorf("invalid certificate identity: %w", err)
-		}
-
-		if !valid {
-			return nil, fmt.Errorf("certificate identity validation failed")
-		}
+		opts.AcceptedIdentities = accepted
 
 		if !opts.Quiet {
-			fmt.Printf("✓ Certificate identity validated against source of truth\n")
+			fmt.Printf("✓ Enforcing signer allowlist (%d accepted identities)\n", len(accepted))
 		}
 	}
 
@@ -489,15 +481,32 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		artifactPolicy = verify.WithArtifactDigest("sha256", digestBytes)
 	}
 
+	// build the accepted-identity set: --cert-identity (as-typed) unioned with any
+	// pre-resolved allowlist SANs. each identity becomes one repeatable
+	// WithCertificateIdentity, giving native OR semantics (match at least one).
+	accepted := opts.AcceptedIdentities
+	if opts.CertIdentity != "" && !slices.Contains(accepted, opts.CertIdentity) {
+		accepted = append([]string{opts.CertIdentity}, accepted...)
+	}
+
 	// verify policy
 	var policy verify.PolicyBuilder
-	if opts.CertIdentity != "" {
-		// certificate identity for verification (only if specified)
-		certIdentity, err := verify.NewShortCertificateIdentity(opts.CertIssuer, "", opts.CertIdentity, "")
-		if err != nil {
-			return nil, fmt.Errorf("failed to create certificate identity: %w", err)
+	if len(accepted) > 0 {
+		policyOpts := make([]verify.PolicyOption, 0, len(accepted))
+		for _, sub := range accepted {
+			if sub == "" {
+				// defense-in-depth: an empty SAN makes sigstore's identity matcher
+				// match ANY cert from the issuer (accept-any). The resolver never
+				// produces "", but a direct caller could — fail closed.
+				return nil, fmt.Errorf("empty certificate identity in accepted allowlist")
+			}
+			certIdentity, err := verify.NewShortCertificateIdentity(opts.CertIssuer, "", sub, "")
+			if err != nil {
+				return nil, fmt.Errorf("failed to create certificate identity %q: %w", sub, err)
+			}
+			policyOpts = append(policyOpts, verify.WithCertificateIdentity(certIdentity))
 		}
-		policy = verify.NewPolicy(artifactPolicy, verify.WithCertificateIdentity(certIdentity))
+		policy = verify.NewPolicy(artifactPolicy, policyOpts...)
 	} else {
 		// no certificate identity verification / accept any valid signature
 		policy = verify.NewPolicy(artifactPolicy, verify.WithoutIdentitiesUnsafe())

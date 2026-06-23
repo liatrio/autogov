@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/liatrio/autogov/pkg/attestations"
@@ -28,12 +29,13 @@ type OfflineVerifier struct {
 
 // options for offline verification
 type VerifyOptions struct {
-	CertIdentity      string // expected certificate identity (workflow URL)
-	CertOIDCIssuer    string // expected OIDC issuer
-	SkipTLogVerify    bool   // skip transparency log verification (for compatibility)
-	Quiet             bool   // suppress output messages
-	SourceRef         string // expected source repository ref (e.g., refs/heads/main)
-	TrustedRootSource string // trusted root source: github, public, or auto
+	CertIdentity       string   // expected certificate identity (workflow URL)
+	CertOIDCIssuer     string   // expected OIDC issuer
+	SkipTLogVerify     bool     // skip transparency log verification (for compatibility)
+	Quiet              bool     // suppress output messages
+	SourceRef          string   // expected source repository ref (e.g., refs/heads/main)
+	TrustedRootSource  string   // trusted root source: github, public, or auto
+	AcceptedIdentities []string // resolved signer allowlist (union of --cert-identity and the list); each attestation must match at least one (OR semantics)
 }
 
 // attestation subject
@@ -309,20 +311,12 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 		}
 	}
 
-	// checks if any attestations had verification failures (not just cert-identity mismatches)
-	hasVerificationFailures := false
-	for _, att := range result.Attestations {
-		if !att.Verified && att.Error != "" {
-			// checks if it's a real verification failure vs just cert-identity mismatch
-			if strings.Contains(att.Error, "digest does not match") ||
-				strings.Contains(att.Error, "failed to verify signature") ||
-				strings.Contains(att.Error, "transparency log") ||
-				strings.Contains(att.Error, "source ref mismatch") {
-				hasVerificationFailures = true
-				break
-			}
-		}
-	}
+	// when a signer allowlist is enforced, ANY unverified bundle is a hard failure
+	// (including one whose signer is not in the allowlist — sigstore reports "no matching
+	// CertificateIdentity"), matching the online path. Without an allowlist, only integrity
+	// failures count, preserving the prior accept-any-signer behavior.
+	enforcingAllowlist := ov.options.CertIdentity != "" || len(ov.options.AcceptedIdentities) > 0
+	hasVerificationFailures := aggregateHasFailures(enforcingAllowlist, result.Attestations)
 
 	// overall verification status - fail if there are real verification failures
 	if hasVerificationFailures {
@@ -340,6 +334,31 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 	}
 
 	return result, nil
+}
+
+// aggregateHasFailures reports whether the per-bundle results should fail the overall
+// offline verification. When a signer allowlist is enforced, ANY unverified bundle counts
+// (a non-allowlisted signer must fail closed — sigstore reports "no matching
+// CertificateIdentity", which is not one of the integrity-failure substrings below); this
+// matches the online path and delivers offline parity. When no allowlist is enforced, only
+// integrity failures (bad digest/signature/tlog/source-ref) count, preserving the prior
+// accept-any-signer behavior for unauthenticated runs.
+func aggregateHasFailures(enforcingAllowlist bool, atts []AttestationResult) bool {
+	for _, att := range atts {
+		if att.Verified || att.Error == "" {
+			continue
+		}
+		if enforcingAllowlist {
+			return true
+		}
+		if strings.Contains(att.Error, "digest does not match") ||
+			strings.Contains(att.Error, "failed to verify signature") ||
+			strings.Contains(att.Error, "transparency log") ||
+			strings.Contains(att.Error, "source ref mismatch") {
+			return true
+		}
+	}
+	return false
 }
 
 // verifies a single bundle
@@ -386,18 +405,38 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 	// policy options
 	policyOpts := []verify.PolicyOption{}
 
-	// certificate identity if specified
-	if ov.options.CertIdentity != "" {
-		if ov.options.CertOIDCIssuer == "" {
-			// cert identity specified but no issuer - use default GitHub Actions issuer
-			ov.options.CertOIDCIssuer = "https://token.actions.githubusercontent.com"
+	// build the accepted-identity set: --cert-identity (as-typed) unioned with any
+	// pre-resolved allowlist SANs. each identity becomes one repeatable
+	// WithCertificateIdentity, giving native OR semantics (match at least one).
+	accepted := ov.options.AcceptedIdentities
+	if ov.options.CertIdentity != "" && !slices.Contains(accepted, ov.options.CertIdentity) {
+		accepted = append([]string{ov.options.CertIdentity}, accepted...)
+	}
+
+	if len(accepted) > 0 {
+		// use a local issuer rather than mutating shared ov.options, so the
+		// default-issuer warning fires per bundle and there is no cross-bundle state.
+		issuer := ov.options.CertOIDCIssuer
+		if issuer == "" {
+			// identities specified but no issuer - use default GitHub Actions issuer
+			issuer = "https://token.actions.githubusercontent.com"
 			res.Warnings = append(res.Warnings, "no OIDC issuer specified, defaulting to GitHub Actions issuer")
 		}
-		certID, err := verify.NewShortCertificateIdentity(ov.options.CertOIDCIssuer, "", ov.options.CertIdentity, "")
-		if err == nil {
+		for _, sub := range accepted {
+			if sub == "" {
+				// defense-in-depth: an empty SAN makes sigstore's identity matcher match
+				// ANY cert from the issuer (accept-any). The resolver never produces "",
+				// but a direct caller could — fail closed.
+				res.Error = "empty certificate identity in accepted allowlist"
+				return res
+			}
+			certID, err := verify.NewShortCertificateIdentity(issuer, "", sub, "")
+			if err != nil {
+				// fail closed: a malformed accepted identity must not fall through to accept-any
+				res.Error = fmt.Sprintf("failed to create identity policy for %q: %v", sub, err)
+				return res
+			}
 			policyOpts = append(policyOpts, verify.WithCertificateIdentity(certID))
-		} else {
-			res.Warnings = append(res.Warnings, fmt.Sprintf("failed to create identity policy: %v", err))
 		}
 	} else {
 		// no cert identity specified / verify signature but not identity

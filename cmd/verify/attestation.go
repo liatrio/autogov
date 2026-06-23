@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/liatrio/autogov/pkg/certid"
 	"github.com/liatrio/autogov/pkg/cli"
 	ghclient "github.com/liatrio/autogov/pkg/github"
 	"github.com/liatrio/autogov/pkg/offline"
@@ -55,7 +56,7 @@ Examples:
 	cmd.Flags().StringP(flagSourceRef, "r", "", "Source repository ref to verify against (e.g., refs/heads/main)")
 	cmd.Flags().String(flagAttestationsPath, "", "Path to directory containing attestation files for offline verification")
 	cmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final results")
-	cmd.Flags().String(flagCertIdentityList, "", "URL or file path to the certificate identity list (optional)")
+	cmd.Flags().String(flagCertIdentityList, "", "Signer allowlist: URL or file path to a certificate identity list. Accepted identities are enforced as a signer allowlist; usable with or without --cert-identity (their union is accepted)")
 	cmd.Flags().Bool(flagNoCache, false, "Disable caching of the certificate identity list")
 	cmd.Flags().String(flagPolicyBundlePath, "", "Policy bundle source: local dir, .tar.gz, http(s):// URL, oci://registry/repo:tag, or ghrel://owner/repo[@tag][?asset=bundle.tar.gz]. Without @tag, ghrel:// uses the latest release (GitHub's most recent non-prerelease, non-draft, which may differ from an OCI :latest tag)")
 	cmd.Flags().String(flagPolicySchemasPath, "", "JSON schemas source for OPA validation: local dir, .tar.gz, http(s):// URL, oci://, or ghrel://owner/repo[@tag][?asset=schemas.tar.gz] (default asset schemas.tar.gz)")
@@ -108,6 +109,10 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 		imageDigest = args[0]
 	}
 	certIdentity, _ := cmd.Flags().GetString(flagCertIdentity)
+	// read the identity-list flags here (not only in the online branch) so both
+	// online and offline modes enforce the allowlist and share the unsafe-mode warning.
+	certIdentityList, _ := cmd.Flags().GetString(flagCertIdentityList)
+	noCache, _ := cmd.Flags().GetBool(flagNoCache)
 	certIssuer, _ := cmd.Flags().GetString(flagCertIssuer)
 	sourceRef, _ := cmd.Flags().GetString(flagSourceRef)
 	blobPath, _ := cmd.Flags().GetString(flagBlobPath)
@@ -122,6 +127,13 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to expand blob paths: %w", err)
 	}
 
+	// when neither a single identity nor a list is enforced, verification accepts
+	// any valid Fulcio signature (unsafe). warn exactly once on stderr, ungated by
+	// --quiet and off the stdout summary, so it survives quiet CI runs and stdout capture.
+	if certIdentity == "" && certIdentityList == "" {
+		fmt.Fprintf(os.Stderr, "warning: no certificate identity enforced — accepting any valid Fulcio signature (unsafe); set --%s and/or --%s to enforce a signer allowlist\n", flagCertIdentity, flagCertIdentityList)
+	}
+
 	var sigs []oci.Signature
 
 	if attestationsPath != "" && blobPath != "" {
@@ -131,10 +143,19 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Blob path: %s\n", blobPath)
 		}
 
+		// resolve the signer allowlist once (union) and enforce it on the offline
+		// path too — previously the offline branch ignored --cert-identity-list entirely.
+		certOpts := orchestrate.SetupCertIdentityValidation(certIdentityList, noCache, quiet)
+		accepted, err := certid.ResolveAcceptedIdentities(cmd.Context(), certIdentity, certOpts)
+		if err != nil {
+			return fmt.Errorf("failed to resolve accepted certificate identities: %w", err)
+		}
+
 		verifyOpts := offline.VerifyOptions{
-			CertIdentity:   certIdentity,
-			CertOIDCIssuer: certIssuer,
-			SkipTLogVerify: true,
+			CertIdentity:       certIdentity,
+			CertOIDCIssuer:     certIssuer,
+			SkipTLogVerify:     true,
+			AcceptedIdentities: accepted,
 		}
 
 		verifier, err := offline.NewOfflineVerifier("", verifyOpts)
@@ -161,15 +182,13 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Using online verification mode")
 		}
 
-		certIdentityList, _ := cmd.Flags().GetString(flagCertIdentityList)
-		noCache, _ := cmd.Flags().GetBool(flagNoCache)
 		certOpts := orchestrate.SetupCertIdentityValidation(certIdentityList, noCache, quiet)
 
 		repo, _ := cmd.Flags().GetString(flagRepo)
 		if repo != "" && imageDigest != "" && !strings.Contains(imageDigest, "/") {
 			imageDigest = fmt.Sprintf("ghcr.io/%s@%s", repo, imageDigest)
 		}
-		sigs, err = orchestrate.VerifyBlobs(context.Background(), client, orchestrate.Options{
+		sigs, err = orchestrate.VerifyBlobs(cmd.Context(), client, orchestrate.Options{
 			ArtifactDigest:         imageDigest,
 			Repository:             repo,
 			CertIdentity:           certIdentity,
