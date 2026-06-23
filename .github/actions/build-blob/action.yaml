@@ -35,14 +35,24 @@ runs:
     - name: Build Binary
       id: build
       shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
         # build via the Taskfile — the single source of truth for ldflags
         # (version/commit/date/opa). date derives from the commit, so the build is
         # reproducible. output to the repo root as `autogov` (the attestation subject).
+        version_out="$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')"
         task build BINARY_DIR=.
-
+        # when a release is due, stamp the accurate next tag: the dry-run plan computes
+        # it via the GitHub API before the tag exists (no full clone needed). fail-safe
+        # — any error keeps the git-describe version from the build above.
+        next="$(./autogov release plan --mode api -o json 2>/dev/null | jq -r 'select(.release_needed) | .next_version // empty')"
+        if [ -n "$next" ]; then
+          echo "stamping release version: $next"
+          VERSION="$next" task build BINARY_DIR=.
+          version_out="$next"
+        fi
         echo "binary-path=autogov" >> "$GITHUB_OUTPUT"
-        echo "version=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')" >> "$GITHUB_OUTPUT"
-
+        echo "version=$version_out" >> "$GITHUB_OUTPUT"
         ls -la autogov
         ./autogov version || true

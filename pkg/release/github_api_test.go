@@ -266,3 +266,56 @@ func TestAPIModeFallbackOnExpiredToken(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, plan)
 }
+
+// TestGeneratePlanAPIModeSuccess verifies API mode discovers the latest tag and walks
+// commits via the API (no full local clone) and yields the bumped next version — the
+// path the release build relies on to stamp the accurate tag before it exists.
+func TestGeneratePlanAPIModeSuccess(t *testing.T) {
+	dir, repo := setupTestRepo(t)
+	addTestOrigin(t, repo, "https://github.com/test/repo.git")
+
+	// the API commit-walk filters the first-parent chain from the local HEAD sha, so
+	// the compared commit must carry that sha to be counted.
+	head, err := repo.Head()
+	require.NoError(t, err)
+	headSHA := head.Hash().String()
+
+	mock := &mockReleaseService{
+		listTagsResult: []*gogithub.RepositoryTag{
+			{Name: gogithub.Ptr("v1.0.0")},
+		},
+		compareResult: &gogithub.CommitsComparison{
+			TotalCommits: gogithub.Ptr(1),
+			Commits: []*gogithub.RepositoryCommit{
+				{SHA: gogithub.Ptr(headSHA), Commit: &gogithub.Commit{Message: gogithub.Ptr("feat: add a thing")}},
+			},
+		},
+	}
+
+	plan, err := GeneratePlan(&PlanOptions{
+		RepoPath:   dir,
+		Mode:       ModeAPI,
+		ReleaseAPI: mock,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	assert.True(t, plan.ReleaseNeeded)
+	assert.Equal(t, "v1.1.0", plan.NextVersion) // minor bump from a feat over v1.0.0
+}
+
+// TestGeneratePlanBuildsAPIClientFromToken verifies a token (with no explicit ReleaseAPI)
+// builds the GitHub API client — the wiring the `plan` command uses for `--mode api`.
+func TestGeneratePlanBuildsAPIClientFromToken(t *testing.T) {
+	dir, repo := setupTestRepo(t)
+	addTestOrigin(t, repo, "https://github.com/test/repo.git")
+
+	// Mode=local so no API call is made; the client is still built from the token
+	// (construction runs before the mode branch) and must not error.
+	plan, err := GeneratePlan(&PlanOptions{
+		RepoPath: dir,
+		Mode:     ModeLocal,
+		Token:    "ghs_faketokenforconstruction",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+}

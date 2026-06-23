@@ -135,6 +135,9 @@ type PlanOptions struct {
 	ReleaseAPI ReleaseService
 	// branch name used as head for API compare (required for API mode)
 	Branch string
+	// GitHub token; when set and ReleaseAPI is nil, an API client is built from it
+	// (lets API mode discover tags/commits without a full local clone)
+	Token string
 }
 
 // DefaultPlanOptions returns options with sensible defaults
@@ -158,9 +161,19 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 		return nil, err
 	}
 
+	// build the GitHub release service from the token if one wasn't supplied —
+	// lets API mode discover tags/commits without a full local clone
+	if opts.Token != "" && opts.ReleaseAPI == nil {
+		releaseAPI, err := newGitHubReleaseService(opts.Token)
+		if err != nil {
+			return nil, err
+		}
+		opts.ReleaseAPI = releaseAPI
+	}
+
 	// fail early if api mode requires a token
 	if opts.Mode == ModeAPI && opts.ReleaseAPI == nil {
-		return nil, fmt.Errorf("mode=api requires a GitHub API client (ReleaseAPI)")
+		return nil, fmt.Errorf("mode=api requires a GitHub API client (set --mode=api with a token)")
 	}
 
 	// open repository
