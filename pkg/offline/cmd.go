@@ -44,15 +44,13 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("attestations is required")
 	}
 
-	// when neither a single identity nor a list is enforced, verification accepts
-	// any valid Fulcio signature (unsafe). warn exactly once on stderr, ungated by
-	// --quiet and off the stdout summary, so it survives quiet CI runs and stdout capture.
+	// no identity and no list enforced → accept any valid signature (unsafe).
+	// warn once on stderr, ungated by --quiet.
 	if certIdentity == "" && certIdentityList == "" {
 		fmt.Fprintf(os.Stderr, "warning: no certificate identity enforced — accepting any valid Fulcio signature (unsafe); set --cert-identity and/or --cert-identity-list to enforce a signer allowlist\n")
 	}
 
-	// resolve the signer allowlist once (union of --cert-identity and the list) and
-	// enforce it on the offline path — previously this command ignored the list entirely.
+	// resolve the signer allowlist (union of --cert-identity and the list) once
 	certOpts := orchestrate.SetupCertIdentityValidation(certIdentityList, noCache, quiet)
 	acceptedIdentities, err := certid.ResolveAcceptedIdentities(cmd.Context(), certIdentity, certOpts)
 	if err != nil {

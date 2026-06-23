@@ -422,9 +422,7 @@ func TestRunCommandWithImageDigestFlag(t *testing.T) {
 	}
 }
 
-// captureStderr redirects os.Stderr for the duration of fn and returns what was written.
-// the unsafe-mode warning is written to os.Stderr directly (not cmd output) so it survives
-// stdout capture and quiet runs — so the test must capture os.Stderr.
+// captureStderr captures os.Stderr, where the unsafe-mode warning is written.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	old := os.Stderr
@@ -446,9 +444,7 @@ func captureStderr(t *testing.T, fn func()) string {
 }
 
 func TestRunCommandEnforcesCertIdentityList(t *testing.T) {
-	// the offline command must resolve and enforce --cert-identity-list (it ignored
-	// the list entirely before). a malformed list fails closed rather than silently
-	// falling through to accept-any.
+	// a malformed --cert-identity-list must fail closed, not be ignored.
 	tmpDir := t.TempDir()
 
 	validBundle := `{"mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json", "verificationMaterial": {"certificate": {"rawBytes": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCmZha2VDZXJ0CkZha2VDZXJ0Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0="}}, "dsseEnvelope": {"payload": "dGVzdA==", "payloadType": "application/vnd.in-toto+json", "signatures": [{"sig": "dGVzdA=="}]}}`
@@ -476,8 +472,7 @@ func TestRunCommandEnforcesCertIdentityList(t *testing.T) {
 }
 
 func TestRunCommandUnsafeWarningUngatedByQuiet(t *testing.T) {
-	// when neither --cert-identity nor --cert-identity-list is set, a single warning
-	// goes to stderr, is "warning:"-prefixed, and fires even under --quiet.
+	// neither flag set → one unsafe-mode warning on stderr, even under --quiet.
 	tmpDir := t.TempDir()
 
 	validBundle := `{"mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json", "verificationMaterial": {"certificate": {"rawBytes": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCmZha2VDZXJ0CkZha2VDZXJ0Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0="}}, "dsseEnvelope": {"payload": "dGVzdA==", "payloadType": "application/vnd.in-toto+json", "signatures": [{"sig": "dGVzdA=="}]}}`
