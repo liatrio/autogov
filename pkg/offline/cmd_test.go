@@ -2,8 +2,10 @@ package offline
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -23,6 +25,8 @@ func createTestCmd() *cobra.Command {
 	cmd.Flags().String("trusted-root", "", "trusted root path")
 	cmd.Flags().String("trusted-root-source", "", "trusted root source")
 	cmd.Flags().String("cert-identity", "", "certificate identity")
+	cmd.Flags().String("cert-identity-list", "", "certificate identity allowlist")
+	cmd.Flags().Bool("no-cache", false, "disable cert identity list cache")
 	cmd.Flags().String("cert-issuer", "", "certificate issuer")
 	cmd.Flags().String("source-ref", "", "source ref")
 	cmd.Flags().Bool("generate-vsa", false, "generate VSA")
@@ -415,6 +419,80 @@ func TestRunCommandWithImageDigestFlag(t *testing.T) {
 	// Will fail verification but covers the image-digest flag path
 	if err != nil {
 		t.Logf("RunCommand() with image-digest flag: %v (expected)", err)
+	}
+}
+
+// captureStderr captures os.Stderr, where the unsafe-mode warning is written.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stderr = w
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		done <- buf.String()
+	}()
+	fn()
+	_ = w.Close()
+	os.Stderr = old
+	return <-done
+}
+
+func TestRunCommandEnforcesCertIdentityList(t *testing.T) {
+	// a malformed --cert-identity-list must fail closed, not be ignored.
+	tmpDir := t.TempDir()
+
+	validBundle := `{"mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json", "verificationMaterial": {"certificate": {"rawBytes": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCmZha2VDZXJ0CkZha2VDZXJ0Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0="}}, "dsseEnvelope": {"payload": "dGVzdA==", "payloadType": "application/vnd.in-toto+json", "signatures": [{"sig": "dGVzdA=="}]}}`
+	attestPath := filepath.Join(tmpDir, "bundles.json")
+	if err := os.WriteFile(attestPath, []byte(validBundle), 0644); err != nil {
+		t.Fatalf("failed to write attestation file: %v", err)
+	}
+	badList := filepath.Join(tmpDir, "bad-list.json")
+	if err := os.WriteFile(badList, []byte("not json"), 0644); err != nil {
+		t.Fatalf("failed to write bad list: %v", err)
+	}
+
+	cmd := createTestCmd()
+	_ = cmd.Flags().Set("attestations", attestPath)
+	_ = cmd.Flags().Set("cert-identity-list", badList)
+	_ = cmd.Flags().Set("quiet", "true")
+
+	err := RunCommand(cmd, []string{})
+	if err == nil {
+		t.Fatal("expected fail-closed error for malformed --cert-identity-list, got nil")
+	}
+	if !strings.Contains(err.Error(), "resolve accepted certificate identities") {
+		t.Errorf("expected the offline command to resolve+enforce the list (not ignore it); got: %v", err)
+	}
+}
+
+func TestRunCommandUnsafeWarningUngatedByQuiet(t *testing.T) {
+	// neither flag set → one unsafe-mode warning on stderr, even under --quiet.
+	tmpDir := t.TempDir()
+
+	validBundle := `{"mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json", "verificationMaterial": {"certificate": {"rawBytes": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCmZha2VDZXJ0CkZha2VDZXJ0Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0="}}, "dsseEnvelope": {"payload": "dGVzdA==", "payloadType": "application/vnd.in-toto+json", "signatures": [{"sig": "dGVzdA=="}]}}`
+	attestPath := filepath.Join(tmpDir, "bundles.json")
+	if err := os.WriteFile(attestPath, []byte(validBundle), 0644); err != nil {
+		t.Fatalf("failed to write attestation file: %v", err)
+	}
+
+	cmd := createTestCmd()
+	_ = cmd.Flags().Set("attestations", attestPath)
+	_ = cmd.Flags().Set("quiet", "true")
+
+	stderr := captureStderr(t, func() {
+		// verification itself fails (fake bundle); we only assert the warning fired
+		_ = RunCommand(cmd, []string{})
+	})
+
+	const want = "warning: no certificate identity enforced"
+	if got := strings.Count(stderr, want); got != 1 {
+		t.Errorf("expected exactly one unsafe-mode warning on stderr (ungated by --quiet), got %d; stderr: %q", got, stderr)
 	}
 }
 

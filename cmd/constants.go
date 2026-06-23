@@ -6,6 +6,8 @@ const (
 	flagBlobPath          = "blob-path"
 	flagRepo              = "repo"
 	flagCertIdentity      = "cert-identity"
+	flagCertIdentityList  = "cert-identity-list"
+	flagNoCache           = "no-cache"
 	flagCertIssuer        = "cert-issuer"
 	flagSourceRef         = "source-ref"
 	flagQuiet             = "quiet"
