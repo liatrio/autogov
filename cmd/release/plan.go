@@ -28,7 +28,10 @@ Examples:
   autogov release plan --output json
 
   # Only follow first parent commits (for merge-based workflows)
-  autogov release plan --first-parent`,
+  autogov release plan --first-parent
+
+  # Plan via the GitHub API (discovers tags/commits without a full clone; used in CI)
+  autogov release plan --mode api`,
 	RunE: runPlan,
 }
 

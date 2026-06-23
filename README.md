@@ -44,7 +44,7 @@ A unified CLI for attestation verification and release management. Supports [cos
 - **Multi-Attestation Verification**: Supports all standard in-toto predicate types (SLSA, SBOM, vulnerability, custom)
 - **SLSA v1.2 VSA Generation**: Creates comprehensive Verification Summary Attestations
 - **OPA Policy Integration**: Evaluates Rego policies with results included in VSA metadata
-- **Certificate Identity Validation**: Validates against approved certificate identity lists
+- **Signer Allowlist**: Enforces an approved set of signer certificate identities via `--cert-identity-list` (a URL or local file). Accepts the union of `--cert-identity` and the list (multiple signers per run), and fails closed when a configured list resolves to zero valid identities.
 - **Offline Verification**: Supports pre-downloaded attestation artifacts (verify container images by digest without pulling the image)
 - **Attestation Download**: Download attestations from GitHub for offline verification workflows
 - **Dynamic Trusted Root**: Automatically fetches latest GitHub trusted roots
@@ -209,7 +209,10 @@ autogov offline \
 - `--attestations`: Path to pre-downloaded attestation bundles file (required)
 - `--blob-path`: Path to artifact file or directory containing multiple artifacts to verify (optional, calculates SHA256 digest for single files)
 - `--image-digest`: SHA256 digest for container image verification (optional, use when image cannot be pulled offline)
-- `--cert-identity`: Certificate identity (workflow URL with commit SHA). If not provided, any valid signature will be accepted
+- `--cert-identity`: Certificate identity (workflow URL with commit SHA). Supplying `--cert-identity` and/or `--cert-identity-list` enforces a signer allowlist; if neither is provided, any valid Fulcio signature is accepted (unsafe)
+- `--cert-identity-list`: Signer allowlist — URL or local file path to a certificate identity list; enforced as a signer allowlist, usable with or without `--cert-identity` (their union is accepted)
+- `--no-cache`: Disable caching of the certificate identity list
+- `--policy-bundle-digest`: Expected SHA-256 (`sha256:...`) of the downloaded policy bundle asset; enforced for `ghrel://` bundle paths (distinct from `--image-digest`)
 - `--cert-issuer`: Certificate issuer (defaults to GitHub Actions)
 - `--source-ref`: Source repository ref to verify against (e.g., `refs/heads/main`)
 - `--trusted-root`: Path to custom trusted root JSON file (takes precedence over `--trusted-root-source`)
@@ -254,9 +257,9 @@ The `auto` mode examines the attestation certificate issuer to determine the app
 
 #### Certificate Identity Validation Flags
 
-The tool supports validating certificate identities against a source of truth list:
+The tool supports enforcing a signer allowlist via a certificate identity list:
 
-- `--cert-identity-list`: URL to the certificate identity list for validation. If provided, validates the cert-identity against this source (optional). Example: `https://raw.githubusercontent.com/liatrio/autogov-workflows/refs/heads/main/cert-identities.json`
+- `--cert-identity-list`: Signer allowlist — a URL or local file path to a certificate identity list. Accepted identities are enforced as the set of allowed signers, usable with or without `--cert-identity` (their union is accepted). Revoked/expired entries are dropped, and verification fails closed if an enforced list resolves to zero valid identities. Example: `https://raw.githubusercontent.com/liatrio/autogov-workflows/refs/heads/main/cert-identities.json`
 - `--no-cache`: Disable caching of the certificate identity list
 
 #### VSA and Policy Flags
@@ -394,6 +397,7 @@ Analyzes commits since the last tag, determines the next semantic version, and s
 - `-o, --output`: Output format: `text`, `json`, `yaml` (default: `text`)
 - `--repo`: Path to git repository (default: `.`)
 - `--mutations-config`: Path to mutations config file for file update preview
+- `--mode`: Git read mode — `auto` (default), `api` (discover tags/commits via the GitHub API; works without a full clone, needs a token), `local` (go-git only)
 
 #### `release cut` — Execute a release
 
@@ -410,6 +414,10 @@ Applies file mutations, creates a release commit and tag via GitHub API (providi
 - `--remote`: Git remote to push to (default: `origin`)
 - `--mutations-config`: Path to mutations config file
 - `--dry-run`: Show what would be done without making changes
+- `--publish`: Publish the release directly (skip the draft state)
+- `--mode`: Git read mode: `auto` (default), `api` (require GitHub API), `local` (go-git only)
+- `--asset`: File to upload as a release asset (repeatable)
+- `--asset-label`: Display label for an asset as `name=label` (repeatable)
 - `--repo`: Path to git repository (default: `.`)
 - `--commit-author`: Author name for release commit (default: `autogov[bot]`)
 - `--commit-email`: Author email for release commit (default: `autogov[bot]@users.noreply.github.com`)
@@ -425,8 +433,9 @@ Publishes a draft GitHub release, making it visible to users.
 
 **Flags:**
 
-- `--tag`: Specific tag to publish (mutually exclusive with `--latest`)
-- `--latest`: Publish latest draft release (mutually exclusive with `--tag`)
+- `--tag`: Specific tag to publish (mutually exclusive with `--latest`; requires a user token, as GitHub App tokens cannot discover drafts)
+- `--latest`: Publish latest draft release (mutually exclusive with `--tag`; requires a user token, as GitHub App tokens cannot discover drafts)
+- `--release-id`: Publish by release ID (works with GitHub App tokens)
 - `--dry-run`: Show what would be done without publishing
 - `--repo`: Path to git repository (default: `.`)
 - `-o, --output`: Output format: `text`, `json` (default: `text`)
@@ -707,6 +716,10 @@ task verify       # Run format, lint, and test
 task install      # Install binary to /usr/local/bin
 task clean        # Clean build artifacts
 ```
+
+### Reproducible Builds
+
+`task build` produces a deterministic binary. The embedded `main.date` is derived from the commit timestamp (`git show -s --format=%cI HEAD`) rather than wall-clock time, so the build does not vary by when it runs. The binary is built with `-trimpath` and `CGO_ENABLED=0` to strip local filesystem paths and avoid C toolchain variance. As a result, rebuilding the same commit yields byte-identical output.
 
 ### Testing
 

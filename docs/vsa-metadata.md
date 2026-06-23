@@ -6,7 +6,7 @@ The generated VSA includes comprehensive metadata about the verification and pol
 {
   "_type": "https://in-toto.io/Statement/v1",
   "subject": [...],
-  "predicateType": "https://slsa.dev/verification_summary/v1.1",
+  "predicateType": "https://slsa.dev/verification_summary/v1",
   "predicate": {
     "verifier": {...},
     "timeVerified": "2024-01-20T15:30:00Z",
@@ -21,7 +21,7 @@ The generated VSA includes comprehensive metadata about the verification and pol
       "violations": [],
       "evaluation_time": "2024-01-20T15:30:00Z",
       "policy_bundle": "ghcr.io/liatrio/autogov-policy-library:latest",
-      "opa_version": "v1.8.0",
+      "opa_version": "v1.17.1",
       "governance_rules": ["governance.allow", "governance.violations"],
       "details": {
         "total_policies": 15,
