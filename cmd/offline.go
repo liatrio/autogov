@@ -39,7 +39,7 @@ func init() {
 	offlineCmd.Flags().String(flagBlobPath, "", "Path to artifact file to verify (optional - if not provided, verifies attestations only)")
 	offlineCmd.Flags().String(flagImageDigest, "", "Artifact digest to verify (e.g., sha256:abc123... for container images)")
 	offlineCmd.Flags().String(flagOfflineAttestations, "", "Path to attestation bundles file (required)")
-	offlineCmd.Flags().String(flagCertIdentity, "", "Expected certificate identity (required)")
+	offlineCmd.Flags().String(flagCertIdentity, "", "Expected certificate identity (optional; usable with --cert-identity-list as a signer allowlist — if neither is set, any valid signature is accepted)")
 	offlineCmd.Flags().String(flagCertIdentityList, "", "Signer allowlist: URL or file path to a certificate identity list. Accepted identities are enforced as a signer allowlist; usable with or without --cert-identity (their union is accepted)")
 	offlineCmd.Flags().Bool(flagNoCache, false, "Disable caching of the certificate identity list")
 	offlineCmd.Flags().String(flagCertIssuer, "https://token.actions.githubusercontent.com", "Expected certificate issuer")
