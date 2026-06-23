@@ -77,6 +77,38 @@ func TestOfflineAcceptedIdentitiesSelectsIdentityBranch(t *testing.T) {
 	}
 }
 
+// when an allowlist is enforced, a multi-bundle set where one bundle verifies but another
+// is signed by a non-allowlisted signer must fail overall (the #258 image+VSA case) —
+// offline parity with the online path. Without an allowlist, a non-allowlisted signer
+// error is tolerated (accept-any) and only integrity failures fail the run.
+func TestAggregateHasFailures(t *testing.T) {
+	verified := AttestationResult{Verified: true}
+	identityFail := AttestationResult{Verified: false, Error: "no matching CertificateIdentity found, got [https://github.com/x/.github/workflows/rogue.yml@refs/heads/main]"}
+	integrityFail := AttestationResult{Verified: false, Error: "verification failed: artifact digest does not match"}
+
+	cases := []struct {
+		name      string
+		enforcing bool
+		atts      []AttestationResult
+		want      bool
+	}{
+		{"enforced: one verified + one non-allowlisted signer fails overall", true, []AttestationResult{verified, identityFail}, true},
+		{"enforced: all verified", true, []AttestationResult{verified, verified}, false},
+		{"enforced: integrity failure", true, []AttestationResult{verified, integrityFail}, true},
+		{"no allowlist: non-allowlisted signer tolerated", false, []AttestationResult{verified, identityFail}, false},
+		{"no allowlist: integrity failure still fails", false, []AttestationResult{integrityFail}, true},
+		{"no allowlist: all verified", false, []AttestationResult{verified}, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := aggregateHasFailures(tc.enforcing, tc.atts); got != tc.want {
+				t.Errorf("aggregateHasFailures(enforcing=%v) = %v, want %v", tc.enforcing, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNewOfflineVerifier(t *testing.T) {
 	// create temporary trusted root file
 	tmpFile, err := os.CreateTemp("", "verifier_test_*.json")

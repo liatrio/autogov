@@ -311,20 +311,12 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 		}
 	}
 
-	// checks if any attestations had verification failures (not just cert-identity mismatches)
-	hasVerificationFailures := false
-	for _, att := range result.Attestations {
-		if !att.Verified && att.Error != "" {
-			// checks if it's a real verification failure vs just cert-identity mismatch
-			if strings.Contains(att.Error, "digest does not match") ||
-				strings.Contains(att.Error, "failed to verify signature") ||
-				strings.Contains(att.Error, "transparency log") ||
-				strings.Contains(att.Error, "source ref mismatch") {
-				hasVerificationFailures = true
-				break
-			}
-		}
-	}
+	// when a signer allowlist is enforced, ANY unverified bundle is a hard failure
+	// (including one whose signer is not in the allowlist — sigstore reports "no matching
+	// CertificateIdentity"), matching the online path. Without an allowlist, only integrity
+	// failures count, preserving the prior accept-any-signer behavior.
+	enforcingAllowlist := ov.options.CertIdentity != "" || len(ov.options.AcceptedIdentities) > 0
+	hasVerificationFailures := aggregateHasFailures(enforcingAllowlist, result.Attestations)
 
 	// overall verification status - fail if there are real verification failures
 	if hasVerificationFailures {
@@ -342,6 +334,31 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 	}
 
 	return result, nil
+}
+
+// aggregateHasFailures reports whether the per-bundle results should fail the overall
+// offline verification. When a signer allowlist is enforced, ANY unverified bundle counts
+// (a non-allowlisted signer must fail closed — sigstore reports "no matching
+// CertificateIdentity", which is not one of the integrity-failure substrings below); this
+// matches the online path and delivers offline parity. When no allowlist is enforced, only
+// integrity failures (bad digest/signature/tlog/source-ref) count, preserving the prior
+// accept-any-signer behavior for unauthenticated runs.
+func aggregateHasFailures(enforcingAllowlist bool, atts []AttestationResult) bool {
+	for _, att := range atts {
+		if att.Verified || att.Error == "" {
+			continue
+		}
+		if enforcingAllowlist {
+			return true
+		}
+		if strings.Contains(att.Error, "digest does not match") ||
+			strings.Contains(att.Error, "failed to verify signature") ||
+			strings.Contains(att.Error, "transparency log") ||
+			strings.Contains(att.Error, "source ref mismatch") {
+			return true
+		}
+	}
+	return false
 }
 
 // verifies a single bundle
