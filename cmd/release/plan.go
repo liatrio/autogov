@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	ghpkg "github.com/liatrio/autogov/pkg/github"
 	"github.com/liatrio/autogov/pkg/release"
 	"github.com/spf13/cobra"
 )
@@ -38,6 +39,7 @@ func init() {
 	planCmd.Flags().StringP("output", "o", "text", "Output format: text, json, yaml")
 	planCmd.Flags().String("repo", ".", "Path to git repository")
 	planCmd.Flags().String("mutations-config", "", "Path to mutations config file for file update preview")
+	planCmd.Flags().String("mode", "auto", "Git read mode: auto (default), api (discover tags/commits via the GitHub API — works without a full clone), local (go-git only)")
 }
 
 // valid output formats
@@ -54,6 +56,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	outputFormat, _ := cmd.Flags().GetString("output")
 	repoPath, _ := cmd.Flags().GetString("repo")
 	mutationsConfig, _ := cmd.Flags().GetString("mutations-config")
+	modeStr, _ := cmd.Flags().GetString("mode")
 
 	// validate output format
 	if !validOutputFormats[outputFormat] {
@@ -67,6 +70,8 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		RepoPath:        repoPath,
 		OutputFormat:    outputFormat,
 		MutationsConfig: mutationsConfig,
+		Mode:            release.ReleaseMode(modeStr),
+		Token:           ghpkg.GetToken(),
 	}
 
 	plan, err := release.GeneratePlan(opts)
