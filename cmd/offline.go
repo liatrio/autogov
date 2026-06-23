@@ -24,6 +24,9 @@ Examples:
   # Verify a blob file offline
   autogov offline --blob-path artifact.tar.gz --attestations bundles.jsonl --cert-identity "workflow@ref"
 
+  # Verify against a signer allowlist (URL or file path)
+  autogov offline --blob-path artifact.tar.gz --attestations bundles.jsonl --cert-identity-list cert-identities.json
+
   # Verify with custom trusted root
   autogov offline --blob-path artifact.tar.gz --attestations bundles.jsonl --trusted-root root.json
 
@@ -37,6 +40,8 @@ func init() {
 	offlineCmd.Flags().String(flagImageDigest, "", "Artifact digest to verify (e.g., sha256:abc123... for container images)")
 	offlineCmd.Flags().String(flagOfflineAttestations, "", "Path to attestation bundles file (required)")
 	offlineCmd.Flags().String(flagCertIdentity, "", "Expected certificate identity (required)")
+	offlineCmd.Flags().String(flagCertIdentityList, "", "Signer allowlist: URL or file path to a certificate identity list. Accepted identities are enforced as a signer allowlist; usable with or without --cert-identity (their union is accepted)")
+	offlineCmd.Flags().Bool(flagNoCache, false, "Disable caching of the certificate identity list")
 	offlineCmd.Flags().String(flagCertIssuer, "https://token.actions.githubusercontent.com", "Expected certificate issuer")
 	offlineCmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final results")
 	offlineCmd.Flags().String(flagOfflineTrustedRoot, "", "Path to trusted root file (optional, takes precedence over --trusted-root-source)")
