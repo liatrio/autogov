@@ -2,10 +2,80 @@ package offline
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	bundleutils "github.com/liatrio/autogov/pkg/bundle"
 )
+
+// the offline policy build is driven by AcceptedIdentities: a non-empty allowlist
+// (even with an empty --cert-identity) takes the identity branch — observable via the
+// issuer-default warning it emits — instead of the accept-any (WithoutIdentitiesUnsafe)
+// branch. this is the offline counterpart of the online multi-identity policy (AC7).
+func TestOfflineAcceptedIdentitiesSelectsIdentityBranch(t *testing.T) {
+	dir := t.TempDir()
+
+	rootPath := filepath.Join(dir, "root.json")
+	if err := os.WriteFile(rootPath, []byte(`{
+		"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1",
+		"tlogs": [], "certificateAuthorities": [], "ctlogs": [], "timestampAuthorities": []
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	bundlePath := filepath.Join(dir, "bundle.json")
+	if err := os.WriteFile(bundlePath, []byte(`{"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.1", "verificationMaterial": {"x509CertificateChain": {"certificates": [{"rawBytes": "dGVzdA=="}]}}, "dsseEnvelope": {"payload": "dGVzdA==", "payloadType": "application/vnd.in-toto+json", "signatures": [{"sig": "dGVzdA=="}]}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	const issuerWarning = "no OIDC issuer specified"
+
+	newV := func(t *testing.T, opts VerifyOptions) *OfflineVerifier {
+		t.Helper()
+		opts.SkipTLogVerify = true
+		opts.Quiet = true
+		v, err := NewOfflineVerifier(rootPath, opts)
+		if err != nil {
+			t.Fatalf("NewOfflineVerifier: %v", err)
+		}
+		if err := v.LoadBundlesFromFile(bundlePath); err != nil {
+			t.Fatalf("LoadBundlesFromFile: %v", err)
+		}
+		return v
+	}
+
+	hasWarning := func(res *VerificationResult, sub string) bool {
+		for _, att := range res.Attestations {
+			for _, w := range att.Warnings {
+				if strings.Contains(w, sub) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	// allowlist supplied, no explicit issuer → identity branch → issuer-default warning
+	withList := newV(t, VerifyOptions{AcceptedIdentities: []string{"https://github.com/liatrio/test/.github/workflows/wf.yml@refs/heads/main"}})
+	res, err := withList.VerifyArtifactDigest("")
+	if err != nil {
+		t.Fatalf("VerifyArtifactDigest (allowlist): %v", err)
+	}
+	if !hasWarning(res, issuerWarning) {
+		t.Errorf("expected identity branch (issuer-default warning) when AcceptedIdentities is set; attestations: %+v", res.Attestations)
+	}
+
+	// no identities at all → accept-any branch → no issuer warning
+	none := newV(t, VerifyOptions{})
+	res2, err := none.VerifyArtifactDigest("")
+	if err != nil {
+		t.Fatalf("VerifyArtifactDigest (none): %v", err)
+	}
+	if hasWarning(res2, issuerWarning) {
+		t.Errorf("expected accept-any branch (no issuer warning) when no identities supplied; attestations: %+v", res2.Attestations)
+	}
+}
 
 func TestNewOfflineVerifier(t *testing.T) {
 	// create temporary trusted root file

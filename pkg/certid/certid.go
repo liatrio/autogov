@@ -226,11 +226,17 @@ func (v *Validator) IsValidIdentity(certIdentity string) (bool, error) {
 
 	normalizedIdentity, certSHA := normalizeIdentity(certIdentity)
 
+	// revocation wins regardless of position: check ALL entries for a revocation
+	// before accepting any match, so a SAN revoked by a later-listed entry can't be
+	// rescued by an earlier approved/latest entry that names the same SAN or sha.
 	for _, id := range v.list.Identities {
 		if err := checkIfRevoked(id, certIdentity, normalizedIdentity, certSHA); err != nil {
 			return false, err
 		}
+	}
 
+	// then accept on the first valid (non-expired latest/approved) match
+	for _, id := range v.list.Identities {
 		valid, err := checkIfValid(id, certIdentity, normalizedIdentity, certSHA)
 		if err != nil {
 			return false, err
@@ -361,4 +367,102 @@ func (v *Validator) GetValidIdentities() ([]Identity, error) {
 	}
 
 	return validIdentities, nil
+}
+
+// returns the flat, deduped set of SANs from all valid identities, with each
+// SAN re-checked through IsValidIdentity. GetValidIdentities filters by
+// status/expiry only; running each candidate SAN through IsValidIdentity
+// re-applies checkIfRevoked across ALL entries, so a SAN named in a separate
+// status:"revoked" entry (by SAN or sha) is dropped — preserving the revocation
+// rigor of the single-identity guard this enables removing.
+func (v *Validator) GetValidIdentitySANs() ([]string, error) {
+	valid, err := v.GetValidIdentities()
+	if err != nil {
+		return nil, err
+	}
+
+	// flatten + dedupe candidate SANs from valid (latest/approved, non-expired) entries
+	seen := make(map[string]struct{})
+	var candidates []string
+	for _, id := range valid {
+		for _, san := range id.Identities {
+			// skip empty SANs: IsValidIdentity("") matches an empty-SAN entry as
+			// (true, nil), so an unfiltered "" would leak into the allowlist.
+			if san == "" {
+				continue
+			}
+			if _, dup := seen[san]; dup {
+				continue
+			}
+			seen[san] = struct{}{}
+			candidates = append(candidates, san)
+		}
+	}
+
+	// keep only SANs that pass IsValidIdentity (true, nil) — drops cross-entry
+	// revoked/expired SANs (fail-closed: anything not affirmatively valid is excluded)
+	var sans []string
+	for _, san := range candidates {
+		if ok, err := v.IsValidIdentity(san); err == nil && ok {
+			sans = append(sans, san)
+		}
+	}
+
+	return sans, nil
+}
+
+// builds the effective signer allowlist (D1 union): certIdentity accepted
+// as-typed (operator vouches — NOT revocation-checked) unioned with the
+// revocation-checked valid SANs from the configured list (if any). The list is
+// loaded at most once. Fail-closed: any validator/load/resolution error is
+// returned, and a configured list that resolves to zero acceptable identities
+// (with no --cert-identity) is rejected rather than degrading to accept-any —
+// per SLSA, a verifier must only accept provenance proving it came from an
+// acceptable builder. Returns an empty slice ONLY when NEITHER a --cert-identity
+// NOR a list is configured (the deliberate, separately-warned backward-compat
+// unsafe case handled at the policy sites).
+func ResolveAcceptedIdentities(ctx context.Context, certIdentity string, listOpts *Options) ([]string, error) {
+	seen := make(map[string]struct{})
+	var accepted []string
+	add := func(s string) {
+		if s == "" {
+			return
+		}
+		if _, dup := seen[s]; dup {
+			return
+		}
+		seen[s] = struct{}{}
+		accepted = append(accepted, s)
+	}
+
+	// D1: --cert-identity is accepted as-typed (not list-membership or revocation checked)
+	add(certIdentity)
+
+	if listOpts != nil {
+		v, err := NewValidator(*listOpts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create certificate identity validator: %w", err)
+		}
+		if err := v.LoadIdentities(ctx); err != nil {
+			return nil, fmt.Errorf("failed to load certificate identities: %w", err)
+		}
+		sans, err := v.GetValidIdentitySANs()
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve valid certificate identities: %w", err)
+		}
+		for _, san := range sans {
+			add(san)
+		}
+
+		// SLSA fail-closed: a list was configured, so the operator asked to enforce a
+		// signer allowlist. if it resolves to zero acceptable identities (every entry
+		// revoked/expired) and no --cert-identity was given, refuse rather than fall
+		// through to WithoutIdentitiesUnsafe (accept-any) at the policy sites. (len==0
+		// here implies certIdentity was empty: a non-empty one is added above.)
+		if len(accepted) == 0 {
+			return nil, fmt.Errorf("certificate identity list resolved to zero acceptable identities (all entries revoked/expired); refusing to verify with an empty signer allowlist — set --cert-identity or provide a list with at least one valid identity")
+		}
+	}
+
+	return accepted, nil
 }

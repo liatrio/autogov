@@ -2,6 +2,8 @@ package orchestrate
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/go-github/v88/github"
@@ -201,4 +203,30 @@ func TestVerifyBlobsWithCertIdentityValidation(t *testing.T) {
 	// will fail due to GitHub client requirement, but tests the cert validation path
 	_, err := VerifyBlobs(ctx, client, opts)
 	assert.Error(t, err)
+}
+
+func TestVerifyBlobsCertIdentityListFailsClosed(t *testing.T) {
+	// #257 + AC8 (online): a malformed identity list must fail closed in VerifyBlobs,
+	// never silently fall through to accept-any (WithoutIdentitiesUnsafe).
+	ctx := context.Background()
+	client := mustClient(t)
+
+	badList := filepath.Join(t.TempDir(), "bad.json")
+	if err := os.WriteFile(badList, []byte("not json"), 0644); err != nil {
+		t.Fatalf("write bad list: %v", err)
+	}
+
+	certOpts := certid.DefaultOptions()
+	certOpts.URL = badList
+	certOpts.DisableCache = true
+
+	// no --cert-identity, list only: the list alone must be resolved and enforced
+	_, err := VerifyBlobs(ctx, client, Options{
+		Repository:             "test/repo",
+		BlobPaths:              []string{},
+		CertIdentityValidation: &certOpts,
+		Quiet:                  true,
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "resolve accepted certificate identities")
 }

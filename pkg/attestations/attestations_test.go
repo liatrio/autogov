@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/go-github/v88/github"
+	"github.com/liatrio/autogov/pkg/certid"
 	"github.com/liatrio/autogov/pkg/root"
 )
 
@@ -445,6 +446,32 @@ func TestVerifyAttestation(t *testing.T) {
 				t.Errorf("verifyAttestation() error = %v, want error containing %v", err, tt.errMsg)
 			}
 		})
+	}
+}
+
+func TestGetFromGitHubCertIdentityListFailsClosed(t *testing.T) {
+	// #257 + AC8 at the attestations layer: a configured but malformed identity list must
+	// fail closed in GetFromGitHub's fallback resolution — never silently ignored or
+	// degraded to accept-any. (resolution runs before any GitHub API call, so no token
+	// is required to exercise this path.)
+	badList := filepath.Join(t.TempDir(), "bad.json")
+	if err := os.WriteFile(badList, []byte("not json"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	certOpts := certid.DefaultOptions()
+	certOpts.URL = badList
+	certOpts.DisableCache = true
+
+	_, err := GetFromGitHub(context.Background(), "liatrio/repo@"+validTestDigest, nil, Options{
+		CertIdentityValidation: &certOpts,
+		Quiet:                  true,
+	})
+	if err == nil {
+		t.Fatal("expected fail-closed error for malformed cert-identity list, got nil")
+	}
+	if !strings.Contains(err.Error(), "certificate identities") {
+		t.Errorf("expected a certificate-identity resolution error (list enforced, not ignored), got: %v", err)
 	}
 }
 

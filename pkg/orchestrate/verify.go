@@ -22,10 +22,28 @@ type Options struct {
 	BlobPaths              []string
 	Quiet                  bool
 	CertIdentityValidation *certid.Options
+	// pre-resolved signer allowlist; if empty it is resolved once from
+	// CertIdentity + CertIdentityValidation before verifying.
+	AcceptedIdentities []string
 }
 
 // verifies multiple blob files and returns all signatures
 func VerifyBlobs(ctx context.Context, client *github.Client, opts Options) ([]oci.Signature, error) {
+	// resolve the signer allowlist ONCE per invocation (D1 union) so the identity
+	// list is loaded at most once — not once per blob. fail-closed on errors.
+	accepted := opts.AcceptedIdentities
+	if len(accepted) == 0 {
+		var err error
+		accepted, err = certid.ResolveAcceptedIdentities(ctx, opts.CertIdentity, opts.CertIdentityValidation)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve accepted certificate identities: %w", err)
+		}
+	}
+	if len(accepted) > 0 && !opts.Quiet {
+		// parity with the GetFromGitHub direct-caller fallback message
+		fmt.Printf("✓ Enforcing signer allowlist (%d accepted identities)\n", len(accepted))
+	}
+
 	if len(opts.BlobPaths) == 0 {
 		// no blob paths, verify image/container
 		return attestations.GetFromGitHub(
@@ -33,13 +51,13 @@ func VerifyBlobs(ctx context.Context, client *github.Client, opts Options) ([]oc
 			opts.ArtifactDigest,
 			client,
 			attestations.Options{
-				Repository:             opts.Repository,
-				CertIdentity:           opts.CertIdentity,
-				CertIssuer:             opts.CertIssuer,
-				BlobPath:               "",
-				SourceRef:              opts.SourceRef,
-				Quiet:                  opts.Quiet,
-				CertIdentityValidation: opts.CertIdentityValidation,
+				Repository:         opts.Repository,
+				CertIdentity:       opts.CertIdentity,
+				CertIssuer:         opts.CertIssuer,
+				BlobPath:           "",
+				SourceRef:          opts.SourceRef,
+				Quiet:              opts.Quiet,
+				AcceptedIdentities: accepted,
 			},
 		)
 	}
@@ -56,13 +74,13 @@ func VerifyBlobs(ctx context.Context, client *github.Client, opts Options) ([]oc
 			opts.ArtifactDigest,
 			client,
 			attestations.Options{
-				Repository:             opts.Repository,
-				CertIdentity:           opts.CertIdentity,
-				CertIssuer:             opts.CertIssuer,
-				BlobPath:               bp,
-				SourceRef:              opts.SourceRef,
-				Quiet:                  opts.Quiet,
-				CertIdentityValidation: opts.CertIdentityValidation,
+				Repository:         opts.Repository,
+				CertIdentity:       opts.CertIdentity,
+				CertIssuer:         opts.CertIssuer,
+				BlobPath:           bp,
+				SourceRef:          opts.SourceRef,
+				Quiet:              opts.Quiet,
+				AcceptedIdentities: accepted,
 			},
 		)
 		if err != nil {

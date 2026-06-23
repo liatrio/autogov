@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/liatrio/autogov/pkg/attestations"
@@ -28,12 +29,13 @@ type OfflineVerifier struct {
 
 // options for offline verification
 type VerifyOptions struct {
-	CertIdentity      string // expected certificate identity (workflow URL)
-	CertOIDCIssuer    string // expected OIDC issuer
-	SkipTLogVerify    bool   // skip transparency log verification (for compatibility)
-	Quiet             bool   // suppress output messages
-	SourceRef         string // expected source repository ref (e.g., refs/heads/main)
-	TrustedRootSource string // trusted root source: github, public, or auto
+	CertIdentity       string   // expected certificate identity (workflow URL)
+	CertOIDCIssuer     string   // expected OIDC issuer
+	SkipTLogVerify     bool     // skip transparency log verification (for compatibility)
+	Quiet              bool     // suppress output messages
+	SourceRef          string   // expected source repository ref (e.g., refs/heads/main)
+	TrustedRootSource  string   // trusted root source: github, public, or auto
+	AcceptedIdentities []string // resolved signer allowlist (D1 union); each attestation must match at least one (OR semantics)
 }
 
 // attestation subject
@@ -386,18 +388,31 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 	// policy options
 	policyOpts := []verify.PolicyOption{}
 
-	// certificate identity if specified
-	if ov.options.CertIdentity != "" {
-		if ov.options.CertOIDCIssuer == "" {
-			// cert identity specified but no issuer - use default GitHub Actions issuer
-			ov.options.CertOIDCIssuer = "https://token.actions.githubusercontent.com"
+	// build the accepted-identity set: --cert-identity (as-typed) unioned with any
+	// pre-resolved allowlist SANs. each identity becomes one repeatable
+	// WithCertificateIdentity, giving native OR semantics (match at least one).
+	accepted := ov.options.AcceptedIdentities
+	if ov.options.CertIdentity != "" && !slices.Contains(accepted, ov.options.CertIdentity) {
+		accepted = append([]string{ov.options.CertIdentity}, accepted...)
+	}
+
+	if len(accepted) > 0 {
+		// use a local issuer rather than mutating shared ov.options, so the
+		// default-issuer warning fires per bundle and there is no cross-bundle state.
+		issuer := ov.options.CertOIDCIssuer
+		if issuer == "" {
+			// identities specified but no issuer - use default GitHub Actions issuer
+			issuer = "https://token.actions.githubusercontent.com"
 			res.Warnings = append(res.Warnings, "no OIDC issuer specified, defaulting to GitHub Actions issuer")
 		}
-		certID, err := verify.NewShortCertificateIdentity(ov.options.CertOIDCIssuer, "", ov.options.CertIdentity, "")
-		if err == nil {
+		for _, sub := range accepted {
+			certID, err := verify.NewShortCertificateIdentity(issuer, "", sub, "")
+			if err != nil {
+				// fail closed: a malformed accepted identity must not fall through to accept-any
+				res.Error = fmt.Sprintf("failed to create identity policy for %q: %v", sub, err)
+				return res
+			}
 			policyOpts = append(policyOpts, verify.WithCertificateIdentity(certID))
-		} else {
-			res.Warnings = append(res.Warnings, fmt.Sprintf("failed to create identity policy: %v", err))
 		}
 	} else {
 		// no cert identity specified / verify signature but not identity
