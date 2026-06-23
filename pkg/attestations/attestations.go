@@ -494,6 +494,12 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 	if len(accepted) > 0 {
 		policyOpts := make([]verify.PolicyOption, 0, len(accepted))
 		for _, sub := range accepted {
+			if sub == "" {
+				// defense-in-depth: an empty SAN makes sigstore's identity matcher
+				// match ANY cert from the issuer (accept-any). The resolver never
+				// produces "", but a direct caller could — fail closed.
+				return nil, fmt.Errorf("empty certificate identity in accepted allowlist")
+			}
 			certIdentity, err := verify.NewShortCertificateIdentity(opts.CertIssuer, "", sub, "")
 			if err != nil {
 				return nil, fmt.Errorf("failed to create certificate identity %q: %w", sub, err)

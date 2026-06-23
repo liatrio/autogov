@@ -109,6 +109,48 @@ func TestAggregateHasFailures(t *testing.T) {
 	}
 }
 
+// a direct caller passing an empty SAN in the allowlist must fail closed — an empty
+// subject makes sigstore's identity matcher match ANY cert from the issuer (accept-any).
+func TestEmptyAcceptedIdentityFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	rootPath := filepath.Join(dir, "root.json")
+	if err := os.WriteFile(rootPath, []byte(`{
+		"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1",
+		"tlogs": [], "certificateAuthorities": [], "ctlogs": [], "timestampAuthorities": []
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	bundlePath := filepath.Join(dir, "bundle.json")
+	if err := os.WriteFile(bundlePath, []byte(`{"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.1", "verificationMaterial": {"x509CertificateChain": {"certificates": [{"rawBytes": "dGVzdA=="}]}}, "dsseEnvelope": {"payload": "dGVzdA==", "payloadType": "application/vnd.in-toto+json", "signatures": [{"sig": "dGVzdA=="}]}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := NewOfflineVerifier(rootPath, VerifyOptions{SkipTLogVerify: true, Quiet: true, AcceptedIdentities: []string{""}})
+	if err != nil {
+		t.Fatalf("NewOfflineVerifier: %v", err)
+	}
+	if err := v.LoadBundlesFromFile(bundlePath); err != nil {
+		t.Fatalf("LoadBundlesFromFile: %v", err)
+	}
+
+	res, err := v.VerifyArtifactDigest("")
+	if err != nil {
+		t.Fatalf("VerifyArtifactDigest: %v", err)
+	}
+	if res.Verified {
+		t.Error("expected verification to fail closed for an empty accepted identity")
+	}
+	found := false
+	for _, a := range res.Attestations {
+		if strings.Contains(a.Error, "empty certificate identity") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected an 'empty certificate identity' error; attestations: %+v", res.Attestations)
+	}
+}
+
 func TestNewOfflineVerifier(t *testing.T) {
 	// create temporary trusted root file
 	tmpFile, err := os.CreateTemp("", "verifier_test_*.json")

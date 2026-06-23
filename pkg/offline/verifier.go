@@ -423,6 +423,13 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 			res.Warnings = append(res.Warnings, "no OIDC issuer specified, defaulting to GitHub Actions issuer")
 		}
 		for _, sub := range accepted {
+			if sub == "" {
+				// defense-in-depth: an empty SAN makes sigstore's identity matcher match
+				// ANY cert from the issuer (accept-any). The resolver never produces "",
+				// but a direct caller could — fail closed.
+				res.Error = "empty certificate identity in accepted allowlist"
+				return res
+			}
 			certID, err := verify.NewShortCertificateIdentity(issuer, "", sub, "")
 			if err != nil {
 				// fail closed: a malformed accepted identity must not fall through to accept-any
