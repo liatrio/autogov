@@ -3,8 +3,11 @@ package offline
 import (
 	"context"
 	"fmt"
+	"os"
 
+	"github.com/liatrio/autogov/pkg/certid"
 	"github.com/liatrio/autogov/pkg/cli"
+	"github.com/liatrio/autogov/pkg/orchestrate"
 	"github.com/liatrio/autogov/pkg/vsa"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -27,6 +30,8 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 	trustedRoot, _ := cmd.Flags().GetString("trusted-root")
 	trustedRootSource, _ := cmd.Flags().GetString("trusted-root-source")
 	certIdentity, _ := cmd.Flags().GetString("cert-identity")
+	certIdentityList, _ := cmd.Flags().GetString("cert-identity-list")
+	noCache, _ := cmd.Flags().GetBool("no-cache")
 	certIssuer, _ := cmd.Flags().GetString("cert-issuer")
 	sourceRef, _ := cmd.Flags().GetString("source-ref")
 
@@ -37,6 +42,21 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 
 	if attestationsPath == "" {
 		return fmt.Errorf("attestations is required")
+	}
+
+	// when neither a single identity nor a list is enforced, verification accepts
+	// any valid Fulcio signature (unsafe). warn exactly once on stderr, ungated by
+	// --quiet and off the stdout summary, so it survives quiet CI runs and stdout capture.
+	if certIdentity == "" && certIdentityList == "" {
+		fmt.Fprintf(os.Stderr, "warning: no certificate identity enforced — accepting any valid Fulcio signature (unsafe); set --cert-identity and/or --cert-identity-list to enforce a signer allowlist\n")
+	}
+
+	// resolve the signer allowlist once (union of --cert-identity and the list) and
+	// enforce it on the offline path — previously this command ignored the list entirely.
+	certOpts := orchestrate.SetupCertIdentityValidation(certIdentityList, noCache, quiet)
+	acceptedIdentities, err := certid.ResolveAcceptedIdentities(cmd.Context(), certIdentity, certOpts)
+	if err != nil {
+		return fmt.Errorf("failed to resolve accepted certificate identities: %w", err)
 	}
 
 	// expand blob paths if provided
@@ -63,12 +83,13 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 
 		// verification options
 		verifyOpts := VerifyOptions{
-			CertIdentity:      certIdentity,
-			CertOIDCIssuer:    certIssuer,
-			SkipTLogVerify:    true, // skip tlog verification in offline mode
-			Quiet:             quiet,
-			SourceRef:         sourceRef,
-			TrustedRootSource: trustedRootSource,
+			CertIdentity:       certIdentity,
+			CertOIDCIssuer:     certIssuer,
+			SkipTLogVerify:     true, // skip tlog verification in offline mode
+			Quiet:              quiet,
+			SourceRef:          sourceRef,
+			TrustedRootSource:  trustedRootSource,
+			AcceptedIdentities: acceptedIdentities,
 		}
 
 		// log what we're verifying
