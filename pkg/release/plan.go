@@ -41,9 +41,9 @@ const (
 
 // Re-export version functions for backward compatibility
 var (
-	ParseVersion           = version.ParseVersion
-	ZeroVersion            = version.ZeroVersion
-	ComputeNextVersion     = version.ComputeNextVersion
+	ParseVersion            = version.ParseVersion
+	ZeroVersion             = version.ZeroVersion
+	ComputeNextVersion      = version.ComputeNextVersion
 	ParseConventionalCommit = version.ParseConventionalCommit
 	FilterReleasableCommits = version.FilterReleasableCommits
 	ExtractBreakingChanges  = version.ExtractBreakingChanges
@@ -53,8 +53,8 @@ var (
 
 // Re-export git helper functions for backward compatibility
 var (
-	OpenRepository   = githelper.OpenRepository
-	DiscoverLatestTag = githelper.DiscoverLatestTag
+	OpenRepository     = githelper.OpenRepository
+	DiscoverLatestTag  = githelper.DiscoverLatestTag
 	GetCommitsSinceTag = githelper.GetCommitsSinceTag
 	GetRepositoryName  = githelper.GetRepositoryName
 	ParseCommits       = githelper.ParseCommits

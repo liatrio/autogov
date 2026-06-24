@@ -1250,7 +1250,7 @@ func TestExecuteCutResumeRejectsPublishedRelease(t *testing.T) {
 		TagName: gogithub.Ptr("v1.1.0"),
 		Draft:   gogithub.Ptr(false),
 	}
-	mock.getRelease = published                                 // checkImmutability path
+	mock.getRelease = published                                  // checkImmutability path
 	mock.listReleases = []*gogithub.RepositoryRelease{published} // detectResume must NOT resume a published release
 
 	opts := &CutOptions{

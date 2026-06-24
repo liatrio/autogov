@@ -101,7 +101,7 @@ func TestEvaluateBranchProtection(t *testing.T) {
 			status: &BranchProtectionStatus{
 				RequireSignedCommits: true,
 				SignedCommitCount:    5,
-				TotalCommitCount:    5,
+				TotalCommitCount:     5,
 			},
 			hasConfig: true,
 			expected:  true,
@@ -111,7 +111,7 @@ func TestEvaluateBranchProtection(t *testing.T) {
 			status: &BranchProtectionStatus{
 				RequireSignedCommits: true,
 				SignedCommitCount:    3,
-				TotalCommitCount:    5,
+				TotalCommitCount:     5,
 			},
 			hasConfig: true,
 			expected:  false,

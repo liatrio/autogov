@@ -169,16 +169,16 @@ func GetCommitStats(commits []version.ParsedCommit) map[string]int {
 
 // JSON represents the JSON output format for changelog generation
 type JSON struct {
-	Version         string     `json:"version,omitempty"`
-	BreakingChanges []string   `json:"breaking_changes,omitempty"`
-	Groups          []GroupJSON `json:"groups"`
+	Version         string         `json:"version,omitempty"`
+	BreakingChanges []string       `json:"breaking_changes,omitempty"`
+	Groups          []GroupJSON    `json:"groups"`
 	Stats           map[string]int `json:"stats"`
 }
 
 // GroupJSON represents a commit group in JSON output
 type GroupJSON struct {
-	Type    string      `json:"type"`
-	Name    string      `json:"name"`
+	Type    string       `json:"type"`
+	Name    string       `json:"name"`
 	Commits []CommitJSON `json:"commits"`
 }
 

@@ -201,9 +201,9 @@ func TestValidateExpectedDigest(t *testing.T) {
 	}
 	invalid := []string{
 		"garbage",
-		"sha256:xyz",                        // non-hex
-		"sha256:" + strings.Repeat("a", 63), // too short
-		"deadbeef",                          // valid hex but wrong length
+		"sha256:xyz",                         // non-hex
+		"sha256:" + strings.Repeat("a", 63),  // too short
+		"deadbeef",                           // valid hex but wrong length
 		"sha512:" + strings.Repeat("a", 128), // well-formed but wrong algorithm
 	}
 	for _, v := range invalid {
