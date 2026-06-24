@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	bundleutils "github.com/liatrio/autogov/pkg/bundle"
 	localroot "github.com/liatrio/autogov/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"github.com/sigstore/sigstore-go/pkg/root"
@@ -44,10 +45,10 @@ type VerificationResult struct {
 
 // inTotoStatement represents the relevant fields of an in-toto v1 statement.
 type inTotoStatement struct {
-	Type          string            `json:"_type"`
-	PredicateType string            `json:"predicateType"`
+	Type          string             `json:"_type"`
+	PredicateType string             `json:"predicateType"`
 	Subject       []statementSubject `json:"subject"`
-	Predicate     json.RawMessage   `json:"predicate"`
+	Predicate     json.RawMessage    `json:"predicate"`
 }
 
 // statementSubject represents a subject in an in-toto statement.
@@ -107,15 +108,18 @@ func VerifySourceProvenance(bundlePath string, opts VerifyOptions) (*Verificatio
 		return nil, fmt.Errorf("verify source: load bundle: %w", err)
 	}
 
-	// Load trusted root.
-	trustedRoot, err := loadTrustedRoot()
+	// Load the trusted root able to chain this bundle's signing cert.
+	trustedRoot, err := selectTrustedRootForBundle(b)
 	if err != nil {
 		return nil, fmt.Errorf("verify source: load trusted root: %w", err)
 	}
 
-	// Create verifier with trusted root.
-	verifierOpts := []verify.VerifierOption{
-		verify.WithObserverTimestamps(1),
+	// Require the transparency-log entry when present so its integrated timestamp
+	// counts toward the observer-timestamp threshold (public-good bundles carry no
+	// TSA); GitHub-internal bundles instead use a TSA and carry no log entry.
+	verifierOpts := []verify.VerifierOption{verify.WithObserverTimestamps(1)}
+	if len(b.GetVerificationMaterial().GetTlogEntries()) > 0 {
+		verifierOpts = append(verifierOpts, verify.WithTransparencyLog(1))
 	}
 	v, err := verify.NewVerifier(trustedRoot, verifierOpts...)
 	if err != nil {
@@ -264,18 +268,20 @@ func ComputeSLSASourceLevel(signatureVerified bool, pred SourceProvenancePredica
 }
 
 // loadTrustedRoot loads the Sigstore trusted root for signature verification.
-func loadTrustedRoot() (*root.TrustedRoot, error) {
-	// Try GitHub trusted root first, then public Sigstore root.
-	for _, rootData := range [][]byte{localroot.GetGitHubTrustedRoot(), localroot.GetPublicTrustedRoot()} {
-		if len(rootData) == 0 {
-			continue
-		}
-		tr, err := root.NewTrustedRootFromJSON(rootData)
-		if err == nil {
-			return tr, nil
+// selectTrustedRootForBundle returns the trusted root able to chain b's signing
+// cert: the public-good Sigstore root for sigstore.dev-issued certs, otherwise
+// the GitHub root.
+func selectTrustedRootForBundle(b *bundle.Bundle) (*root.TrustedRoot, error) {
+	rootData := localroot.GetGitHubTrustedRoot()
+	if der := bundleutils.LeafCertDER(b); len(der) > 0 {
+		if src, err := localroot.DetectTrustedRootFromCert(der); err == nil && src == localroot.TrustedRootSourcePublic {
+			rootData = localroot.GetPublicTrustedRoot()
 		}
 	}
-	return nil, fmt.Errorf("no trusted root available")
+	if len(rootData) == 0 {
+		return nil, fmt.Errorf("no trusted root available")
+	}
+	return root.NewTrustedRootFromJSON(rootData)
 }
 
 // isAcceptedPredicateType checks if the predicate type is one of the accepted types.
@@ -414,4 +420,3 @@ func extractRefFromURI(uri string) string {
 	}
 	return ""
 }
-

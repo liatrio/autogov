@@ -15,6 +15,11 @@ import (
 //go:embed github-trusted-root.json
 var GithubTrustedRoot []byte
 
+// static snapshot of the public-good Sigstore trusted root. unlike the GitHub
+// root (refreshed live via FetchTrustedRoot), this has no refresh path, so a
+// future Sigstore key rotation requires re-vendoring this file; longer term it
+// should be fetched live from the Sigstore TUF repo.
+//
 //go:embed public-trusted-root.json
 var PublicSigstoreTrustedRoot []byte
 
@@ -137,24 +142,23 @@ func DetectTrustedRootFromCert(certPEM []byte) (TrustedRootSource, error) {
 
 // determines trusted root from parsed certificate
 func detectFromCert(cert *x509.Certificate) (TrustedRootSource, error) {
-	// fulcio uses OID 1.3.6.1.4.1.57264.1.1 for OIDC issuer
-	const fulcioIssuerOID = "1.3.6.1.4.1.57264.1.1"
-
-	for _, ext := range cert.Extensions {
-		if ext.Id.String() == fulcioIssuerOID {
-			issuer := string(ext.Value)
-			return detectFromIssuer(issuer), nil
-		}
+	// the Fulcio CA that issued the cert determines which trusted root can chain
+	// it, so prefer the issuer over the OIDC issuer extension: the latter is
+	// identical (token.actions.githubusercontent.com) for both GitHub's internal
+	// Fulcio and the public-good Sigstore Fulcio that public repositories use.
+	issuer := strings.ToLower(strings.Join(cert.Issuer.Organization, " ") + " " + cert.Issuer.CommonName)
+	switch {
+	case strings.Contains(issuer, "sigstore"):
+		return TrustedRootSourcePublic, nil
+	case strings.Contains(issuer, "github"):
+		return TrustedRootSourceGitHub, nil
 	}
 
-	// fallback: check cert issuer org
-	if len(cert.Issuer.Organization) > 0 {
-		org := cert.Issuer.Organization[0]
-		if strings.Contains(strings.ToLower(org), "github") {
-			return TrustedRootSourceGitHub, nil
-		}
-		if strings.Contains(strings.ToLower(org), "sigstore") {
-			return TrustedRootSourcePublic, nil
+	// fall back to the fulcio OIDC issuer extension (OID 1.3.6.1.4.1.57264.1.1)
+	const fulcioIssuerOID = "1.3.6.1.4.1.57264.1.1"
+	for _, ext := range cert.Extensions {
+		if ext.Id.String() == fulcioIssuerOID {
+			return detectFromIssuer(string(ext.Value)), nil
 		}
 	}
 

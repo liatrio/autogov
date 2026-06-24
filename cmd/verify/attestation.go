@@ -154,7 +154,6 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 		verifyOpts := offline.VerifyOptions{
 			CertIdentity:       certIdentity,
 			CertOIDCIssuer:     certIssuer,
-			SkipTLogVerify:     true,
 			AcceptedIdentities: accepted,
 		}
 

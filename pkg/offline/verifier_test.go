@@ -177,18 +177,28 @@ func TestNewOfflineVerifier(t *testing.T) {
 		trustedRootPath string
 		options         VerifyOptions
 		wantErr         bool
+		wantPinnedRoot  bool // true => one root pinned up-front; false => per-bundle auto-selection
 	}{
 		{
 			name:            "valid with custom trusted root",
 			trustedRootPath: tmpFile.Name(),
 			options:         VerifyOptions{},
 			wantErr:         false,
+			wantPinnedRoot:  true,
 		},
 		{
-			name:            "empty trusted root path uses default",
+			name:            "empty path with auto source selects per bundle",
 			trustedRootPath: "",
-			options:         VerifyOptions{},
-			wantErr:         false, // uses embedded trusted root as fallback
+			options:         VerifyOptions{TrustedRootSource: "auto"},
+			wantErr:         false,
+			wantPinnedRoot:  false, // no pinned root; resolved per bundle by signing cert
+		},
+		{
+			name:            "explicit public source pins the public root",
+			trustedRootPath: "",
+			options:         VerifyOptions{TrustedRootSource: "public"},
+			wantErr:         false,
+			wantPinnedRoot:  true,
 		},
 		{
 			name:            "invalid trusted root path",
@@ -203,7 +213,8 @@ func TestNewOfflineVerifier(t *testing.T) {
 				CertIdentity:   "https://github.com/owner/repo/.github/workflows/test.yml@refs/heads/main",
 				SkipTLogVerify: true,
 			},
-			wantErr: false,
+			wantErr:        false,
+			wantPinnedRoot: true,
 		},
 	}
 
@@ -228,8 +239,11 @@ func TestNewOfflineVerifier(t *testing.T) {
 				return
 			}
 
-			if verifier.trustedRoot == nil {
-				t.Errorf("NewOfflineVerifier() trusted root is nil")
+			if tt.wantPinnedRoot && verifier.trustedRoot == nil {
+				t.Errorf("NewOfflineVerifier() expected a pinned trusted root, got nil")
+			}
+			if !tt.wantPinnedRoot && verifier.trustedRoot != nil {
+				t.Errorf("NewOfflineVerifier() expected per-bundle root selection (nil pinned root), got non-nil")
 			}
 
 			if verifier.options.CertIdentity != tt.options.CertIdentity {
