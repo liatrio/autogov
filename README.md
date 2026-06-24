@@ -202,18 +202,14 @@ autogov offline \
   --attestations attestations.jsonl \
   --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@sha" \
   --cert-issuer "https://token.actions.githubusercontent.com"
-```
 
-To enforce a multi-signer allowlist offline, use `verify attestation` with
-`--attestations` + `--blob-path` and add `--cert-identity-list` (union with
-`--cert-identity`); the offline path honors the same allowlist as online verification:
-
-```bash
-autogov verify attestation \
+# Multi-signer allowlist (union of --cert-identity and --cert-identity-list)
+autogov offline \
   --attestations attestations.jsonl \
   --blob-path artifact.tar.gz \
   --cert-identity "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
-  --cert-identity-list "https://raw.githubusercontent.com/liatrio/autogov-workflows/refs/heads/main/cert-identities.json"
+  --cert-identity-list "https://raw.githubusercontent.com/liatrio/autogov-workflows/refs/heads/main/cert-identities.json" \
+  --cert-issuer "https://token.actions.githubusercontent.com"
 ```
 
 #### Offline Verification Flags
