@@ -47,7 +47,7 @@ A unified CLI for attestation verification and release management. Supports [cos
 - **Signer Allowlist**: Enforces an approved set of signer certificate identities via `--cert-identity-list` (a URL or local file). Accepts the union of `--cert-identity` and the list (multiple signers per run), and fails closed when a configured list resolves to zero valid identities.
 - **Offline Verification**: Supports pre-downloaded attestation artifacts (verify container images by digest without pulling the image)
 - **Attestation Download**: Download attestations from GitHub for offline verification workflows
-- **Dynamic Trusted Root**: Automatically fetches latest GitHub trusted roots
+- **Per-Attestation Trusted Root**: Selects the trusted root for each attestation from its signing certificate's Fulcio issuer — public-good Sigstore (`sigstore.dev`) or GitHub (`fulcio.githubapp.com`) — with `--trusted-root`/`--trusted-root-source` overrides
 - **VSA Validation**: Comprehensive field validation, structured error handling, and multi-format digest support
 - **Release Management**: Plan, cut, and publish releases with GitHub API-signed commits (SLSA v1.2 provenance)
 - **Changelog Generation**: Automatic changelog from conventional commits with markdown or JSON output
@@ -60,7 +60,7 @@ This tool verifies GitHub Artifact Attestations using the sigstore-go v1.2.1 API
 
 The tool performs several steps for each attestation:
 
-1. **Trusted Root Fetching**: Dynamically fetches GitHub's trusted root using `gh attestation trusted-root`, with fallback to embedded trusted root
+1. **Trusted Root Selection**: Selects the trusted root per attestation from the signing certificate's Fulcio issuer — a public-good Sigstore (`sigstore.dev`) cert uses the public-good Sigstore root, a GitHub (`fulcio.githubapp.com`) cert uses the GitHub root. The GitHub root is fetched dynamically via `gh attestation trusted-root` with fallback to an embedded copy; the public-good root is embedded.
 2. **Parses the OCI reference** to extract organization, repository, and digest
 3. **Retrieves attestations** from GitHub's container registry
 4. **Verifies the certificate chain** for each attestation using sigstore-go
@@ -71,7 +71,7 @@ The tool performs several steps for each attestation:
 
 Each attestation is verified against:
 
-- **GitHub's trusted root certificates** (including both certificate authorities and timestamp authorities)
+- **The trusted root for its signing certificate** (GitHub or public-good Sigstore, including both certificate authorities and timestamp authorities)
 - **The specified certificate identity** (GitHub Actions workflow)
 - **The certificate issuer** (GitHub Actions OIDC provider)
 - **(Optional) An approved list** of certificate identities from a source of truth
@@ -234,11 +234,9 @@ autogov offline \
 | `public` | Use public Sigstore infrastructure (fulcio.sigstore.dev) |
 | `auto` | Auto-detect based on certificate issuer (default) |
 
-The `auto` mode examines the attestation certificate issuer to determine the appropriate trusted root:
-- GitHub Actions (`https://token.actions.githubusercontent.com`) → GitHub trusted root
-- Google OIDC (`https://accounts.google.com`) → Public Sigstore trusted root
-- GitHub OAuth (`https://github.com/login/oauth`) → Public Sigstore trusted root
-- GitLab (`https://gitlab.com`) → Public Sigstore trusted root
+The `auto` mode examines each attestation's signing certificate to determine the appropriate trusted root. The discriminator is the **Fulcio CA that issued the certificate**, not the OIDC issuer — the OIDC issuer (`https://token.actions.githubusercontent.com`) is identical for both GitHub Actions on public repos (signed against public-good Sigstore) and on private repos (signed against GitHub's Fulcio), so it cannot distinguish them:
+- Certificate issued by public-good Sigstore Fulcio (`sigstore.dev`) → Public Sigstore trusted root (the case for public repositories, whose attestations carry a Rekor integrated timestamp)
+- Certificate issued by GitHub Fulcio (`fulcio.githubapp.com`) → GitHub trusted root (the case for private repositories)
 
 **Implementation Notes**:
 - Uses sigstore-go for all verification
@@ -505,7 +503,7 @@ autogov verify attestation \
   --cert-identity-list "https://raw.githubusercontent.com/liatrio/autogov-workflows/refs/heads/main/cert-identities.json"
 ```
 
-Generate enhanced VSA with policy evaluation:
+Generate enhanced VSA with policy evaluation (policy bundle pulled from an OCI registry):
 
 ```bash
 export GITHUB_AUTH_TOKEN=your_token
@@ -517,6 +515,21 @@ autogov verify attestation \
   --vsa-output ./verification-summary.json \
   --policy-uri "https://github.com/liatrio/autogov-policy-library" \
   --policy-bundle-path "oci://ghcr.io/liatrio/autogov-policy-library:latest"
+```
+
+The policy bundle can also be pulled from a GitHub release asset with the `ghrel://` scheme (omit `@tag` for the latest release):
+
+```bash
+export GITHUB_AUTH_TOKEN=your_token
+autogov verify attestation \
+  --cert-identity "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-image.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
+  --repo owner/repo \
+  --image-digest "sha256:ee911cb4dba66546ded541337f0b3079c55b628c5d83057867b0ef458abdb682" \
+  --generate-vsa \
+  --vsa-output ./verification-summary.json \
+  --policy-uri "https://github.com/liatrio/autogov-policy-library" \
+  --policy-bundle-path "ghrel://liatrio/autogov-policy-library?asset=bundle.tar.gz" \
+  --policy-schemas-path "ghrel://liatrio/autogov-policy-library?asset=schemas.tar.gz"
 ```
 
 Verify a cosign-signed artifact using public Sigstore:
@@ -610,28 +623,23 @@ Note: Predicate types not in the registry are displayed as "Unknown" with a warn
 
 ## Trusted Root Management
 
-The tool uses GitHub's trusted root certificates for verification, which include both certificate authorities and timestamp authorities required for proper sigstore verification.
+The tool verifies each attestation against the trusted root that matches its signing certificate. Two roots are supported, both carrying the certificate authorities and timestamp authorities required for Sigstore verification:
 
-### Dynamic Trusted Root Fetching
+- **Public-good Sigstore** — used by public repositories (their GitHub Actions attestations are signed against public-good Fulcio and carry a Rekor integrated timestamp). The root is embedded in the binary.
+- **GitHub** — used by private repositories (signed against GitHub's `fulcio.githubapp.com` Fulcio). The root is fetched dynamically via `gh attestation trusted-root`, with fallback to an embedded copy.
 
-By default, the tool attempts to fetch the latest trusted root dynamically:
+### Per-Attestation Selection
 
-1. **Primary Method**: Uses `gh attestation trusted-root` command to fetch the current trusted root
-2. **Fallback Method**: Uses embedded trusted root if dynamic fetching fails
-3. **Filtering**: Automatically filters for `fulcio.githubapp.com` certificate authority while preserving timestamp authorities
+In the default `auto` mode the root is chosen per attestation from the **Fulcio CA that issued the signing certificate**, not from the OIDC issuer. The OIDC issuer (`https://token.actions.githubusercontent.com`) is the same for both public and private GitHub Actions flows, so it cannot be the discriminator; the issuing Fulcio CA can:
 
-### Benefits of Dynamic Fetching
+- Certificate issued by public-good Sigstore Fulcio (`sigstore.dev`) → public-good Sigstore root
+- Certificate issued by GitHub Fulcio (`fulcio.githubapp.com`) → GitHub root
 
-- **Always Up-to-Date**: Gets the latest trusted root certificates from GitHub
-- **Automatic Updates**: No need to update the tool when GitHub rotates certificates
-- **Robust Fallback**: Falls back to embedded root if GitHub CLI is unavailable
+Use `--trusted-root-source github|public|auto` to force a root, or `--trusted-root <file>` to supply a custom one (takes precedence over `--trusted-root-source`).
 
-### Requirements for Dynamic Fetching
+### Dynamic Fetching (GitHub root)
 
-- Network access to GitHub's API
-- Valid GitHub authentication token
-
-If dynamic fetching fails, you'll see a message indicating fallback to embedded trusted root:
+When the GitHub root is needed, the tool tries `gh attestation trusted-root` first (requires network access to GitHub's API and a valid token) and falls back to the embedded copy if the fetch fails:
 
 ```text
 ✓ Using dynamically fetched trusted root
@@ -640,7 +648,7 @@ If dynamic fetching fails, you'll see a message indicating fallback to embedded 
 or
 
 ```text
-⚠ Failed to fetch dynamic trusted root, using embedded fallback
+! Failed to fetch dynamic trusted root (...), falling back to embedded version
 ```
 
 ## Troubleshooting
@@ -667,6 +675,9 @@ Common issues and solutions:
 4. **Invalid Digest Format**
    - Ensure the digest follows the format: `sha256:hash`
    - When using full OCI references, include the registry: `ghcr.io/owner/repo@sha256:hash`
+
+5. **`failed to verify timestamps: threshold not met ... 0 < 1`, or a persistently FAILED VSA**
+   - A timestamp-threshold error (e.g. `threshold not met for verified signed & log entry integrated timestamps: 0 < 1`) on public-repo attestations, or a long-standing FAILED VSA caused by policy bundles/schemas not loading, is fixed by upgrading to **autogov v0.29.8 or later**, which adds public-good Sigstore verification, `ghrel://` policy-bundle/schema fetching, and schemas-extraction fixes.
 
 If you encounter any other issues, please [open an issue](https://github.com/liatrio/autogov/issues/new) and include as much detail as possible.
 
