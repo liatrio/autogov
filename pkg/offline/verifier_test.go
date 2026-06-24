@@ -85,6 +85,7 @@ func TestAggregateHasFailures(t *testing.T) {
 	verified := AttestationResult{Verified: true}
 	identityFail := AttestationResult{Verified: false, Error: "no matching CertificateIdentity found, got [https://github.com/x/.github/workflows/rogue.yml@refs/heads/main]"}
 	integrityFail := AttestationResult{Verified: false, Error: "verification failed: artifact digest does not match"}
+	timestampFail := AttestationResult{Verified: false, Error: "verification failed: failed to verify timestamps: threshold not met for verified signed & log entry integrated timestamps: 0 < 1"}
 
 	cases := []struct {
 		name      string
@@ -97,6 +98,7 @@ func TestAggregateHasFailures(t *testing.T) {
 		{"enforced: integrity failure", true, []AttestationResult{verified, integrityFail}, true},
 		{"no allowlist: non-allowlisted signer tolerated", false, []AttestationResult{verified, identityFail}, false},
 		{"no allowlist: integrity failure still fails", false, []AttestationResult{integrityFail}, true},
+		{"no allowlist: timestamp failure still fails", false, []AttestationResult{timestampFail}, true},
 		{"no allowlist: all verified", false, []AttestationResult{verified}, false},
 	}
 
@@ -177,18 +179,28 @@ func TestNewOfflineVerifier(t *testing.T) {
 		trustedRootPath string
 		options         VerifyOptions
 		wantErr         bool
+		wantPinnedRoot  bool // true => one root pinned up-front; false => per-bundle auto-selection
 	}{
 		{
 			name:            "valid with custom trusted root",
 			trustedRootPath: tmpFile.Name(),
 			options:         VerifyOptions{},
 			wantErr:         false,
+			wantPinnedRoot:  true,
 		},
 		{
-			name:            "empty trusted root path uses default",
+			name:            "empty path with auto source selects per bundle",
 			trustedRootPath: "",
-			options:         VerifyOptions{},
-			wantErr:         false, // uses embedded trusted root as fallback
+			options:         VerifyOptions{TrustedRootSource: "auto"},
+			wantErr:         false,
+			wantPinnedRoot:  false, // no pinned root; resolved per bundle by signing cert
+		},
+		{
+			name:            "explicit public source pins the public root",
+			trustedRootPath: "",
+			options:         VerifyOptions{TrustedRootSource: "public"},
+			wantErr:         false,
+			wantPinnedRoot:  true,
 		},
 		{
 			name:            "invalid trusted root path",
@@ -203,7 +215,8 @@ func TestNewOfflineVerifier(t *testing.T) {
 				CertIdentity:   "https://github.com/owner/repo/.github/workflows/test.yml@refs/heads/main",
 				SkipTLogVerify: true,
 			},
-			wantErr: false,
+			wantErr:        false,
+			wantPinnedRoot: true,
 		},
 	}
 
@@ -228,8 +241,11 @@ func TestNewOfflineVerifier(t *testing.T) {
 				return
 			}
 
-			if verifier.trustedRoot == nil {
-				t.Errorf("NewOfflineVerifier() trusted root is nil")
+			if tt.wantPinnedRoot && verifier.trustedRoot == nil {
+				t.Errorf("NewOfflineVerifier() expected a pinned trusted root, got nil")
+			}
+			if !tt.wantPinnedRoot && verifier.trustedRoot != nil {
+				t.Errorf("NewOfflineVerifier() expected per-bundle root selection (nil pinned root), got non-nil")
 			}
 
 			if verifier.options.CertIdentity != tt.options.CertIdentity {

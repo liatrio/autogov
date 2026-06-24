@@ -83,7 +83,6 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 		verifyOpts := VerifyOptions{
 			CertIdentity:       certIdentity,
 			CertOIDCIssuer:     certIssuer,
-			SkipTLogVerify:     true, // skip tlog verification in offline mode
 			Quiet:              quiet,
 			SourceRef:          sourceRef,
 			TrustedRootSource:  trustedRootSource,

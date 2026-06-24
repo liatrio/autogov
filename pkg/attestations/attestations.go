@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/go-github/v88/github"
+	bundleutils "github.com/liatrio/autogov/pkg/bundle"
 	"github.com/liatrio/autogov/pkg/certid"
 	"github.com/liatrio/autogov/pkg/digest"
 	ghclient "github.com/liatrio/autogov/pkg/github"
@@ -350,6 +351,39 @@ func setDefaultOptions(opts Options) Options {
 	return opts
 }
 
+// timestampVerifierOpts returns the timestamp verification options for a bundle:
+// always observer timestamps, plus a required transparency-log entry when the
+// bundle carries one. public-good GitHub bundles carry a Rekor integrated
+// timestamp and no TSA, so the log entry must be required for that timestamp to
+// count; GitHub-internal bundles carry an RFC3161 TSA timestamp and no log entry.
+func timestampVerifierOpts(b *bundle.Bundle) []verify.VerifierOption {
+	opts := []verify.VerifierOption{verify.WithObserverTimestamps(1)}
+	if len(b.GetVerificationMaterial().GetTlogEntries()) > 0 {
+		opts = append(opts, verify.WithTransparencyLog(1))
+	}
+	return opts
+}
+
+// selectOnlineTrustedRoot returns the trusted root able to chain leafDER: the
+// embedded public-good Sigstore root for sigstore.dev-issued certs, otherwise the
+// dynamically fetched GitHub root written to githubTrustPath.
+func selectOnlineTrustedRoot(leafDER []byte, githubTrustPath string) (*sigstorego_root.TrustedRoot, error) {
+	if len(leafDER) > 0 {
+		if src, err := root.DetectTrustedRootFromCert(leafDER); err == nil && src == root.TrustedRootSourcePublic {
+			tr, err := sigstorego_root.NewTrustedRootFromJSON(root.GetPublicTrustedRoot())
+			if err != nil {
+				return nil, fmt.Errorf("failed to load public sigstore trusted root: %w", err)
+			}
+			return tr, nil
+		}
+	}
+	tr, err := sigstorego_root.NewTrustedRootFromPath(githubTrustPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load trusted root: %w", err)
+	}
+	return tr, nil
+}
+
 func verifyAttestation(att *github.Attestation, artifactDigest, trust string, index int, opts Options) (oci.Signature, error) {
 	if att == nil {
 		return nil, fmt.Errorf("attestation is nil")
@@ -449,14 +483,15 @@ func verifyAttestation(att *github.Attestation, artifactDigest, trust string, in
 		}
 	}
 
-	// load trusted root
-	trustedRoot, err := sigstorego_root.NewTrustedRootFromPath(trust)
+	// select the trusted root that can chain this bundle's signing cert: public
+	// repos sign against public-good Sigstore (Fulcio sigstore.dev), while the
+	// GitHub-internal flow uses fulcio.githubapp.com.
+	trustedRoot, err := selectOnlineTrustedRoot(bundleutils.LeafCertDER(b), trust)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load trusted root: %w", err)
+		return nil, err
 	}
 
-	// verifier with trusted material and timestamp verification
-	verifier, err := verify.NewVerifier(trustedRoot, verify.WithObserverTimestamps(1))
+	verifier, err := verify.NewVerifier(trustedRoot, timestampVerifierOpts(b)...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verifier: %w", err)
 	}

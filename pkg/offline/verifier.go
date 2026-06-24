@@ -31,7 +31,7 @@ type OfflineVerifier struct {
 type VerifyOptions struct {
 	CertIdentity       string   // expected certificate identity (workflow URL)
 	CertOIDCIssuer     string   // expected OIDC issuer
-	SkipTLogVerify     bool     // skip transparency log verification (for compatibility)
+	SkipTLogVerify     bool     // force-skip transparency-log verification even when a bundle carries an entry (programmatic only; no CLI flag)
 	Quiet              bool     // suppress output messages
 	SourceRef          string   // expected source repository ref (e.g., refs/heads/main)
 	TrustedRootSource  string   // trusted root source: github, public, or auto
@@ -104,15 +104,59 @@ func loadTrustedRoot(path string, source string) (*root.TrustedRoot, error) {
 
 // offline verifier with trusted root
 func NewOfflineVerifier(trustedRootPath string, options VerifyOptions) (*OfflineVerifier, error) {
-	tr, err := loadTrustedRoot(trustedRootPath, options.TrustedRootSource)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load trusted root: %w", err)
+	ov := &OfflineVerifier{options: options}
+
+	// an explicit root file or an explicit github/public source pins one trusted
+	// root for every bundle. otherwise (the "auto" default, or unset) the root is
+	// resolved per bundle from its signing cert, so a mixed set of public-good and
+	// GitHub-internal attestations each verify against the right anchor.
+	if trustedRootPath != "" || isExplicitSource(options.TrustedRootSource) {
+		tr, err := loadTrustedRoot(trustedRootPath, options.TrustedRootSource)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load trusted root: %w", err)
+		}
+		ov.trustedRoot = tr
 	}
 
-	return &OfflineVerifier{
-		trustedRoot: tr,
-		options:     options,
-	}, nil
+	return ov, nil
+}
+
+// isExplicitSource reports whether the source pins a specific root (github or
+// public) rather than auto-selecting per bundle.
+func isExplicitSource(source string) bool {
+	return source == string(localroot.TrustedRootSourceGitHub) || source == string(localroot.TrustedRootSourcePublic)
+}
+
+// trustedRootForBundle returns the pinned root when one was selected, otherwise
+// the root able to chain this bundle's signing cert (public-good for sigstore.dev
+// certs, else GitHub).
+func (ov *OfflineVerifier) trustedRootForBundle(b *bundle.Bundle) (*root.TrustedRoot, error) {
+	if ov.trustedRoot != nil {
+		return ov.trustedRoot, nil
+	}
+	rootData := localroot.GetGitHubTrustedRoot()
+	if der := bundleutils.LeafCertDER(b); len(der) > 0 {
+		if src, err := localroot.DetectTrustedRootFromCert(der); err == nil && src == localroot.TrustedRootSourcePublic {
+			rootData = localroot.GetPublicTrustedRoot()
+		}
+	}
+	if len(rootData) == 0 {
+		return nil, fmt.Errorf("no trusted root available")
+	}
+	return root.NewTrustedRootFromJSON(rootData)
+}
+
+// verifierOpts returns the timestamp options for a bundle: always observer
+// timestamps, plus a required transparency-log entry when the bundle carries one
+// (so its integrated timestamp counts). The log entry is verified from the
+// bundle's embedded inclusion proof, so this stays fully offline. SkipTLogVerify
+// forces the log check off even when an entry is present.
+func (ov *OfflineVerifier) verifierOpts(b *bundle.Bundle) []verify.VerifierOption {
+	opts := []verify.VerifierOption{verify.WithObserverTimestamps(1)}
+	if !ov.options.SkipTLogVerify && len(b.GetVerificationMaterial().GetTlogEntries()) > 0 {
+		opts = append(opts, verify.WithTransparencyLog(1))
+	}
+	return opts
 }
 
 // returns the loaded bundles (avoids reloading from file)
@@ -213,21 +257,6 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 		Warnings:         make([]string, 0),
 	}
 
-	// verifier
-	verifierOpts := []verify.VerifierOption{
-		verify.WithObserverTimestamps(1),
-	}
-
-	// skip tlog verification if requested
-	if !ov.options.SkipTLogVerify {
-		verifierOpts = append(verifierOpts, verify.WithTransparencyLog(1))
-	}
-
-	v, err := verify.NewVerifier(ov.trustedRoot, verifierOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create verifier: %w", err)
-	}
-
 	// verify each bundle
 	validAttestations := 0
 	for i, b := range ov.bundles {
@@ -249,6 +278,17 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 			}
 
 			fmt.Printf("Verifying attestation %d (%s)...\n", i+1, predicateInfo)
+		}
+
+		// select the trusted root and timestamp options for this bundle so a mixed
+		// set of public-good and GitHub-internal attestations each verify correctly.
+		tr, err := ov.trustedRootForBundle(b)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load trusted root: %w", err)
+		}
+		v, err := verify.NewVerifier(tr, ov.verifierOpts(b)...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create verifier: %w", err)
 		}
 
 		attestationResult := ov.verifyBundle(v, b, expectedDigest)
@@ -341,8 +381,8 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 // (a non-allowlisted signer must fail closed — sigstore reports "no matching
 // CertificateIdentity", which is not one of the integrity-failure substrings below); this
 // matches the online path and delivers offline parity. When no allowlist is enforced, only
-// integrity failures (bad digest/signature/tlog/source-ref) count, preserving the prior
-// accept-any-signer behavior for unauthenticated runs.
+// integrity failures (bad digest/signature/tlog/timestamp/source-ref) count, preserving the
+// prior accept-any-signer behavior for unauthenticated runs.
 func aggregateHasFailures(enforcingAllowlist bool, atts []AttestationResult) bool {
 	for _, att := range atts {
 		if att.Verified || att.Error == "" {
@@ -354,6 +394,8 @@ func aggregateHasFailures(enforcingAllowlist bool, atts []AttestationResult) boo
 		if strings.Contains(att.Error, "digest does not match") ||
 			strings.Contains(att.Error, "failed to verify signature") ||
 			strings.Contains(att.Error, "transparency log") ||
+			strings.Contains(att.Error, "verify timestamps") ||
+			strings.Contains(att.Error, "observer timestamp") ||
 			strings.Contains(att.Error, "source ref mismatch") {
 			return true
 		}
