@@ -72,3 +72,8 @@ tasks:
       - task: format
       - task: lint
       - task: test
+
+  vendor-public-trusted-root:
+    desc: Re-vendor the embedded public-good Sigstore trusted root from the Sigstore TUF repo
+    cmds:
+      - go run ./tools/update-trusted-roots
