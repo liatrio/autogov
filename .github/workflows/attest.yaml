@@ -46,7 +46,7 @@ jobs:
       blob-artifact-id: ${{ needs.attest-blob.outputs.blob-artifact-id }}
       cert-identity: https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@0b11d6945f138fd1b4c6372f9c94381ace120b88 # v0.23.0
       vuln-threshold-critical: '0'
-      vuln-threshold-high: '-1'
+      vuln-threshold-high: '0'
       vuln-threshold-medium: '-1'
       vuln-threshold-low: '-1'
 
