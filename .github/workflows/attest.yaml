@@ -45,6 +45,9 @@ jobs:
       build-type: blob
       blob-artifact-id: ${{ needs.attest-blob.outputs.blob-artifact-id }}
       cert-identity: https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@c30bc776b4c842aefa825dee0a479dfe6df4dddf # v0.22.2
+      # temporary bootstrap: verify the public-good blob with the fixed verifier
+      # so v0.29.7 (the fix) can self-release; reverted right after the cut.
+      autogov-version: bootstrap-verifier
       vuln-threshold-critical: '0'
       vuln-threshold-high: '-1'
       vuln-threshold-medium: '-1'
