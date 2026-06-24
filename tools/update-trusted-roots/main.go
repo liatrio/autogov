@@ -7,12 +7,15 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 
 	"github.com/sigstore/sigstore-go/pkg/tuf"
 )
 
+// must be run from the repo root (e.g. via `task vendor-public-trusted-root`).
 const out = "pkg/root/public-trusted-root.json"
 
 func main() {
@@ -26,9 +29,22 @@ func main() {
 		fmt.Fprintf(os.Stderr, "fetch trusted_root.json: %v\n", err)
 		os.Exit(1)
 	}
-	if err := os.WriteFile(out, data, 0o644); err != nil {
+	// fail loudly rather than vendor a truncated/garbage root.
+	if len(data) < 512 || !json.Valid(data) {
+		fmt.Fprintf(os.Stderr, "fetched trusted_root.json looks invalid (%d bytes); refusing to overwrite\n", len(data))
+		os.Exit(1)
+	}
+	// normalize to indented JSON so re-running on an unchanged upstream yields a
+	// clean, review-friendly diff instead of collapsing to one line.
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, data, "", "  "); err != nil {
+		fmt.Fprintf(os.Stderr, "indent trusted_root.json: %v\n", err)
+		os.Exit(1)
+	}
+	buf.WriteByte('\n')
+	if err := os.WriteFile(out, buf.Bytes(), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "write %s: %v\n", out, err)
 		os.Exit(1)
 	}
-	fmt.Printf("wrote %s (%d bytes) from the Sigstore public-good TUF repo\n", out, len(data))
+	fmt.Printf("wrote %s (%d bytes) from the Sigstore public-good TUF repo\n", out, buf.Len())
 }
