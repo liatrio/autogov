@@ -25,7 +25,7 @@ jobs:
       actions: read
       pull-requests: read
       artifact-metadata: write
-    uses: liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@c30bc776b4c842aefa825dee0a479dfe6df4dddf # v0.22.2
+    uses: liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@0b11d6945f138fd1b4c6372f9c94381ace120b88 # v0.23.0
     secrets: inherit
     with:
       subject-path: autogov
@@ -39,15 +39,12 @@ jobs:
       contents: read
       actions: read
       artifact-metadata: write
-    uses: liatrio/autogov-workflows/.github/workflows/rw-verify.yaml@c30bc776b4c842aefa825dee0a479dfe6df4dddf # v0.22.2
+    uses: liatrio/autogov-workflows/.github/workflows/rw-verify.yaml@0b11d6945f138fd1b4c6372f9c94381ace120b88 # v0.23.0
     secrets: inherit
     with:
       build-type: blob
       blob-artifact-id: ${{ needs.attest-blob.outputs.blob-artifact-id }}
-      cert-identity: https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@c30bc776b4c842aefa825dee0a479dfe6df4dddf # v0.22.2
-      # temporary bootstrap: verify the public-good blob with the fixed verifier
-      # so v0.29.7 (the fix) can self-release; reverted right after the cut.
-      autogov-version: bootstrap-verifier
+      cert-identity: https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@0b11d6945f138fd1b4c6372f9c94381ace120b88 # v0.23.0
       vuln-threshold-critical: '0'
       vuln-threshold-high: '-1'
       vuln-threshold-medium: '-1'
