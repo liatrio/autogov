@@ -72,7 +72,7 @@ jobs:
       # The released asset is the attested blob-build-artifact-high-perms binary
       # (not a rebuild), so its digest carries the attestations. No Go toolchain is
       # needed here: plan and cut run the downloaded autogov CLI.
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
       - name: Install released autogov CLI
