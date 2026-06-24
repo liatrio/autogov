@@ -310,9 +310,13 @@ func extractTarGz(r io.Reader, dest string) error {
 			return fmt.Errorf("failed to read tar: %w", err)
 		}
 
-		// validate path to prevent path traversal attacks
+		// validate path to prevent path traversal attacks. allow an entry that
+		// resolves to dest itself (e.g. a "./" archive-root entry, which tar
+		// archives commonly include) — only reject entries that escape dest.
 		path := filepath.Join(dest, header.Name)
-		if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(dest)+string(os.PathSeparator)) {
+		cleanPath := filepath.Clean(path)
+		cleanDest := filepath.Clean(dest)
+		if cleanPath != cleanDest && !strings.HasPrefix(cleanPath, cleanDest+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid path in archive (path traversal attempt): %s", header.Name)
 		}
 

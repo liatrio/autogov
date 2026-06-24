@@ -32,17 +32,21 @@ type ResolveOptions struct {
 func resolveBundlePath(ctx context.Context, path string, opts *ResolveOptions) (string, func(), error) {
 	noop := func() {}
 
+	// scheme prefixes are matched before the .tar.gz/.tgz suffix: a ghrel:// (or
+	// oci://) reference can legitimately end in ".tar.gz" via its ?asset= query
+	// (e.g. ghrel://owner/repo?asset=bundle.tar.gz), and must route by scheme, not
+	// be mistaken for a local archive file.
 	switch {
 	case strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://"):
 		return downloadBundle(ctx, path)
-	case strings.HasSuffix(path, ".tar.gz") || strings.HasSuffix(path, ".tgz"):
-		return extractBundle(path)
 	case strings.HasPrefix(path, ociScheme):
 		return pullOCIBundle(ctx, path)
 	case strings.HasPrefix(path, ghrelScheme):
 		// first (and only) case that consumes opts: DefaultAsset selects the
 		// release asset and ExpectedDigest enforces archive integrity.
 		return downloadGHReleaseBundle(ctx, path, opts)
+	case strings.HasSuffix(path, ".tar.gz") || strings.HasSuffix(path, ".tgz"):
+		return extractBundle(path)
 	default:
 		// local directory: nothing to download or extract, no cleanup needed
 		return path, noop, nil
