@@ -23,7 +23,6 @@ jobs:
       attestations: write
       contents: read
       actions: read
-      # pull-requests:read for the source-review attestation added in autogov-workflows v0.22.x
       pull-requests: read
       artifact-metadata: write
     uses: liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@c30bc776b4c842aefa825dee0a479dfe6df4dddf # v0.22.2
