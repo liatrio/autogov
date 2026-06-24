@@ -381,8 +381,8 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 // (a non-allowlisted signer must fail closed — sigstore reports "no matching
 // CertificateIdentity", which is not one of the integrity-failure substrings below); this
 // matches the online path and delivers offline parity. When no allowlist is enforced, only
-// integrity failures (bad digest/signature/tlog/source-ref) count, preserving the prior
-// accept-any-signer behavior for unauthenticated runs.
+// integrity failures (bad digest/signature/tlog/timestamp/source-ref) count, preserving the
+// prior accept-any-signer behavior for unauthenticated runs.
 func aggregateHasFailures(enforcingAllowlist bool, atts []AttestationResult) bool {
 	for _, att := range atts {
 		if att.Verified || att.Error == "" {
@@ -394,6 +394,8 @@ func aggregateHasFailures(enforcingAllowlist bool, atts []AttestationResult) boo
 		if strings.Contains(att.Error, "digest does not match") ||
 			strings.Contains(att.Error, "failed to verify signature") ||
 			strings.Contains(att.Error, "transparency log") ||
+			strings.Contains(att.Error, "verify timestamps") ||
+			strings.Contains(att.Error, "observer timestamp") ||
 			strings.Contains(att.Error, "source ref mismatch") {
 			return true
 		}

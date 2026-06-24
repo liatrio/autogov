@@ -85,6 +85,7 @@ func TestAggregateHasFailures(t *testing.T) {
 	verified := AttestationResult{Verified: true}
 	identityFail := AttestationResult{Verified: false, Error: "no matching CertificateIdentity found, got [https://github.com/x/.github/workflows/rogue.yml@refs/heads/main]"}
 	integrityFail := AttestationResult{Verified: false, Error: "verification failed: artifact digest does not match"}
+	timestampFail := AttestationResult{Verified: false, Error: "verification failed: failed to verify timestamps: threshold not met for verified signed & log entry integrated timestamps: 0 < 1"}
 
 	cases := []struct {
 		name      string
@@ -97,6 +98,7 @@ func TestAggregateHasFailures(t *testing.T) {
 		{"enforced: integrity failure", true, []AttestationResult{verified, integrityFail}, true},
 		{"no allowlist: non-allowlisted signer tolerated", false, []AttestationResult{verified, identityFail}, false},
 		{"no allowlist: integrity failure still fails", false, []AttestationResult{integrityFail}, true},
+		{"no allowlist: timestamp failure still fails", false, []AttestationResult{timestampFail}, true},
 		{"no allowlist: all verified", false, []AttestationResult{verified}, false},
 	}
 

@@ -59,3 +59,25 @@ func TestOfflineVerifyPublicGood(t *testing.T) {
 		t.Fatalf("public-good bundle should verify offline; errors=%v", res.Errors)
 	}
 }
+
+// A GitHub-internal bundle (Fulcio O=GitHub, RFC3161 TSA, no tlog) must still
+// verify end-to-end via auto root selection — the TSA satisfies the observer
+// threshold and no transparency-log entry is required (no regression to the
+// historically-shipped path). The short-lived cert is validated at the TSA's
+// timestamp, so expiry since signing is fine.
+func TestOfflineVerifyGitHubInternal(t *testing.T) {
+	v, err := NewOfflineVerifier("", VerifyOptions{Quiet: true, TrustedRootSource: "auto"})
+	if err != nil {
+		t.Fatalf("new offline verifier: %v", err)
+	}
+	if err := v.LoadBundlesFromFile("testdata/bundle-github-internal.jsonl"); err != nil {
+		t.Fatalf("load bundles: %v", err)
+	}
+	res, err := v.VerifyArtifactDigest("")
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if !res.Verified {
+		t.Fatalf("github-internal bundle should verify offline; errors=%v", res.Errors)
+	}
+}
