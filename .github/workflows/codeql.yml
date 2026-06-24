@@ -2,11 +2,14 @@
 # NOTE: CodeQL requires GitHub Advanced Security on private/internal repos, or a
 # public repository. The analysis is gated to public repos only, so it is a
 # no-op (skipped, green) until the repo is public — at which point it activates
-# automatically (CodeQL is free for public repositories). Triggers are scoped to
-# push/schedule (not pull_request) so it never blocks PR merges.
+# automatically (CodeQL is free for public repositories). It runs on pull_request
+# (for SAST coverage on every change), push to main, and weekly; it is not a
+# required check, so it does not block PR merges.
 name: CodeQL
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
   schedule:
