@@ -173,11 +173,11 @@ func generateSourceVSA(result *source.VerificationResult, vsaOutput, policyURI s
 		generatedVSA.Metadata = make(map[string]interface{})
 	}
 	generatedVSA.Metadata["autogov.source.verification"] = map[string]interface{}{
-		"repo_uri":         result.RepoURI,
-		"commit":           result.Commit,
-		"source_ref":       result.SourceRef,
+		"repo_uri":          result.RepoURI,
+		"commit":            result.Commit,
+		"source_ref":        result.SourceRef,
 		"slsa_source_level": result.SLSASourceLevel,
-		"builder_id":       result.BuilderID,
+		"builder_id":        result.BuilderID,
 	}
 
 	return vsa.WriteToFile(generatedVSA, vsaOutput)

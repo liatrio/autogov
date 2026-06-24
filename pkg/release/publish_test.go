@@ -33,7 +33,6 @@ func (m *paginatedMock) ListReleases(_ context.Context, _, _ string, _ *gogithub
 	return releases, resp, nil
 }
 
-
 // TestFindDraftReleaseByTag tests finding a draft release by explicit tag.
 // Uses ListReleases mock because GetReleaseByTag does not return draft releases.
 func TestFindDraftReleaseByTag(t *testing.T) {
@@ -58,11 +57,11 @@ func TestFindDraftReleaseByTag(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:        "tag not in release list",
-			tag:         "v9.9.9",
+			name:         "tag not in release list",
+			tag:          "v9.9.9",
 			mockReleases: []*gogithub.RepositoryRelease{},
-			wantErr:     true,
-			errContains: "no draft release found for tag v9.9.9",
+			wantErr:      true,
+			errContains:  "no draft release found for tag v9.9.9",
 		},
 		{
 			name: "release found but already published",
@@ -159,10 +158,10 @@ func TestFindLatestDraftRelease(t *testing.T) {
 			errContains: "no draft releases found",
 		},
 		{
-			name:        "empty release list",
+			name:         "empty release list",
 			mockReleases: []*gogithub.RepositoryRelease{},
-			wantErr:     true,
-			errContains: "no draft releases found",
+			wantErr:      true,
+			errContains:  "no draft releases found",
 		},
 		{
 			name:        "API error",

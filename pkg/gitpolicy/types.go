@@ -25,7 +25,7 @@ type VerificationResult struct {
 	Ref              string                  `json:"ref"`
 	PolicyRules      []PolicyRule            `json:"policy_rules,omitempty"`
 	BranchProtection *BranchProtectionStatus `json:"branch_protection,omitempty"`
-	SignerPolicy     *SignerPolicyStatus      `json:"signer_policy,omitempty"`
+	SignerPolicy     *SignerPolicyStatus     `json:"signer_policy,omitempty"`
 	ErrorMsg         string                  `json:"error,omitempty"`
 	Warnings         []string                `json:"warnings,omitempty"`
 }
@@ -63,11 +63,11 @@ type SignerPolicyStatus struct {
 
 // Policy represents a parsed gittuf-style policy.
 type Policy struct {
-	Rules              []PolicyRuleConfig              `json:"rules,omitempty"`
-	ProtectedBranches  map[string]BranchProtectionConfig `json:"protected_branches,omitempty"`
-	RequiredSigners    map[string][]string              `json:"required_signers,omitempty"`
+	Rules             []PolicyRuleConfig                `json:"rules,omitempty"`
+	ProtectedBranches map[string]BranchProtectionConfig `json:"protected_branches,omitempty"`
+	RequiredSigners   map[string][]string               `json:"required_signers,omitempty"`
 	// LoadedFrom records which file the policy was loaded from (set during discovery).
-	LoadedFrom         string                           `json:"-"`
+	LoadedFrom string `json:"-"`
 }
 
 // PolicyRuleConfig defines a single policy rule from a gittuf policy file.

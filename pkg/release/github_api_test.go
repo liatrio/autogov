@@ -91,13 +91,13 @@ func TestFilterFirstParent(t *testing.T) {
 				Commit: &gogithub.Commit{Message: gogithub.Ptr("feat: first")},
 			},
 			{
-				SHA:    gogithub.Ptr("B"),
-				Commit: &gogithub.Commit{Message: gogithub.Ptr("fix: second")},
+				SHA:     gogithub.Ptr("B"),
+				Commit:  &gogithub.Commit{Message: gogithub.Ptr("fix: second")},
 				Parents: []*gogithub.Commit{{SHA: gogithub.Ptr("A")}},
 			},
 			{
-				SHA:    gogithub.Ptr("C"),
-				Commit: &gogithub.Commit{Message: gogithub.Ptr("feat: third")},
+				SHA:     gogithub.Ptr("C"),
+				Commit:  &gogithub.Commit{Message: gogithub.Ptr("feat: third")},
 				Parents: []*gogithub.Commit{{SHA: gogithub.Ptr("B")}},
 			},
 		}

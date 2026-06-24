@@ -44,7 +44,6 @@ func createTestRepo(t *testing.T) (string, *git.Repository) {
 	return dir, repo
 }
 
-
 func TestVerifyCommit_UnsignedCommit(t *testing.T) {
 	dir, repo := createTestRepo(t)
 	_ = dir
