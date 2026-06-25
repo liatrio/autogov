@@ -57,6 +57,21 @@ func TestVerifySource_MissingCommit(t *testing.T) {
 	assert.Contains(t, err.Error(), "commit")
 }
 
+func TestVerifySource_SourceVSAOutputRequiresIdentity(t *testing.T) {
+	// fail closed: a signed PASSED Source VSA must not be minted from an
+	// unverified signer, so --source-vsa-output without --cert-identity errors.
+	out, err := executeVerifySourceCmd(t, []string{
+		"--attestation-path", "bundle.json",
+		"--repo-uri", "https://github.com/org/repo",
+		"--commit", "abc123",
+		"--source-vsa-output", "source-vsa.json",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cert-identity")
+	// it must fail before touching the bundle (i.e. not a load error).
+	assert.NotContains(t, out, "load bundle")
+}
+
 func TestVerifySource_HelpOutput(t *testing.T) {
 	out, err := executeVerifySourceCmd(t, []string{"--help"})
 	require.NoError(t, err)
