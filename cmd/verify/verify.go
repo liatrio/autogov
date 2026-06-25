@@ -15,6 +15,7 @@ const (
 	flagQuiet              = "quiet"
 	flagAttestationsPath   = "attestations-path"
 	flagCertIdentityList   = "cert-identity-list"
+	flagRefreshTrustedRoot = "refresh-trusted-root"
 	flagNoCache            = "no-cache"
 	flagPolicyBundlePath   = "policy-bundle-path"
 	flagPolicySchemasPath  = "policy-schemas-path"

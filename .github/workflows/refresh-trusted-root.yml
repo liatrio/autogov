@@ -1,0 +1,53 @@
+name: refresh-trusted-root
+
+# weekly re-vendor of the embedded public-good Sigstore trusted root from the
+# Sigstore TUF repo. opens a PR only when the embedded snapshot actually changed,
+# so the snapshot can't silently rot between releases. runtime verify stays on
+# the embedded snapshot by default; this is a maintenance step, not a runtime dep.
+
+on:
+  schedule:
+    - cron: '30 5 * * 1' # weekly, Monday 05:30 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  refresh:
+    name: refresh
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # commit the re-vendored snapshot to the PR branch
+      pull-requests: write # open the update PR
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Install Task
+        uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Re-vendor public-good trusted root
+        run: task vendor-public-trusted-root
+      - name: Open PR if the embedded snapshot changed
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.11
+        with:
+          add-paths: pkg/root/public-trusted-root.json
+          branch: chore/refresh-trusted-root
+          commit-message: 'chore(root): re-vendor public-good trusted root'
+          title: 'chore(root): re-vendor public-good trusted root'
+          body: |
+            automated weekly re-vendor of the embedded public-good Sigstore
+            trusted root from the Sigstore TUF repo via
+            `task vendor-public-trusted-root`.
+
+            review the diff to `pkg/root/public-trusted-root.json` before merging.
+          delete-branch: true
