@@ -267,6 +267,58 @@ func ComputeSLSASourceLevel(signatureVerified bool, pred SourceProvenancePredica
 	return "SLSA_SOURCE_LEVEL_2"
 }
 
+// Canonical SLSA source-track levels (https://slsa.dev/spec/v1.2/source-requirements).
+const (
+	SLSASourceLevel0 = "SLSA_SOURCE_LEVEL_0"
+	SLSASourceLevel1 = "SLSA_SOURCE_LEVEL_1"
+	SLSASourceLevel2 = "SLSA_SOURCE_LEVEL_2"
+	SLSASourceLevel3 = "SLSA_SOURCE_LEVEL_3"
+)
+
+// ControlledBuilderAnnotation is the non-numbered verifiedLevels entry asserting
+// that the provenance was produced by a recognized, controlled CI builder (a
+// builder-ID prefix the verifier trusts, plus a recognized build type). It
+// proves a recognized controlled builder — NOT that two parties reviewed the
+// change; review is a separate source-track control this heuristic does not
+// observe. It is recorded alongside — not as — the numbered SLSA_SOURCE_LEVEL_n.
+const ControlledBuilderAnnotation = "ORG_SOURCE_CONTROLLED_BUILDER"
+
+// MapToCanonicalSourceLevel maps the verification evidence to the canonical SLSA
+// source-track level the evidence actually proves, staying deliberately
+// conservative to avoid overclaiming.
+//
+// The SLSA source track (v1.2) grants:
+//   - L1: source is in a modern VCS and a Source VSA/provenance is issued.
+//   - L2: continuous, immutable, retained branch history.
+//   - L3: org technical controls (branch protection, required reviews, status
+//     checks) are continuously enforced and attested.
+//
+// A verified source-provenance signature proves L1: the revision is version
+// controlled and provenance exists. It does NOT by itself prove the continuity
+// (L2) or continuous-enforcement (L3) controls. So provenance evidence alone
+// maps to L1 here; a recognized controlled builder, when detected, is surfaced
+// separately via ControlledBuilderAnnotation.
+func MapToCanonicalSourceLevel(signatureVerified bool) string {
+	if !signatureVerified {
+		return SLSASourceLevel0
+	}
+	return SLSASourceLevel1
+}
+
+// IsComputedSourceLevel3 reports whether a ComputeSLSASourceLevel result
+// indicates L3 (a recognized controlled builder plus a recognized build type).
+// It accepts both the canonical SLSA_SOURCE_LEVEL_3 token and the legacy
+// SLSA_SOURCE_L3 form so callers stay correct regardless of whether the
+// canonical-token fix has merged; once it has, only the canonical form occurs
+// and the legacy arm is inert.
+func IsComputedSourceLevel3(level string) bool {
+	return level == SLSASourceLevel3 || level == legacySourceLevel3
+}
+
+// legacySourceLevel3 is the pre-canonical token still emitted by
+// ComputeSLSASourceLevel until the canonical-token fix lands.
+const legacySourceLevel3 = "SLSA_SOURCE_L3"
+
 // loadTrustedRoot loads the Sigstore trusted root for signature verification.
 // selectTrustedRootForBundle returns the trusted root able to chain b's signing
 // cert: the public-good Sigstore root for sigstore.dev-issued certs, otherwise

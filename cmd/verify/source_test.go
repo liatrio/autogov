@@ -57,6 +57,38 @@ func TestVerifySource_MissingCommit(t *testing.T) {
 	assert.Contains(t, err.Error(), "commit")
 }
 
+func TestVerifySource_SourceVSAOutputRequiresIdentity(t *testing.T) {
+	// fail closed: a signed PASSED Source VSA must not be minted from an
+	// unverified signer, so --source-vsa-output without --cert-identity errors.
+	_, err := executeVerifySourceCmd(t, []string{
+		"--attestation-path", "bundle.json",
+		"--repo-uri", "https://github.com/org/repo",
+		"--commit", "abc123",
+		"--source-vsa-output", "source-vsa.json",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cert-identity")
+	// load failures surface via err, so assert on err (not the output buffer):
+	// it must fail before touching the bundle (i.e. not a load error).
+	assert.NotContains(t, err.Error(), "load bundle")
+}
+
+func TestVerifySource_GenerateVSARequiresIdentity(t *testing.T) {
+	// fail closed: the classic --generate-vsa output also asserts a PASSED
+	// result, so it must not be minted from an unverified signer either.
+	_, err := executeVerifySourceCmd(t, []string{
+		"--attestation-path", "bundle.json",
+		"--repo-uri", "https://github.com/org/repo",
+		"--commit", "abc123",
+		"--generate-vsa",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cert-identity")
+	// load failures surface via err, so assert on err (not the output buffer):
+	// it must fail before touching the bundle (i.e. not a load error).
+	assert.NotContains(t, err.Error(), "load bundle")
+}
+
 func TestVerifySource_HelpOutput(t *testing.T) {
 	out, err := executeVerifySourceCmd(t, []string{"--help"})
 	require.NoError(t, err)
@@ -83,4 +115,5 @@ func TestVerifySource_VSAFlagsRegistered(t *testing.T) {
 	assert.Contains(t, out, "--generate-vsa")
 	assert.Contains(t, out, "--vsa-output")
 	assert.Contains(t, out, "--policy-uri")
+	assert.Contains(t, out, "--source-vsa-output")
 }
