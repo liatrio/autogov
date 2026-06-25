@@ -1,0 +1,19 @@
+# ko build config for the autogov CLI OCI image.
+# ldflags mirror Taskfile.yml so `ko build` and `task build` embed the same
+# version/commit/date/opa metadata (reproducible). values come from the env the
+# attest.yaml ko job exports; SOURCE_DATE_EPOCH (set there too) zeroes image
+# timestamps.
+defaultBaseImage: gcr.io/distroless/static-debian12:nonroot@sha256:d093aa3e30dbadd3efe1310db061a14da60299baff8450a17fe0ccc514a16639
+builds:
+  - id: autogov
+    main: .
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Env.VERSION}}
+      - -X main.commit={{.Env.COMMIT}}
+      - -X main.date={{.Env.DATE}}
+      - -X main.OpaVersion={{.Env.OPA_VERSION}}
