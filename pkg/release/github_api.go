@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	gogithub "github.com/google/go-github/v88/github"
+	"github.com/liatrio/autogov/pkg/helper/version"
 )
 
 // rawCommit holds commit data returned by the GitHub Compare API.
@@ -44,12 +45,12 @@ func listTagsFromAPI(ctx context.Context, svc ReleaseService, owner, repo string
 	// filter to valid semver tags, sort descending
 	type tagEntry struct {
 		name    string
-		version *Version
+		version *version.Version
 	}
 	var semverTags []tagEntry
 	for _, t := range allTags {
 		name := t.GetName()
-		ver, err := ParseVersion(name)
+		ver, err := version.ParseVersion(name)
 		if err != nil {
 			continue // skip non-semver tags
 		}
@@ -150,12 +151,12 @@ func getBranchTipFromAPI(ctx context.Context, svc ReleaseService, owner, repo, b
 	return b.Commit.GetSHA(), nil
 }
 
-// parseRawCommits converts a slice of rawCommit to ParsedCommit.
+// parseRawCommits converts a slice of rawCommit to version.ParsedCommit.
 // Used for API-mode commit parsing; mirrors ParseCommits for go-git commits.
-func parseRawCommits(commits []rawCommit) []ParsedCommit {
-	var parsed []ParsedCommit
+func parseRawCommits(commits []rawCommit) []version.ParsedCommit {
+	var parsed []version.ParsedCommit
 	for _, c := range commits {
-		pc := ParseConventionalCommit(c.SHA, c.Message)
+		pc := version.ParseConventionalCommit(c.SHA, c.Message)
 		if pc == nil {
 			lines := strings.SplitN(c.Message, "\n", 2)
 			subject := strings.TrimSpace(lines[0])
@@ -163,7 +164,7 @@ func parseRawCommits(commits []rawCommit) []ParsedCommit {
 			if len(lines) > 1 {
 				body = strings.TrimSpace(lines[1])
 			}
-			pc = &ParsedCommit{
+			pc = &version.ParsedCommit{
 				Hash:    c.SHA,
 				Type:    "other",
 				Subject: subject,

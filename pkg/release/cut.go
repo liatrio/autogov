@@ -12,6 +12,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	gogithub "github.com/google/go-github/v88/github"
+	githelper "github.com/liatrio/autogov/pkg/helper/git"
 	"github.com/liatrio/autogov/pkg/mutate"
 	"gopkg.in/yaml.v3"
 )
@@ -190,7 +191,7 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 		return nil, err
 	}
 
-	repo, err := OpenRepository(opts.RepoPath)
+	repo, err := githelper.OpenRepository(opts.RepoPath)
 	if err != nil {
 		return nil, err
 	}
@@ -766,7 +767,7 @@ func checkImmutability(repo *git.Repository, opts *CutOptions, tagName string) e
 	// a returned release is always a published conflict; resumable drafts are handled
 	// earlier by detectResume.
 	if opts.ReleaseAPI != nil {
-		repoName := GetRepositoryName(repo)
+		repoName := githelper.GetRepositoryName(repo)
 		parts := strings.SplitN(repoName, "/", 2)
 		if len(parts) == 2 {
 			ctx := context.Background()
@@ -811,7 +812,7 @@ func applyMutations(repoPath, configPath, version string, dryRun bool) ([]string
 
 // parseOwnerRepo extracts owner and repo name from remote URL
 func parseOwnerRepo(repo *git.Repository) (string, string, error) {
-	repoName := GetRepositoryName(repo)
+	repoName := githelper.GetRepositoryName(repo)
 	parts := strings.SplitN(repoName, "/", 2)
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("cannot determine owner/repo from remote URL")
@@ -988,7 +989,7 @@ func deleteTagRef(ctx context.Context, opts *CutOptions, owner, repoName, tagNam
 // createGitHubRelease creates a GitHub release via the API.
 // When draft is true, creates a draft release; when false, creates a published release directly.
 func createGitHubRelease(repo *git.Repository, opts *CutOptions, plan *ReleasePlan, draft bool) (string, int64, error) {
-	repoName := GetRepositoryName(repo)
+	repoName := githelper.GetRepositoryName(repo)
 	parts := strings.SplitN(repoName, "/", 2)
 	if len(parts) != 2 {
 		return "", 0, fmt.Errorf("cannot determine owner/repo from remote URL")

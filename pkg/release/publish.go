@@ -11,6 +11,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	gogithub "github.com/google/go-github/v88/github"
+	githelper "github.com/liatrio/autogov/pkg/helper/git"
 )
 
 // PublishOptions contains configuration for publishing a draft release
@@ -56,12 +57,12 @@ func ExecutePublish(opts *PublishOptions) (*PublishResult, error) {
 	}
 
 	// parse owner/repo from git remote
-	repo, err := OpenRepository(opts.RepoPath)
+	repo, err := githelper.OpenRepository(opts.RepoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open repository: %w", err)
 	}
 
-	repoName := GetRepositoryName(repo)
+	repoName := githelper.GetRepositoryName(repo)
 	parts := strings.SplitN(repoName, "/", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("cannot parse owner/repo from: %s", repoName)
