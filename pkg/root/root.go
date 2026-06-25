@@ -38,7 +38,10 @@ var fetchPublicTrustedRoot = func() ([]byte, error) {
 }
 
 // holds the live-refreshed public-good root once RefreshPublicTrustedRoot
-// succeeds; nil means GetPublicTrustedRoot serves the embedded snapshot.
+// succeeds; nil means GetPublicTrustedRoot serves the embedded snapshot. this is
+// process-global state shared by every verification in the process — correct for
+// the single-shot CLI; an embedding library doing concurrent verifications with
+// differing refresh policies would need to inject the root explicitly instead.
 var (
 	publicTrustedRootMu   sync.RWMutex
 	livePublicTrustedRoot []byte
@@ -118,7 +121,10 @@ func FetchTrustedRoot() ([]byte, error) {
 
 // returns the GitHub trusted root with fallback mechanism.
 // first attempts to fetch the latest root dynamically, and falls back
-// to the embedded root if the dynamic fetch fails.
+// to the embedded root if the dynamic fetch fails. note this GitHub-root path
+// is intentionally fail-OPEN (embedded fallback) because the GitHub root is
+// stable; the public-good root rotates, so its live refresh
+// (RefreshPublicTrustedRoot) is fail-CLOSED instead.
 func GetTrustedRoot() ([]byte, error) {
 	// try to fetch dynamically first
 	trustedRoot, err := FetchTrustedRoot()
