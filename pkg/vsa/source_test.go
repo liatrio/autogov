@@ -59,6 +59,38 @@ func TestGenerateSourceVSAWithControlledBuilderAnnotation(t *testing.T) {
 	assert.Equal(t, []string{"SLSA_SOURCE_LEVEL_1", "ORG_SOURCE_CONTROLLED_BUILDER"}, v.Predicate.VerifiedLevels)
 }
 
+func TestGenerateSourceVSARejectsNumberedAdditionalLevel(t *testing.T) {
+	// a numbered SLSA track token in AdditionalLevels would inflate the asserted
+	// level when a consumer reads verifiedLevels, so the API must reject it.
+	opts := SourceVSAOptions{
+		RepoURI:          "https://github.com/org/repo",
+		Commit:           "abcdef1234567890abcdef1234567890abcdef12",
+		SourceLevel:      "SLSA_SOURCE_LEVEL_1",
+		AdditionalLevels: []string{"SLSA_SOURCE_LEVEL_3"},
+		Passed:           true,
+		PolicyURI:        "https://example.com/policy",
+	}
+
+	_, err := GenerateSourceVSA(opts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "non-numbered annotation")
+}
+
+func TestGenerateSourceVSADedupesAdditionalLevels(t *testing.T) {
+	opts := SourceVSAOptions{
+		RepoURI:          "https://github.com/org/repo",
+		Commit:           "abcdef1234567890abcdef1234567890abcdef12",
+		SourceLevel:      "SLSA_SOURCE_LEVEL_1",
+		AdditionalLevels: []string{"ORG_SOURCE_CONTROLLED_BUILDER", "ORG_SOURCE_CONTROLLED_BUILDER"},
+		Passed:           true,
+		PolicyURI:        "https://example.com/policy",
+	}
+
+	v, err := GenerateSourceVSA(opts)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"SLSA_SOURCE_LEVEL_1", "ORG_SOURCE_CONTROLLED_BUILDER"}, v.Predicate.VerifiedLevels)
+}
+
 func TestGenerateSourceVSAFailed(t *testing.T) {
 	opts := SourceVSAOptions{
 		RepoURI:     "https://github.com/org/repo",

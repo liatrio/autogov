@@ -62,7 +62,21 @@ func GenerateSourceVSA(opts SourceVSAOptions) (*VSA, error) {
 	}
 
 	// only the highest numbered source level, plus any non-numbered annotations.
-	verifiedLevels := append([]string{opts.SourceLevel}, opts.AdditionalLevels...)
+	// AdditionalLevels MUST be non-numbered annotations: a numbered SLSA track
+	// token here would inflate the asserted level when a consumer reads
+	// verifiedLevels, so reject any track-level (or empty) entry and dedupe.
+	verifiedLevels := []string{opts.SourceLevel}
+	seen := map[string]struct{}{opts.SourceLevel: {}}
+	for _, level := range opts.AdditionalLevels {
+		if level == "" || IsSLSATrackLevel(level) {
+			return nil, fmt.Errorf("source VSA: additional level %q must be a non-numbered annotation, not a SLSA track level", level)
+		}
+		if _, ok := seen[level]; ok {
+			continue
+		}
+		seen[level] = struct{}{}
+		verifiedLevels = append(verifiedLevels, level)
+	}
 
 	verifierVersions := make(map[string]string, len(opts.AdditionalVerifiers))
 	for tool, ver := range opts.AdditionalVerifiers {
