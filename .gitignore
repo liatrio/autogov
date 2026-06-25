@@ -5,6 +5,7 @@
 
 # binary files
 /autogov
+/update-trusted-roots
 *.exe
 *.exe~
 *.dll
