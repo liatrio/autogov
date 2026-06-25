@@ -401,89 +401,14 @@ func NewCodeScan(opts CodeScanOptions) (*CodeScan, error) {
 	seenTools := map[string]bool{}
 
 	for _, run := range log.Runs {
-		tool := CodeScanTool{
-			Name:           truncateRunes(run.Tool.Driver.Name, maxToolFieldLen),
-			Version:        truncateRunes(run.Tool.Driver.Version, maxToolFieldLen),
-			InformationURI: truncateRunes(run.Tool.Driver.InformationURI, maxToolFieldLen),
-		}
-		// dedupe identical tools (CodeQL emits one run per language) and cap the
-		// slice so a crafted multi-run SARIF cannot bloat the signed artifact.
-		toolKey := tool.Name + "\x00" + tool.Version + "\x00" + tool.InformationURI
-		if !seenTools[toolKey] && len(c.Tools) < maxTools {
-			seenTools[toolKey] = true
-			c.Tools = append(c.Tools, tool)
-		}
-
-		// rule lookup by id across driver + extensions; ruleIndex into driver as
-		// a fallback when ruleId is absent. CodeQL always sets ruleId.
-		rulesByID := map[string]sarifRule{}
-		for _, r := range run.Tool.Driver.Rules {
-			rulesByID[r.ID] = r
-		}
-		for _, ext := range run.Tool.Extensions {
-			for _, r := range ext.Rules {
-				if _, ok := rulesByID[r.ID]; !ok {
-					rulesByID[r.ID] = r
-				}
-			}
-		}
-
-		// invocation: AND of every executionSuccessful; capture scan window.
-		for _, inv := range run.Invocations {
-			if inv.ExecutionSuccessful != nil && !*inv.ExecutionSuccessful {
-				c.Invocation.ExecutionSuccessful = false
-			}
-			if inv.StartTimeUTC != "" && (startedOn == "" || inv.StartTimeUTC < startedOn) {
-				startedOn = inv.StartTimeUTC
-			}
-			if inv.EndTimeUTC != "" && inv.EndTimeUTC > finishedOn {
-				finishedOn = inv.EndTimeUTC
-			}
-		}
+		tool := appendTool(c, run, seenTools)
+		rulesByID := indexRules(run)
+		startedOn, finishedOn = aggregateInvocations(c, run.Invocations, startedOn, finishedOn)
 
 		for _, res := range run.Results {
-			kind := res.Kind
-			if kind == "" {
-				kind = sarifKindFail
+			if finding, ok := resultToFinding(res, rulesByID, run.Tool.Driver.Rules, tool.Name); ok {
+				findings = append(findings, finding)
 			}
-			// only fail-kind results are findings (M2). pass/open/informational/
-			// notApplicable/review are excluded from every count.
-			if kind != sarifKindFail {
-				continue
-			}
-
-			rule := resolveRule(rulesByID, run.Tool.Driver.Rules, res)
-
-			// resolve level: result -> rule default -> "warning"; then constrain
-			// the untrusted value to the schema enum.
-			level := res.Level
-			if level == "" {
-				level = rule.ruleLevel()
-			}
-			level = normalizeLevel(level)
-
-			sevRaw := rule.ruleSecuritySeverity()
-			suppressed := isSuppressed(res.Suppressions)
-			finding := CodeScanFinding{
-				RuleID:                truncateRunes(res.RuleID, maxRuleIDLen),
-				Tool:                  tool.Name,
-				Level:                 level,
-				Kind:                  kind,
-				SecuritySeverity:      truncateRunes(sevRaw, maxSecuritySeverityLen),
-				SecuritySeverityLevel: securitySeverityBucket(sevRaw),
-				Message:               truncateRunes(res.Message.Text, maxMessageRunes),
-				BaselineState:         normalizeBaselineState(res.BaselineState),
-				Suppressed:            suppressed,
-				PartialFingerprints:   boundFingerprints(res.PartialFingerprints),
-			}
-			if suppressed && res.Suppressions[0].Kind != "" {
-				finding.SuppressionKind = truncateRunes(res.Suppressions[0].Kind, maxSuppressionKindLen)
-			}
-			if loc := primaryLocation(res.Locations); loc != nil {
-				finding.Location = loc
-			}
-
-			findings = append(findings, finding)
 		}
 	}
 
@@ -491,22 +416,126 @@ func NewCodeScan(opts CodeScanOptions) (*CodeScan, error) {
 	c.ScanFinishedOn = truncateRunes(finishedOn, maxTimestampLen)
 
 	summarize(c, findings)
-
-	if opts.IncludeFindings {
-		// deterministic order so the signed predicate is reproducible.
-		sortFindings(findings)
-		if len(findings) > maxFindings {
-			c.Results = findings[:maxFindings]
-			c.Truncated = true
-		} else {
-			c.Results = findings
-		}
-	} else {
-		// findings excluded by default (privacy); summary still gates.
-		c.Truncated = c.ResultCount > 0
-	}
+	selectFindings(c, findings, opts.IncludeFindings, maxFindings)
 
 	return c, nil
+}
+
+// appendTool builds the run's tool descriptor, deduping identical tools (CodeQL
+// emits one run per language) and capping the slice so a crafted multi-run
+// SARIF cannot bloat the signed artifact. The descriptor is returned regardless
+// of whether it was appended (callers tag every finding with tool.Name).
+func appendTool(c *CodeScan, run sarifRun, seenTools map[string]bool) CodeScanTool {
+	tool := CodeScanTool{
+		Name:           truncateRunes(run.Tool.Driver.Name, maxToolFieldLen),
+		Version:        truncateRunes(run.Tool.Driver.Version, maxToolFieldLen),
+		InformationURI: truncateRunes(run.Tool.Driver.InformationURI, maxToolFieldLen),
+	}
+	toolKey := tool.Name + "\x00" + tool.Version + "\x00" + tool.InformationURI
+	if !seenTools[toolKey] && len(c.Tools) < maxTools {
+		seenTools[toolKey] = true
+		c.Tools = append(c.Tools, tool)
+	}
+	return tool
+}
+
+// indexRules builds a rule lookup by id across driver + extensions. Driver
+// rules win on id collision; the ruleIndex-into-driver fallback for an absent
+// ruleId is handled in resolveRule. CodeQL always sets ruleId.
+func indexRules(run sarifRun) map[string]sarifRule {
+	rulesByID := map[string]sarifRule{}
+	for _, r := range run.Tool.Driver.Rules {
+		rulesByID[r.ID] = r
+	}
+	for _, ext := range run.Tool.Extensions {
+		for _, r := range ext.Rules {
+			if _, ok := rulesByID[r.ID]; !ok {
+				rulesByID[r.ID] = r
+			}
+		}
+	}
+	return rulesByID
+}
+
+// aggregateInvocations folds a run's invocations into c.Invocation (AND of
+// every executionSuccessful) and the scan window, returning the updated
+// start/finish bounds.
+func aggregateInvocations(c *CodeScan, invs []sarifInvocation, startedOn, finishedOn string) (string, string) {
+	for _, inv := range invs {
+		if inv.ExecutionSuccessful != nil && !*inv.ExecutionSuccessful {
+			c.Invocation.ExecutionSuccessful = false
+		}
+		if inv.StartTimeUTC != "" && (startedOn == "" || inv.StartTimeUTC < startedOn) {
+			startedOn = inv.StartTimeUTC
+		}
+		if inv.EndTimeUTC != "" && inv.EndTimeUTC > finishedOn {
+			finishedOn = inv.EndTimeUTC
+		}
+	}
+	return startedOn, finishedOn
+}
+
+// resultToFinding maps a SARIF result to a finding. ok is false for non
+// fail-kind results (pass/open/informational/notApplicable/review), which are
+// excluded from every count (M2).
+func resultToFinding(res sarifResult, rulesByID map[string]sarifRule, driverRules []sarifRule, toolName string) (CodeScanFinding, bool) {
+	kind := res.Kind
+	if kind == "" {
+		kind = sarifKindFail
+	}
+	if kind != sarifKindFail {
+		return CodeScanFinding{}, false
+	}
+
+	rule := resolveRule(rulesByID, driverRules, res)
+
+	// resolve level: result -> rule default -> "warning"; then constrain the
+	// untrusted value to the schema enum.
+	level := res.Level
+	if level == "" {
+		level = rule.ruleLevel()
+	}
+	level = normalizeLevel(level)
+
+	sevRaw := rule.ruleSecuritySeverity()
+	suppressed := isSuppressed(res.Suppressions)
+	finding := CodeScanFinding{
+		RuleID:                truncateRunes(res.RuleID, maxRuleIDLen),
+		Tool:                  toolName,
+		Level:                 level,
+		Kind:                  kind,
+		SecuritySeverity:      truncateRunes(sevRaw, maxSecuritySeverityLen),
+		SecuritySeverityLevel: securitySeverityBucket(sevRaw),
+		Message:               truncateRunes(res.Message.Text, maxMessageRunes),
+		BaselineState:         normalizeBaselineState(res.BaselineState),
+		Suppressed:            suppressed,
+		PartialFingerprints:   boundFingerprints(res.PartialFingerprints),
+	}
+	if suppressed && res.Suppressions[0].Kind != "" {
+		finding.SuppressionKind = truncateRunes(res.Suppressions[0].Kind, maxSuppressionKindLen)
+	}
+	if loc := primaryLocation(res.Locations); loc != nil {
+		finding.Location = loc
+	}
+	return finding, true
+}
+
+// selectFindings fills c.Results from the full finding set. When findings are
+// included they are sorted (deterministic, reproducible predicate) and capped
+// at maxFindings; otherwise they are excluded by default (privacy) and only the
+// summary gates.
+func selectFindings(c *CodeScan, findings []CodeScanFinding, include bool, maxFindings int) {
+	if !include {
+		c.Truncated = c.ResultCount > 0
+		return
+	}
+	sortFindings(findings)
+	if len(findings) > maxFindings {
+		c.Results = findings[:maxFindings]
+		c.Truncated = true
+	} else {
+		c.Results = findings
+	}
 }
 
 // resolveRule finds the rule for a result by ruleId, falling back to ruleIndex.
