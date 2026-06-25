@@ -242,7 +242,7 @@ func VerifySourceProvenance(bundlePath string, opts VerifyOptions) (*Verificatio
 func ComputeSLSASourceLevel(signatureVerified bool, pred SourceProvenancePredicate) string {
 	// L1: version controlled source with provenance attestation exists.
 	if !signatureVerified {
-		return "SLSA_SOURCE_L1"
+		return "SLSA_SOURCE_LEVEL_1"
 	}
 
 	// L2: signature is cryptographically verified.
@@ -261,10 +261,10 @@ func ComputeSLSASourceLevel(signatureVerified bool, pred SourceProvenancePredica
 		strings.HasPrefix(buildType, "https://github.com/")
 
 	if hasControlledBuilder && hasControlledBuildType {
-		return "SLSA_SOURCE_L3"
+		return "SLSA_SOURCE_LEVEL_3"
 	}
 
-	return "SLSA_SOURCE_L2"
+	return "SLSA_SOURCE_LEVEL_2"
 }
 
 // loadTrustedRoot loads the Sigstore trusted root for signature verification.
