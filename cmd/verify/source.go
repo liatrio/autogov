@@ -95,6 +95,13 @@ func preRunSource(cmd *cobra.Command, _ []string) error {
 	if sourceVSAOutput != "" && certIdentity == "" {
 		return fmt.Errorf("--%s requires --%s: refusing to mint a trust-bearing Source VSA from an unverified signer", flagSourceVSAOutput, flagCertIdentity)
 	}
+	// the classic --generate-vsa output also asserts a PASSED verificationResult,
+	// so apply the same fail-closed rule: it must not be minted from the
+	// WithoutIdentitiesUnsafe fallback (any valid Sigstore signature would pass).
+	generateVSA, _ := cmd.Flags().GetBool(flagGenerateVSA)
+	if generateVSA && certIdentity == "" {
+		return fmt.Errorf("--%s requires --%s: refusing to mint a trust-bearing VSA from an unverified signer", flagGenerateVSA, flagCertIdentity)
+	}
 	return nil
 }
 
@@ -182,9 +189,10 @@ func generateStandardsSourceVSA(result *source.VerificationResult, vsaOutput, po
 	var additionalLevels []string
 	// the heuristic level (recognized controlled builder + build type) is the
 	// only builder-grade signal available on this path; surface it as an advisory
-	// annotation without promoting the numbered level. The corrected canonical
-	// token (SLSA_SOURCE_LEVEL_3) lands via #291, which must merge before this PR.
-	if result.SLSASourceLevel == source.SLSASourceLevel3 {
+	// annotation without promoting the numbered level. IsComputedSourceLevel3
+	// tolerates the legacy token form, so this is correct whether or not the
+	// canonical-token fix has merged yet.
+	if source.IsComputedSourceLevel3(result.SLSASourceLevel) {
 		additionalLevels = append(additionalLevels, source.ControlledBuilderAnnotation)
 	}
 

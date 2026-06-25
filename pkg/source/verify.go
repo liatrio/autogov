@@ -305,6 +305,20 @@ func MapToCanonicalSourceLevel(signatureVerified bool) string {
 	return SLSASourceLevel1
 }
 
+// IsComputedSourceLevel3 reports whether a ComputeSLSASourceLevel result
+// indicates L3 (a recognized controlled builder plus a recognized build type).
+// It accepts both the canonical SLSA_SOURCE_LEVEL_3 token and the legacy
+// SLSA_SOURCE_L3 form so callers stay correct regardless of whether the
+// canonical-token fix has merged; once it has, only the canonical form occurs
+// and the legacy arm is inert.
+func IsComputedSourceLevel3(level string) bool {
+	return level == SLSASourceLevel3 || level == legacySourceLevel3
+}
+
+// legacySourceLevel3 is the pre-canonical token still emitted by
+// ComputeSLSASourceLevel until the canonical-token fix lands.
+const legacySourceLevel3 = "SLSA_SOURCE_L3"
+
 // loadTrustedRoot loads the Sigstore trusted root for signature verification.
 // selectTrustedRootForBundle returns the trusted root able to chain b's signing
 // cert: the public-good Sigstore root for sigstore.dev-issued certs, otherwise

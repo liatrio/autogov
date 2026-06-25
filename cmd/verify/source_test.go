@@ -72,6 +72,21 @@ func TestVerifySource_SourceVSAOutputRequiresIdentity(t *testing.T) {
 	assert.NotContains(t, out, "load bundle")
 }
 
+func TestVerifySource_GenerateVSARequiresIdentity(t *testing.T) {
+	// fail closed: the classic --generate-vsa output also asserts a PASSED
+	// result, so it must not be minted from an unverified signer either.
+	out, err := executeVerifySourceCmd(t, []string{
+		"--attestation-path", "bundle.json",
+		"--repo-uri", "https://github.com/org/repo",
+		"--commit", "abc123",
+		"--generate-vsa",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cert-identity")
+	// it must fail before touching the bundle (i.e. not a load error).
+	assert.NotContains(t, out, "load bundle")
+}
+
 func TestVerifySource_HelpOutput(t *testing.T) {
 	out, err := executeVerifySourceCmd(t, []string{"--help"})
 	require.NoError(t, err)
