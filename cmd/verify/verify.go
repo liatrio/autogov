@@ -15,6 +15,7 @@ const (
 	flagQuiet              = "quiet"
 	flagAttestationsPath   = "attestations-path"
 	flagCertIdentityList   = "cert-identity-list"
+	flagRefreshTrustedRoot = "refresh-trusted-root"
 	flagNoCache            = "no-cache"
 	flagPolicyBundlePath   = "policy-bundle-path"
 	flagPolicySchemasPath  = "policy-schemas-path"
@@ -23,6 +24,7 @@ const (
 	flagFailOnPolicyError  = "fail-on-policy-error"
 	flagGenerateVSA        = "generate-vsa"
 	flagVSAOutput          = "vsa-output"
+	flagSourceVSAOutput    = "source-vsa-output"
 	flagPolicyURI          = "policy-uri"
 	attestationURNFormat   = "urn:attestation:sha256:%s"
 )

@@ -91,13 +91,13 @@ func TestComputeSLSASourceLevel(t *testing.T) {
 			name:     "unverified signature returns L1",
 			verified: false,
 			pred:     SourceProvenancePredicate{},
-			expected: "SLSA_SOURCE_L1",
+			expected: "SLSA_SOURCE_LEVEL_1",
 		},
 		{
 			name:     "verified signature without controlled builder returns L2",
 			verified: true,
 			pred:     SourceProvenancePredicate{},
-			expected: "SLSA_SOURCE_L2",
+			expected: "SLSA_SOURCE_LEVEL_2",
 		},
 		{
 			name:     "verified with SLSA framework builder and build type returns L3",
@@ -108,7 +108,7 @@ func TestComputeSLSASourceLevel(t *testing.T) {
 				p.BuildDefinition.BuildType = "https://slsa.dev/source/v0.1"
 				return p
 			}(),
-			expected: "SLSA_SOURCE_L3",
+			expected: "SLSA_SOURCE_LEVEL_3",
 		},
 		{
 			name:     "verified with GitHub Actions builder returns L3",
@@ -119,7 +119,7 @@ func TestComputeSLSASourceLevel(t *testing.T) {
 				p.BuildDefinition.BuildType = "https://github.com/actions/buildtype/v1"
 				return p
 			}(),
-			expected: "SLSA_SOURCE_L3",
+			expected: "SLSA_SOURCE_LEVEL_3",
 		},
 		{
 			name:     "spoofed builder ID does not achieve L3",
@@ -130,7 +130,7 @@ func TestComputeSLSASourceLevel(t *testing.T) {
 				p.BuildDefinition.BuildType = "https://slsa.dev/source/v0.1"
 				return p
 			}(),
-			expected: "SLSA_SOURCE_L2",
+			expected: "SLSA_SOURCE_LEVEL_2",
 		},
 	}
 
@@ -139,6 +139,31 @@ func TestComputeSLSASourceLevel(t *testing.T) {
 			assert.Equal(t, tt.expected, ComputeSLSASourceLevel(tt.verified, tt.pred))
 		})
 	}
+}
+
+func TestMapToCanonicalSourceLevel(t *testing.T) {
+	// review/provenance evidence is mapped conservatively: a verified signature
+	// proves L1 (version control + provenance), nothing higher; unverified is L0.
+	assert.Equal(t, "SLSA_SOURCE_LEVEL_0", MapToCanonicalSourceLevel(false))
+	assert.Equal(t, "SLSA_SOURCE_LEVEL_1", MapToCanonicalSourceLevel(true))
+}
+
+func TestIsComputedSourceLevel3(t *testing.T) {
+	// accepts both the canonical and legacy L3 tokens; rejects lower levels.
+	assert.True(t, IsComputedSourceLevel3("SLSA_SOURCE_LEVEL_3"))
+	assert.True(t, IsComputedSourceLevel3("SLSA_SOURCE_L3")) // legacy form
+	assert.False(t, IsComputedSourceLevel3("SLSA_SOURCE_LEVEL_2"))
+	assert.False(t, IsComputedSourceLevel3("SLSA_SOURCE_L2"))
+	assert.False(t, IsComputedSourceLevel3("SLSA_SOURCE_LEVEL_1"))
+	assert.False(t, IsComputedSourceLevel3(""))
+
+	// regression: ComputeSLSASourceLevel's actual L3 output must be recognized so
+	// the controlled-builder annotation fires whichever token form the
+	// canonical-token fix happens to emit.
+	var pred SourceProvenancePredicate
+	pred.RunDetails.Builder.ID = "https://github.com/actions/runner"
+	pred.BuildDefinition.BuildType = "https://slsa.dev/foo"
+	assert.True(t, IsComputedSourceLevel3(ComputeSLSASourceLevel(true, pred)))
 }
 
 func TestExtractRepoURI(t *testing.T) {

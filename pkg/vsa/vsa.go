@@ -177,6 +177,7 @@ func (v *VSA) IsVerificationPassed() bool {
 type SLSATrackLevels struct {
 	BuildTrack      int
 	DependencyTrack int
+	SourceTrack     int
 }
 
 // parses SLSA track levels from a list of strings
@@ -210,6 +211,10 @@ func ExtractSLSATrackLevels(trackLevels []string) (SLSATrackLevels, error) {
 			if levelNum > result.DependencyTrack {
 				result.DependencyTrack = levelNum
 			}
+		case "SOURCE":
+			if levelNum > result.SourceTrack {
+				result.SourceTrack = levelNum
+			}
 		}
 	}
 
@@ -229,7 +234,7 @@ func ExtractSLSALevels(levels []string) []string {
 
 // checks if a level string is a valid SLSA track level
 func IsSLSATrackLevel(level string) bool {
-	// valid SLSA v1.1 track levels
+	// valid SLSA track levels (build, dependency, and source)
 	validLevels := []string{
 		"SLSA_BUILD_LEVEL_0",
 		"SLSA_BUILD_LEVEL_1",
@@ -239,6 +244,10 @@ func IsSLSATrackLevel(level string) bool {
 		"SLSA_DEPENDENCY_LEVEL_1",
 		"SLSA_DEPENDENCY_LEVEL_2",
 		"SLSA_DEPENDENCY_LEVEL_3",
+		"SLSA_SOURCE_LEVEL_0",
+		"SLSA_SOURCE_LEVEL_1",
+		"SLSA_SOURCE_LEVEL_2",
+		"SLSA_SOURCE_LEVEL_3",
 	}
 
 	for _, valid := range validLevels {
