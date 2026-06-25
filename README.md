@@ -141,6 +141,21 @@ And one of the following:
 - `--blob-path`: Path to a blob file to verify attestations against (e.g., `--blob-path /path/to/file.txt`)
 - Positional digest: you may pass the digest as a positional argument when neither `--image-digest` nor `--blob-path` is provided.
 
+#### Multi-Signer Verification
+
+Pass `--cert-identity` and/or `--cert-identity-list` to enforce a **signer allowlist**. A bundle is accepted if its signer matches the single `--cert-identity` **or** any identity in `--cert-identity-list` — their union, with OR semantics (match at least one). This is useful when an artifact's attestations are produced by more than one workflow (for example an image and its VSA, signed by different reusable workflows), and it lets the allowlist span multiple authorized signer versions so verification survives reusable-workflow version bumps.
+
+```bash
+# accept a signature matching --cert-identity OR any identity in --cert-identity-list
+autogov verify attestation \
+  --repo liatrio/autogov \
+  --blob-path artifact.tar.gz \
+  --cert-identity "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@d709edc9cc501e27f390b7818c9262075ee9e0da" \
+  --cert-identity-list "https://raw.githubusercontent.com/liatrio/autogov-workflows/refs/heads/main/cert-identities.json"
+```
+
+The list is a URL or local file path to a JSON identity list (see [Certificate Identity Validation Flags](#certificate-identity-validation-flags)); revoked/expired entries are dropped and verification **fails closed** if an enforced list resolves to zero valid identities. If you set **neither** flag, any valid Fulcio signature is accepted and an `unsafe` warning is printed.
+
 ### Offline Verification
 
 The tool supports offline verification for air-gapped environments or archived attestations:
