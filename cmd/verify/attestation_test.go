@@ -82,6 +82,26 @@ func TestVerifyAttestation_OfflineEnforcesCertIdentityList(t *testing.T) {
 	}
 }
 
+func TestVerifyAttestation_RefreshTrustedRootFlagDefaultsOff(t *testing.T) {
+	// --refresh-trusted-root must be registered and default to false so that the
+	// default (no flag) keeps hermetic embedded-snapshot behavior.
+	cmd := verify.NewVerifyCmdForTesting()
+	att, _, err := cmd.Find([]string{"attestation"})
+	if err != nil {
+		t.Fatalf("find attestation cmd: %v", err)
+	}
+	f := att.Flags().Lookup("refresh-trusted-root")
+	if f == nil {
+		t.Fatal("--refresh-trusted-root flag is not registered")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("--refresh-trusted-root default = %q, want false (off by default)", f.DefValue)
+	}
+	if !strings.Contains(f.Usage, "Fail-closed") {
+		t.Errorf("--refresh-trusted-root help should document fail-closed; got: %q", f.Usage)
+	}
+}
+
 func TestVerifyAttestation_UnsafeWarningUngatedByQuiet(t *testing.T) {
 	// when neither --cert-identity nor --cert-identity-list is set, a single
 	// warning goes to stderr, is "warning:"-prefixed, and fires even under --quiet.

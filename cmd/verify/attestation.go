@@ -16,6 +16,7 @@ import (
 	ghclient "github.com/liatrio/autogov/pkg/github"
 	"github.com/liatrio/autogov/pkg/offline"
 	"github.com/liatrio/autogov/pkg/orchestrate"
+	"github.com/liatrio/autogov/pkg/root"
 	"github.com/liatrio/autogov/pkg/vsa"
 	"github.com/sigstore/cosign/v3/pkg/oci"
 	"github.com/spf13/cobra"
@@ -57,6 +58,7 @@ Examples:
 	cmd.Flags().String(flagAttestationsPath, "", "Path to directory containing attestation files for offline verification")
 	cmd.Flags().BoolP(flagQuiet, "q", false, "Only show errors and final results")
 	cmd.Flags().String(flagCertIdentityList, "", "Signer allowlist: URL or file path to a certificate identity list. Accepted identities are enforced as a signer allowlist; usable with or without --cert-identity (their union is accepted)")
+	cmd.Flags().Bool(flagRefreshTrustedRoot, false, "Fetch the public-good Sigstore trusted root live from the Sigstore TUF repo instead of the embedded snapshot. Fail-closed: if the live fetch fails, verification errors out (no fallback). Off by default (uses the embedded snapshot, hermetic)")
 	cmd.Flags().Bool(flagNoCache, false, "Disable caching of the certificate identity list")
 	cmd.Flags().String(flagPolicyBundlePath, "", "Policy bundle source: local dir, .tar.gz, http(s):// URL, oci://registry/repo:tag, or ghrel://owner/repo[@tag][?asset=bundle.tar.gz]. Without @tag, ghrel:// uses the latest release (GitHub's most recent non-prerelease, non-draft, which may differ from an OCI :latest tag)")
 	cmd.Flags().String(flagPolicySchemasPath, "", "JSON schemas source for OPA validation: local dir, .tar.gz, http(s):// URL, oci://, or ghrel://owner/repo[@tag][?asset=schemas.tar.gz] (default asset schemas.tar.gz)")
@@ -117,6 +119,19 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 	sourceRef, _ := cmd.Flags().GetString(flagSourceRef)
 	blobPath, _ := cmd.Flags().GetString(flagBlobPath)
 	attestationsPath, _ := cmd.Flags().GetString(flagAttestationsPath)
+
+	// opt-in: refresh the public-good trusted root live from the Sigstore TUF repo
+	// before verifying anything. fail-closed — on any error we abort instead of
+	// falling back to the embedded snapshot. off by default keeps verify hermetic.
+	if refresh, _ := cmd.Flags().GetBool(flagRefreshTrustedRoot); refresh {
+		if !quiet {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Refreshing public-good trusted root from the Sigstore TUF repo...")
+		}
+		if err := root.RefreshPublicTrustedRoot(); err != nil {
+			return fmt.Errorf("--%s requested but live refresh failed: %w", flagRefreshTrustedRoot, err)
+		}
+	}
+
 	client, err := ghclient.NewClient()
 	if err != nil {
 		return fmt.Errorf("failed to create GitHub client: %w", err)

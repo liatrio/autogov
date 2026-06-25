@@ -6,22 +6,68 @@ import (
 	"encoding/pem"
 	"fmt"
 	"strings"
+	"sync"
 
 	_ "embed"
 
 	"github.com/cli/go-gh/v2"
+	sigstorego_root "github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore-go/pkg/tuf"
 )
 
 //go:embed github-trusted-root.json
 var GithubTrustedRoot []byte
 
-// static snapshot of the public-good Sigstore trusted root. unlike the GitHub
-// root (refreshed live via FetchTrustedRoot), this has no refresh path, so a
-// future Sigstore key rotation requires re-vendoring this file; longer term it
-// should be fetched live from the Sigstore TUF repo.
+// static snapshot of the public-good Sigstore trusted root. by default this
+// embedded snapshot is used (hermetic, offline-capable). an opt-in live refresh
+// (--refresh-trusted-root) replaces it via RefreshPublicTrustedRoot before
+// verification; the embedded snapshot is re-vendored periodically via
+// `task vendor-public-trusted-root` so it can't silently rot.
 //
 //go:embed public-trusted-root.json
 var PublicSigstoreTrustedRoot []byte
+
+// fetchPublicTrustedRoot fetches the public-good Sigstore trusted root live from
+// the Sigstore TUF repo. seam for tests.
+var fetchPublicTrustedRoot = func() ([]byte, error) {
+	tr, err := sigstorego_root.FetchTrustedRootWithOptions(tuf.DefaultOptions())
+	if err != nil {
+		return nil, err
+	}
+	return tr.MarshalJSON()
+}
+
+// holds the live-refreshed public-good root once RefreshPublicTrustedRoot
+// succeeds; nil means GetPublicTrustedRoot serves the embedded snapshot. this is
+// process-global state shared by every verification in the process — correct for
+// the single-shot CLI; an embedding library doing concurrent verifications with
+// differing refresh policies would need to inject the root explicitly instead.
+var (
+	publicTrustedRootMu   sync.RWMutex
+	livePublicTrustedRoot []byte
+)
+
+// RefreshPublicTrustedRoot fetches the public-good Sigstore trusted root live
+// from the Sigstore TUF repo and, on success, makes GetPublicTrustedRoot serve
+// it for the rest of the process. it is fail-closed: any fetch or parse error is
+// returned and nothing is cached, so the caller must abort rather than fall back
+// to the embedded snapshot. only invoke this when the operator opts in via
+// --refresh-trusted-root; otherwise GetPublicTrustedRoot keeps serving the
+// embedded snapshot (unchanged hermetic behavior).
+func RefreshPublicTrustedRoot() error {
+	data, err := fetchPublicTrustedRoot()
+	if err != nil {
+		return fmt.Errorf("failed to refresh public-good trusted root from TUF: %w", err)
+	}
+	// validate the fetched root parses before trusting it; never cache garbage.
+	if _, err := sigstorego_root.NewTrustedRootFromJSON(data); err != nil {
+		return fmt.Errorf("refreshed public-good trusted root is invalid: %w", err)
+	}
+	publicTrustedRootMu.Lock()
+	livePublicTrustedRoot = data
+	publicTrustedRootMu.Unlock()
+	return nil
+}
 
 // trusted root source selection
 type TrustedRootSource string
@@ -75,7 +121,10 @@ func FetchTrustedRoot() ([]byte, error) {
 
 // returns the GitHub trusted root with fallback mechanism.
 // first attempts to fetch the latest root dynamically, and falls back
-// to the embedded root if the dynamic fetch fails.
+// to the embedded root if the dynamic fetch fails. note this GitHub-root path
+// is intentionally fail-OPEN (embedded fallback) because the GitHub root is
+// stable; the public-good root rotates, so its live refresh
+// (RefreshPublicTrustedRoot) is fail-CLOSED instead.
 func GetTrustedRoot() ([]byte, error) {
 	// try to fetch dynamically first
 	trustedRoot, err := FetchTrustedRoot()
@@ -180,8 +229,14 @@ func detectFromIssuer(issuer string) TrustedRootSource {
 	}
 }
 
-// returns embedded public sigstore trusted root
+// returns the public sigstore trusted root: the live-refreshed root if
+// RefreshPublicTrustedRoot succeeded this run, otherwise the embedded snapshot.
 func GetPublicTrustedRoot() []byte {
+	publicTrustedRootMu.RLock()
+	defer publicTrustedRootMu.RUnlock()
+	if livePublicTrustedRoot != nil {
+		return livePublicTrustedRoot
+	}
 	return PublicSigstoreTrustedRoot
 }
 
