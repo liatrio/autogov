@@ -7,7 +7,7 @@ require (
 	github.com/digitorus/pkcs7 v0.0.0-20250730155240-ffadbf3f398c
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/google/go-github/v88 v88.0.0
-	github.com/open-policy-agent/opa v1.17.1
+	github.com/open-policy-agent/opa v1.18.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/sigstore/cosign/v3 v3.1.1
 	github.com/sigstore/protobuf-specs v0.5.1
@@ -130,7 +130,7 @@ require (
 	github.com/transparency-dev/formats v0.1.1 // indirect
 	github.com/transparency-dev/merkle v0.0.2 // indirect
 	github.com/valyala/fastjson v1.6.10 // indirect
-	github.com/vektah/gqlparser/v2 v2.5.33 // indirect
+	github.com/vektah/gqlparser/v2 v2.5.34 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
@@ -151,7 +151,7 @@ require (
 	golang.org/x/term v0.44.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260523011958-0a33c5d7ca68 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/grpc v1.81.1 // indirect
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
