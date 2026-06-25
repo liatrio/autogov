@@ -89,7 +89,10 @@ func GenerateSourceVSA(opts SourceVSAOptions) (*VSA, error) {
 			InputAttestations:  opts.InputAttestations,
 			VerificationResult: result,
 			VerifiedLevels:     verifiedLevels,
-			SlsaVersion:        "1.1",
+			// slsaVersion stays "1.1" for consistency with the rest of the codebase's
+			// VSAs; the v1.2-rc1 source-track docs cited above describe the source
+			// level semantics, not the verification_summary predicate version.
+			SlsaVersion: "1.1",
 		},
 		Metadata: map[string]interface{}{
 			"autogov.source.level": opts.SourceLevel,

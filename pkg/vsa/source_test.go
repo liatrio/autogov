@@ -42,12 +42,12 @@ func TestGenerateSourceVSA(t *testing.T) {
 	assert.Equal(t, "v0.30.0", v.Predicate.Verifier.Version["autogov"])
 }
 
-func TestGenerateSourceVSAWithReviewAnnotation(t *testing.T) {
+func TestGenerateSourceVSAWithControlledBuilderAnnotation(t *testing.T) {
 	opts := SourceVSAOptions{
 		RepoURI:          "https://github.com/org/repo",
 		Commit:           "abcdef1234567890abcdef1234567890abcdef12",
 		SourceLevel:      "SLSA_SOURCE_LEVEL_1",
-		AdditionalLevels: []string{"ORG_SOURCE_TWO_PARTY_REVIEW"},
+		AdditionalLevels: []string{"ORG_SOURCE_CONTROLLED_BUILDER"},
 		Passed:           true,
 		PolicyURI:        "https://example.com/policy",
 	}
@@ -55,8 +55,8 @@ func TestGenerateSourceVSAWithReviewAnnotation(t *testing.T) {
 	v, err := GenerateSourceVSA(opts)
 	require.NoError(t, err)
 
-	// the review fact rides alongside the numbered level, not as a higher level.
-	assert.Equal(t, []string{"SLSA_SOURCE_LEVEL_1", "ORG_SOURCE_TWO_PARTY_REVIEW"}, v.Predicate.VerifiedLevels)
+	// the controlled-builder annotation rides alongside the numbered level, not as a higher level.
+	assert.Equal(t, []string{"SLSA_SOURCE_LEVEL_1", "ORG_SOURCE_CONTROLLED_BUILDER"}, v.Predicate.VerifiedLevels)
 }
 
 func TestGenerateSourceVSAFailed(t *testing.T) {

@@ -275,12 +275,13 @@ const (
 	SLSASourceLevel3 = "SLSA_SOURCE_LEVEL_3"
 )
 
-// SourceReviewAnnotation is the non-numbered verifiedLevels entry asserting that
-// two-party review evidence was observed. In the current SLSA source track,
-// two-party review is a separate control rather than a numbered level (it was
-// the old Source L4, since folded), so it is recorded alongside — not as — the
-// numbered SLSA_SOURCE_LEVEL_n.
-const SourceReviewAnnotation = "ORG_SOURCE_TWO_PARTY_REVIEW"
+// ControlledBuilderAnnotation is the non-numbered verifiedLevels entry asserting
+// that the provenance was produced by a recognized, controlled CI builder (a
+// builder-ID prefix the verifier trusts, plus a recognized build type). It
+// proves a recognized controlled builder — NOT that two parties reviewed the
+// change; review is a separate source-track control this heuristic does not
+// observe. It is recorded alongside — not as — the numbered SLSA_SOURCE_LEVEL_n.
+const ControlledBuilderAnnotation = "ORG_SOURCE_CONTROLLED_BUILDER"
 
 // MapToCanonicalSourceLevel maps the verification evidence to the canonical SLSA
 // source-track level the evidence actually proves, staying deliberately
@@ -294,9 +295,9 @@ const SourceReviewAnnotation = "ORG_SOURCE_TWO_PARTY_REVIEW"
 //
 // A verified source-provenance signature proves L1: the revision is version
 // controlled and provenance exists. It does NOT by itself prove the continuity
-// (L2) or continuous-enforcement (L3) controls, and two-party review is no
-// longer a numbered level. So review/provenance evidence alone maps to L1 here;
-// the review fact, when present, is surfaced separately via SourceReviewAnnotation.
+// (L2) or continuous-enforcement (L3) controls. So provenance evidence alone
+// maps to L1 here; a recognized controlled builder, when detected, is surfaced
+// separately via ControlledBuilderAnnotation.
 func MapToCanonicalSourceLevel(signatureVerified bool) string {
 	if !signatureVerified {
 		return SLSASourceLevel0
