@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/liatrio/autogov/pkg/helper/version"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -18,7 +19,7 @@ func TestReleasePlanToJSON(t *testing.T) {
 		CurrentVersion: "v1.0.0",
 		NextVersion:    "v1.1.0",
 		BumpType:       "minor",
-		Commits: []ParsedCommit{
+		Commits: []version.ParsedCommit{
 			{
 				Hash:    "abc1234567890",
 				Type:    "feat",
@@ -84,7 +85,7 @@ func TestReleasePlanToTextWithRelease(t *testing.T) {
 		CurrentVersion: "v1.0.0",
 		NextVersion:    "v2.0.0",
 		BumpType:       "major",
-		Commits: []ParsedCommit{
+		Commits: []version.ParsedCommit{
 			{
 				Hash:     "abc1234567890",
 				Type:     "feat",
@@ -125,7 +126,7 @@ func TestDefaultPlanOptions(t *testing.T) {
 }
 
 func TestParsedCommitFields(t *testing.T) {
-	commit := ParsedCommit{
+	commit := version.ParsedCommit{
 		Hash:     "abc123",
 		Type:     "feat",
 		Scope:    "cli",

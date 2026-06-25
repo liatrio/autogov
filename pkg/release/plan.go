@@ -15,71 +15,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Backward-compatibility aliases and re-exports.
-// TODO: Remove these once all callers import from pkg/helper/* directly.
-// These exist to avoid breaking existing code during the pkg/helper extraction.
-
-// ParsedCommit is an alias for version.ParsedCommit for backward compatibility.
-type ParsedCommit = version.ParsedCommit
-
-// BumpType is an alias for version.BumpType for backward compatibility
-type BumpType = version.BumpType
-
-// Version is an alias for version.Version for backward compatibility
-type Version = version.Version
-
-// CommitTypeInfo is an alias for version.CommitTypeInfo for backward compatibility
-type CommitTypeInfo = version.CommitTypeInfo
-
-// Re-export version constants for backward compatibility
-const (
-	BumpMajor = version.BumpMajor
-	BumpMinor = version.BumpMinor
-	BumpPatch = version.BumpPatch
-	BumpNone  = version.BumpNone
-)
-
-// Re-export version functions for backward compatibility
-var (
-	ParseVersion            = version.ParseVersion
-	ZeroVersion             = version.ZeroVersion
-	ComputeNextVersion      = version.ComputeNextVersion
-	ParseConventionalCommit = version.ParseConventionalCommit
-	FilterReleasableCommits = version.FilterReleasableCommits
-	ExtractBreakingChanges  = version.ExtractBreakingChanges
-	GroupCommitsByType      = version.GroupCommitsByType
-	GetCommitTypeInfo       = version.GetCommitTypeInfo
-)
-
-// Re-export git helper functions for backward compatibility
-var (
-	OpenRepository     = githelper.OpenRepository
-	DiscoverLatestTag  = githelper.DiscoverLatestTag
-	GetCommitsSinceTag = githelper.GetCommitsSinceTag
-	GetRepositoryName  = githelper.GetRepositoryName
-	ParseCommits       = githelper.ParseCommits
-)
-
-// ChangelogOptions is an alias for changelog.Options for backward compatibility
-type ChangelogOptions = changelog.Options
-
-// ChangelogJSON is an alias for changelog.JSON for backward compatibility
-type ChangelogJSON = changelog.JSON
-
-// ChangelogGroupJSON is an alias for changelog.GroupJSON for backward compatibility
-type ChangelogGroupJSON = changelog.GroupJSON
-
-// CommitJSON is an alias for changelog.CommitJSON for backward compatibility
-type CommitJSON = changelog.CommitJSON
-
-// Re-export changelog functions for backward compatibility
-var (
-	GenerateChangelog        = changelog.GenerateChangelog
-	GenerateChangelogPreview = changelog.GenerateChangelogPreview
-	GenerateChangelogJSON    = changelog.GenerateChangelogJSON
-	GetCommitStats           = changelog.GetCommitStats
-)
-
 // ReleasePlan contains all information about a planned release
 type ReleasePlan struct {
 	// metadata
@@ -92,8 +27,8 @@ type ReleasePlan struct {
 	BumpType       string `json:"bump_type" yaml:"bump_type"` // major/minor/patch/none
 
 	// commits
-	Commits         []ParsedCommit `json:"commits" yaml:"commits"`
-	BreakingChanges []string       `json:"breaking_changes" yaml:"breaking_changes"`
+	Commits         []version.ParsedCommit `json:"commits" yaml:"commits"`
+	BreakingChanges []string               `json:"breaking_changes" yaml:"breaking_changes"`
 
 	// changelog
 	ChangelogPreview string `json:"changelog_preview" yaml:"changelog_preview"`
@@ -177,13 +112,13 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 	}
 
 	// open repository
-	repo, err := OpenRepository(opts.RepoPath)
+	repo, err := githelper.OpenRepository(opts.RepoPath)
 	if err != nil {
 		return nil, err
 	}
 
 	// get repository name
-	repoFullName := GetRepositoryName(repo)
+	repoFullName := githelper.GetRepositoryName(repo)
 	parts := strings.SplitN(repoFullName, "/", 2)
 	repoName := repoFullName
 
@@ -199,9 +134,9 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 		owner != "" && repoShortName != "" &&
 		opts.FromRef == "" // FromRef overrides to local always
 
-	var currentVersion *Version
+	var currentVersion *version.Version
 	var tagName string
-	var parsedCommits []ParsedCommit
+	var parsedCommits []version.ParsedCommit
 	apiSucceeded := false
 
 	if useAPI {
@@ -226,14 +161,14 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 			} else {
 				fmt.Fprintf(os.Stderr, "using GitHub API for tag discovery\n")
 				if len(sortedTags) == 0 {
-					currentVersion = ZeroVersion()
+					currentVersion = version.ZeroVersion()
 					tagName = ""
 				} else {
 					tagName = sortedTags[0]
-					if v, parseErr := ParseVersion(tagName); parseErr == nil {
+					if v, parseErr := version.ParseVersion(tagName); parseErr == nil {
 						currentVersion = v
 					} else {
-						currentVersion = ZeroVersion()
+						currentVersion = version.ZeroVersion()
 					}
 				}
 
@@ -263,38 +198,38 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 	if !apiSucceeded {
 		// local mode: use go-git for tag discovery and commit walking
 		if opts.FromRef != "" {
-			currentVersion, err = ParseVersion(opts.FromRef)
+			currentVersion, err = version.ParseVersion(opts.FromRef)
 			if err != nil {
 				return nil, fmt.Errorf("invalid from-ref version: %w", err)
 			}
 			tagName = opts.FromRef
 		} else {
-			currentVersion, tagName, err = DiscoverLatestTag(repo, opts.FirstParent)
+			currentVersion, tagName, err = githelper.DiscoverLatestTag(repo, opts.FirstParent)
 			if err != nil {
 				return nil, fmt.Errorf("failed to discover latest tag: %w", err)
 			}
 		}
 
 		if currentVersion == nil {
-			currentVersion = ZeroVersion()
+			currentVersion = version.ZeroVersion()
 		}
 
 		toRef := opts.ToRef
 		if toRef == "" {
 			toRef = "HEAD"
 		}
-		commits, commitsErr := GetCommitsSinceTag(repo, tagName, toRef, opts.FirstParent)
+		commits, commitsErr := githelper.GetCommitsSinceTag(repo, tagName, toRef, opts.FirstParent)
 		if commitsErr != nil {
 			return nil, fmt.Errorf("failed to get commits: %w", commitsErr)
 		}
-		parsedCommits = ParseCommits(commits)
+		parsedCommits = githelper.ParseCommits(commits)
 	}
 
 	// filter to releasable commits for version computation
-	releasableCommits := FilterReleasableCommits(parsedCommits)
+	releasableCommits := version.FilterReleasableCommits(parsedCommits)
 
 	// compute next version
-	nextVersion, bumpType := ComputeNextVersion(currentVersion, releasableCommits)
+	nextVersion, bumpType := version.ComputeNextVersion(currentVersion, releasableCommits)
 
 	// create release plan
 	plan := &ReleasePlan{
@@ -304,8 +239,8 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 		NextVersion:     nextVersion.String(),
 		BumpType:        string(bumpType),
 		Commits:         parsedCommits,
-		BreakingChanges: ExtractBreakingChanges(parsedCommits),
-		ReleaseNeeded:   bumpType != BumpNone,
+		BreakingChanges: version.ExtractBreakingChanges(parsedCommits),
+		ReleaseNeeded:   bumpType != version.BumpNone,
 	}
 
 	// set reason if no release needed
@@ -317,7 +252,7 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 		}
 	} else {
 		// generate changelog preview
-		changelogText, err := GenerateChangelogPreview(parsedCommits, nextVersion.String())
+		changelogText, err := changelog.GenerateChangelogPreview(parsedCommits, nextVersion.String())
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate changelog: %w", err)
 		}

@@ -9,6 +9,8 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	changeloghelper "github.com/liatrio/autogov/pkg/helper/changelog"
+	githelper "github.com/liatrio/autogov/pkg/helper/git"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,11 +87,11 @@ func TestIntegrationFirstParentVsFullTraversal(t *testing.T) {
 	require.NoError(t, err)
 
 	// get commits with first-parent (should not include feature branch commits)
-	commitsFirstParent, err := GetCommitsSinceTag(repo, "v1.0.0", "HEAD", true)
+	commitsFirstParent, err := githelper.GetCommitsSinceTag(repo, "v1.0.0", "HEAD", true)
 	require.NoError(t, err)
 
 	// get commits with full traversal (should include feature branch commits)
-	commitsAllParents, err := GetCommitsSinceTag(repo, "v1.0.0", "HEAD", false)
+	commitsAllParents, err := githelper.GetCommitsSinceTag(repo, "v1.0.0", "HEAD", false)
 	require.NoError(t, err)
 
 	// first-parent should have fewer or equal commits
@@ -142,7 +144,7 @@ func TestIntegrationTagDiscoveryAndCommitSelection(t *testing.T) {
 	require.NoError(t, err)
 
 	// discover latest tag - should be v1.0.1
-	version, tagName, err := DiscoverLatestTag(repo, false)
+	version, tagName, err := githelper.DiscoverLatestTag(repo, false)
 	require.NoError(t, err)
 	assert.Equal(t, "v1.0.1", tagName)
 	assert.Equal(t, 1, version.Major)
@@ -150,7 +152,7 @@ func TestIntegrationTagDiscoveryAndCommitSelection(t *testing.T) {
 	assert.Equal(t, 1, version.Patch)
 
 	// get commits since v1.0.1 - should be just the new feature
-	commits, err := GetCommitsSinceTag(repo, "v1.0.1", "HEAD", false)
+	commits, err := githelper.GetCommitsSinceTag(repo, "v1.0.1", "HEAD", false)
 	require.NoError(t, err)
 	assert.Len(t, commits, 1)
 	assert.Contains(t, commits[0].Message, "feat: new feature")
@@ -309,7 +311,7 @@ func TestIntegrationToRefSupport(t *testing.T) {
 	require.NoError(t, err)
 
 	// get commits using specific toRef (hash2) instead of HEAD
-	commits, err := GetCommitsSinceTag(repo, "v1.0.0", hash2.String(), false)
+	commits, err := githelper.GetCommitsSinceTag(repo, "v1.0.0", hash2.String(), false)
 	require.NoError(t, err)
 
 	// should only include the second commit, not the third
@@ -357,14 +359,14 @@ func TestIntegrationChangelogMarkdownEndToEnd(t *testing.T) {
 	}
 
 	// get commits since v1.0.0
-	gitCommits, err := GetCommitsSinceTag(repo, "v1.0.0", "HEAD", false)
+	gitCommits, err := githelper.GetCommitsSinceTag(repo, "v1.0.0", "HEAD", false)
 	require.NoError(t, err)
 	assert.Len(t, gitCommits, 3)
 
-	parsed := ParseCommits(gitCommits)
+	parsed := githelper.ParseCommits(gitCommits)
 
 	// generate markdown with include-all
-	changelog, err := GenerateChangelog(parsed, &ChangelogOptions{
+	changelog, err := changeloghelper.GenerateChangelog(parsed, &changeloghelper.Options{
 		Version:    "v2.0.0",
 		IncludeAll: true,
 	})
@@ -377,7 +379,7 @@ func TestIntegrationChangelogMarkdownEndToEnd(t *testing.T) {
 	assert.Contains(t, changelog, "Chores")
 
 	// generate without include-all — docs and chore excluded
-	changelogFiltered, err := GenerateChangelog(parsed, &ChangelogOptions{
+	changelogFiltered, err := changeloghelper.GenerateChangelog(parsed, &changeloghelper.Options{
 		Version:    "v2.0.0",
 		IncludeAll: false,
 	})
@@ -413,11 +415,11 @@ func TestIntegrationChangelogJSONEndToEnd(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	gitCommits, err := GetCommitsSinceTag(repo, "", "HEAD", false)
+	gitCommits, err := githelper.GetCommitsSinceTag(repo, "", "HEAD", false)
 	require.NoError(t, err)
-	parsed := ParseCommits(gitCommits)
+	parsed := githelper.ParseCommits(gitCommits)
 
-	result := GenerateChangelogJSON(parsed, &ChangelogOptions{
+	result := changeloghelper.GenerateChangelogJSON(parsed, &changeloghelper.Options{
 		Version:    "v2.0.0",
 		IncludeAll: true,
 	})
@@ -482,24 +484,24 @@ func TestIntegrationChangelogDeterministic(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	gitCommits, err := GetCommitsSinceTag(repo, "", "HEAD", true)
+	gitCommits, err := githelper.GetCommitsSinceTag(repo, "", "HEAD", true)
 	require.NoError(t, err)
-	parsed := ParseCommits(gitCommits)
+	parsed := githelper.ParseCommits(gitCommits)
 
-	opts := &ChangelogOptions{Version: "v1.0.0", IncludeAll: true}
+	opts := &changeloghelper.Options{Version: "v1.0.0", IncludeAll: true}
 
 	// generate twice, verify identical
-	changelog1, err := GenerateChangelog(parsed, opts)
+	changelog1, err := changeloghelper.GenerateChangelog(parsed, opts)
 	require.NoError(t, err)
 
-	changelog2, err := GenerateChangelog(parsed, opts)
+	changelog2, err := changeloghelper.GenerateChangelog(parsed, opts)
 	require.NoError(t, err)
 
 	assert.Equal(t, changelog1, changelog2, "changelog output must be deterministic")
 
 	// also verify JSON determinism
-	json1 := GenerateChangelogJSON(parsed, opts)
-	json2 := GenerateChangelogJSON(parsed, opts)
+	json1 := changeloghelper.GenerateChangelogJSON(parsed, opts)
+	json2 := changeloghelper.GenerateChangelogJSON(parsed, opts)
 	assert.Equal(t, json1, json2, "JSON output must be deterministic")
 }
 
