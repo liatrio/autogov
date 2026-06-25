@@ -53,7 +53,7 @@ jobs:
   # additive image publish: builds the CLI into a signed multi-arch OCI image with
   # ko. it does NOT gate the blob attest/verify/release jobs above (no `needs`).
   # ko builds on every push to validate the config + ldflags, but only PUSHES on
-  # main or a tag (`should-push`) so feature branches don't pollute ghcr. the
+  # main (`should-push`) so feature branches don't pollute ghcr. the
   # pushed digest is attested with push-to-registry, same pattern as
   # rw-attest-image.yaml.
   ko-image:
@@ -75,8 +75,8 @@ jobs:
           version: v0.18.1
       - name: Derive build metadata
         # mirror Taskfile.yml: same version/commit/date/opa so the ko image and
-        # `task build` embed byte-identical ldflags. SOURCE_DATE_EPOCH (commit
-        # time) zeroes the image timestamp for reproducibility.
+        # `task build` embed byte-identical ldflags. SOURCE_DATE_EPOCH pins the
+        # image timestamp to the commit time for reproducibility.
         run: |
           {
             echo "VERSION=$(git describe --tags --always --dirty)"
@@ -85,10 +85,10 @@ jobs:
             echo "OPA_VERSION=$(go list -m github.com/open-policy-agent/opa | awk '{print $2}')"
             echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)"
           } >> "$GITHUB_ENV"
-      - name: Gate push to main/tag
+      - name: Gate push to main
         id: gate
         run: |
-          if [ "$GITHUB_REF" = "refs/heads/main" ] || [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
             echo "should-push=true" >> "$GITHUB_OUTPUT"
           else
             echo "should-push=false" >> "$GITHUB_OUTPUT"

@@ -128,6 +128,8 @@ docker pull ghcr.io/liatrio/autogov:latest
 docker run --rm ghcr.io/liatrio/autogov:latest version
 ```
 
+`:latest` tracks the most recent `main` build; for an immutable, reproducible reference pin by digest (`ghcr.io/liatrio/autogov@sha256:<digest>`) — the verification commands below work against a digest reference too.
+
 The image carries a GitHub-issued build-provenance attestation. Verify it with cosign before use:
 
 ```bash
