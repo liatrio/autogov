@@ -141,6 +141,13 @@ func TestComputeSLSASourceLevel(t *testing.T) {
 	}
 }
 
+func TestMapToCanonicalSourceLevel(t *testing.T) {
+	// review/provenance evidence is mapped conservatively: a verified signature
+	// proves L1 (version control + provenance), nothing higher; unverified is L0.
+	assert.Equal(t, "SLSA_SOURCE_LEVEL_0", MapToCanonicalSourceLevel(false))
+	assert.Equal(t, "SLSA_SOURCE_LEVEL_1", MapToCanonicalSourceLevel(true))
+}
+
 func TestExtractRepoURI(t *testing.T) {
 	tests := []struct {
 		name      string

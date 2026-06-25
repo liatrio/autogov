@@ -267,6 +267,43 @@ func ComputeSLSASourceLevel(signatureVerified bool, pred SourceProvenancePredica
 	return "SLSA_SOURCE_L2"
 }
 
+// Canonical SLSA source-track levels (https://slsa.dev/spec/v1.2/source-requirements).
+const (
+	SLSASourceLevel0 = "SLSA_SOURCE_LEVEL_0"
+	SLSASourceLevel1 = "SLSA_SOURCE_LEVEL_1"
+	SLSASourceLevel2 = "SLSA_SOURCE_LEVEL_2"
+	SLSASourceLevel3 = "SLSA_SOURCE_LEVEL_3"
+)
+
+// SourceReviewAnnotation is the non-numbered verifiedLevels entry asserting that
+// two-party review evidence was observed. In the current SLSA source track,
+// two-party review is a separate control rather than a numbered level (it was
+// the old Source L4, since folded), so it is recorded alongside — not as — the
+// numbered SLSA_SOURCE_LEVEL_n.
+const SourceReviewAnnotation = "ORG_SOURCE_TWO_PARTY_REVIEW"
+
+// MapToCanonicalSourceLevel maps the verification evidence to the canonical SLSA
+// source-track level the evidence actually proves, staying deliberately
+// conservative to avoid overclaiming.
+//
+// The SLSA source track (v1.2) grants:
+//   - L1: source is in a modern VCS and a Source VSA/provenance is issued.
+//   - L2: continuous, immutable, retained branch history.
+//   - L3: org technical controls (branch protection, required reviews, status
+//     checks) are continuously enforced and attested.
+//
+// A verified source-provenance signature proves L1: the revision is version
+// controlled and provenance exists. It does NOT by itself prove the continuity
+// (L2) or continuous-enforcement (L3) controls, and two-party review is no
+// longer a numbered level. So review/provenance evidence alone maps to L1 here;
+// the review fact, when present, is surfaced separately via SourceReviewAnnotation.
+func MapToCanonicalSourceLevel(signatureVerified bool) string {
+	if !signatureVerified {
+		return SLSASourceLevel0
+	}
+	return SLSASourceLevel1
+}
+
 // loadTrustedRoot loads the Sigstore trusted root for signature verification.
 // selectTrustedRootForBundle returns the trusted root able to chain b's signing
 // cert: the public-good Sigstore root for sigstore.dev-issued certs, otherwise

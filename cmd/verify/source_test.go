@@ -83,4 +83,5 @@ func TestVerifySource_VSAFlagsRegistered(t *testing.T) {
 	assert.Contains(t, out, "--generate-vsa")
 	assert.Contains(t, out, "--vsa-output")
 	assert.Contains(t, out, "--policy-uri")
+	assert.Contains(t, out, "--source-vsa-output")
 }

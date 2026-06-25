@@ -24,6 +24,16 @@ func newSourceCmd() *cobra.Command {
 This command verifies that source provenance attestations match expected
 repository URI and commit SHA, and reports SLSA Source Track levels.
 
+With --source-vsa-output it also emits a standards-shaped SLSA Source VSA
+(slsa.dev/verification_summary/v1) whose subject is the verified source
+revision. The numbered verifiedLevels entry is mapped conservatively: a
+verified source-provenance signature proves SLSA_SOURCE_LEVEL_1 (version
+control plus provenance). It does not, on its own, prove the higher source
+levels' continuity (L2) or continuous-control-enforcement (L3) requirements,
+so the level is not inflated. Two-party review is a separate source-track
+control rather than a numbered level, so review evidence is recorded as a
+non-numbered annotation alongside the level.
+
 Examples:
   # Verify source provenance
   autogov verify source --attestation-path bundle.json --repo-uri https://github.com/org/repo --commit abc123
@@ -32,7 +42,10 @@ Examples:
   autogov verify source --attestation-path bundle.json --repo-uri https://github.com/org/repo --commit abc123 --source-ref refs/heads/main
 
   # JSON output
-  autogov verify source --attestation-path bundle.json --repo-uri https://github.com/org/repo --commit abc123 --format json`,
+  autogov verify source --attestation-path bundle.json --repo-uri https://github.com/org/repo --commit abc123 --format json
+
+  # Emit a standards-shaped SLSA Source VSA alongside verification
+  autogov verify source --attestation-path bundle.json --repo-uri https://github.com/org/repo --commit abc123 --source-vsa-output source-vsa.json --policy-uri https://example.com/policy`,
 		PreRunE: preRunSource,
 		RunE:    runSource,
 	}
@@ -48,6 +61,7 @@ Examples:
 	cmd.Flags().Bool(flagGenerateVSA, false, "Generate Verification Summary Attestation after successful verification")
 	cmd.Flags().String(flagVSAOutput, "", "Output path for generated VSA (required if --generate-vsa is used)")
 	cmd.Flags().String(flagPolicyURI, "", "Policy URI for VSA generation (required if --generate-vsa is used)")
+	cmd.Flags().String(flagSourceVSAOutput, "", "Output path for a standards-shaped SLSA Source VSA (slsa.dev/verification_summary/v1) describing the source revision")
 
 	return cmd
 }
@@ -127,7 +141,66 @@ func runSource(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// standards-shaped SLSA Source VSA (dual-emit, additive to the output above).
+	sourceVSAOutput, _ := cmd.Flags().GetString(flagSourceVSAOutput)
+	if sourceVSAOutput != "" && result.Verified {
+		policyURI, _ := cmd.Flags().GetString(flagPolicyURI)
+		if err := generateStandardsSourceVSA(result, sourceVSAOutput, policyURI); err != nil {
+			return fmt.Errorf("failed to generate source VSA: %w", err)
+		}
+		if !quiet {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Source VSA saved to: %s\n", sourceVSAOutput)
+		}
+	}
+
 	return nil
+}
+
+// generateStandardsSourceVSA writes a standards-shaped SLSA Source VSA
+// (slsa.dev/verification_summary/v1) whose subject is the verified source
+// revision. The numbered verifiedLevels entry is mapped conservatively from the
+// evidence; two-party review evidence, when observed, is recorded as a separate
+// non-numbered annotation rather than inflating the level.
+func generateStandardsSourceVSA(result *source.VerificationResult, vsaOutput, policyURI string) error {
+	sourceLevel := source.MapToCanonicalSourceLevel(result.Verified)
+
+	var additionalLevels []string
+	// the legacy heuristic level (controlled builder + build type) is the only
+	// review-grade signal available on this path; surface it as an advisory
+	// annotation without promoting the numbered level.
+	if result.SLSASourceLevel == "SLSA_SOURCE_L3" {
+		additionalLevels = append(additionalLevels, source.SourceReviewAnnotation)
+	}
+
+	opts := vsa.SourceVSAOptions{
+		RepoURI:          result.RepoURI,
+		Commit:           result.Commit,
+		SourceLevel:      sourceLevel,
+		AdditionalLevels: additionalLevels,
+		Passed:           result.Verified,
+		PolicyURI:        policyURI,
+		AdditionalVerifiers: map[string]string{
+			"autogov": version,
+		},
+	}
+
+	generatedVSA, err := vsa.GenerateSourceVSA(opts)
+	if err != nil {
+		return err
+	}
+
+	if generatedVSA.Metadata == nil {
+		generatedVSA.Metadata = make(map[string]interface{})
+	}
+	generatedVSA.Metadata["autogov.source.verification"] = map[string]interface{}{
+		"repo_uri":              result.RepoURI,
+		"commit":                result.Commit,
+		"source_ref":            result.SourceRef,
+		"builder_id":            result.BuilderID,
+		"legacy_computed_level": result.SLSASourceLevel,
+	}
+
+	return vsa.WriteToFile(generatedVSA, vsaOutput)
 }
 
 // generateSourceVSA creates a Verification Summary Attestation for source provenance.
