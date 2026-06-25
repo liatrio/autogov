@@ -24,6 +24,7 @@ const (
 	flagFailOnPolicyError  = "fail-on-policy-error"
 	flagGenerateVSA        = "generate-vsa"
 	flagVSAOutput          = "vsa-output"
+	flagSourceVSAOutput    = "source-vsa-output"
 	flagPolicyURI          = "policy-uri"
 	attestationURNFormat   = "urn:attestation:sha256:%s"
 )
