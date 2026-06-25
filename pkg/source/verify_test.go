@@ -91,13 +91,13 @@ func TestComputeSLSASourceLevel(t *testing.T) {
 			name:     "unverified signature returns L1",
 			verified: false,
 			pred:     SourceProvenancePredicate{},
-			expected: "SLSA_SOURCE_L1",
+			expected: "SLSA_SOURCE_LEVEL_1",
 		},
 		{
 			name:     "verified signature without controlled builder returns L2",
 			verified: true,
 			pred:     SourceProvenancePredicate{},
-			expected: "SLSA_SOURCE_L2",
+			expected: "SLSA_SOURCE_LEVEL_2",
 		},
 		{
 			name:     "verified with SLSA framework builder and build type returns L3",
@@ -108,7 +108,7 @@ func TestComputeSLSASourceLevel(t *testing.T) {
 				p.BuildDefinition.BuildType = "https://slsa.dev/source/v0.1"
 				return p
 			}(),
-			expected: "SLSA_SOURCE_L3",
+			expected: "SLSA_SOURCE_LEVEL_3",
 		},
 		{
 			name:     "verified with GitHub Actions builder returns L3",
@@ -119,7 +119,7 @@ func TestComputeSLSASourceLevel(t *testing.T) {
 				p.BuildDefinition.BuildType = "https://github.com/actions/buildtype/v1"
 				return p
 			}(),
-			expected: "SLSA_SOURCE_L3",
+			expected: "SLSA_SOURCE_LEVEL_3",
 		},
 		{
 			name:     "spoofed builder ID does not achieve L3",
@@ -130,7 +130,7 @@ func TestComputeSLSASourceLevel(t *testing.T) {
 				p.BuildDefinition.BuildType = "https://slsa.dev/source/v0.1"
 				return p
 			}(),
-			expected: "SLSA_SOURCE_L2",
+			expected: "SLSA_SOURCE_LEVEL_2",
 		},
 	}
 
