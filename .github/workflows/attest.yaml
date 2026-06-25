@@ -50,6 +50,78 @@ jobs:
       vuln-threshold-medium: '-1'
       vuln-threshold-low: '-1'
 
+  # additive image publish: builds the CLI into a signed multi-arch OCI image with
+  # ko. it does NOT gate the blob attest/verify/release jobs above (no `needs`).
+  # ko builds on every push to validate the config + ldflags, but only PUSHES on
+  # main or a tag (`should-push`) so feature branches don't pollute ghcr. the
+  # pushed digest is attested with push-to-registry, same pattern as
+  # rw-attest-image.yaml.
+  ko-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      packages: write
+    env:
+      KO_DOCKER_REPO: ghcr.io/liatrio/autogov
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - uses: ko-build/setup-ko@d006021bd0c28d1ce33a07e7943d48b079944c8d # v0.9
+        with:
+          version: v0.18.1
+      - name: Derive build metadata
+        # mirror Taskfile.yml: same version/commit/date/opa so the ko image and
+        # `task build` embed byte-identical ldflags. SOURCE_DATE_EPOCH (commit
+        # time) zeroes the image timestamp for reproducibility.
+        run: |
+          {
+            echo "VERSION=$(git describe --tags --always --dirty)"
+            echo "COMMIT=$(git rev-parse HEAD)"
+            echo "DATE=$(git show -s --format=%cI HEAD)"
+            echo "OPA_VERSION=$(go list -m github.com/open-policy-agent/opa | awk '{print $2}')"
+            echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)"
+          } >> "$GITHUB_ENV"
+      - name: Gate push to main/tag
+        id: gate
+        run: |
+          if [ "$GITHUB_REF" = "refs/heads/main" ] || [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
+            echo "should-push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should-push=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Log in to GitHub Container Registry
+        if: ${{ steps.gate.outputs.should-push == 'true' }}
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: ko build
+        id: build
+        # --bare publishes exactly at KO_DOCKER_REPO; --push is gated so branches
+        # only validate the build. --image-refs captures the pushed ref@digest.
+        run: |
+          ko build . \
+            --bare \
+            --platform=linux/amd64,linux/arm64 \
+            --push=${{ steps.gate.outputs.should-push }} \
+            --image-refs "$RUNNER_TEMP/image-refs.txt"
+          if [ "${{ steps.gate.outputs.should-push }}" = "true" ]; then
+            ref="$(head -1 "$RUNNER_TEMP/image-refs.txt")"
+            echo "digest=${ref#*@}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Attest image provenance
+        if: ${{ steps.gate.outputs.should-push == 'true' }}
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-name: ghcr.io/liatrio/autogov
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
   release:
     if: ${{ github.ref == 'refs/heads/main' }}
     needs: [verify-blob]

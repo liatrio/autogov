@@ -119,6 +119,31 @@ go install github.com/liatrio/autogov@latest
 # Binary will be installed as 'autogov'
 ```
 
+### Container image
+
+The CLI is also published as a signed multi-arch (`linux/amd64`, `linux/arm64`) OCI image to `ghcr.io/liatrio/autogov`:
+
+```bash
+docker pull ghcr.io/liatrio/autogov:latest
+docker run --rm ghcr.io/liatrio/autogov:latest version
+```
+
+The image carries a GitHub-issued build-provenance attestation. Verify it with cosign before use:
+
+```bash
+cosign verify-attestation \
+  --type slsaprovenance \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/liatrio/autogov/' \
+  ghcr.io/liatrio/autogov:latest
+```
+
+Or with the GitHub CLI:
+
+```bash
+gh attestation verify oci://ghcr.io/liatrio/autogov:latest --owner liatrio
+```
+
 ## Usage
 
 ### Online Verification
