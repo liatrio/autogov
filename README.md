@@ -154,7 +154,7 @@ autogov verify attestation \
   --cert-identity-list "https://raw.githubusercontent.com/liatrio/autogov-workflows/refs/heads/main/cert-identities.json"
 ```
 
-The list is a URL or local file path to a JSON identity list (see [Certificate Identity Validation Flags](#certificate-identity-validation-flags)); revoked/expired entries are dropped and verification **fails closed** if an enforced list resolves to zero valid identities. If you set **neither** flag, any valid Fulcio signature is accepted and an `unsafe` warning is printed.
+See [Certificate Identity Validation Flags](#certificate-identity-validation-flags) for the list format and allowlist semantics (revoked/expired entries are dropped and verification fails closed on zero valid identities). If you set **neither** flag, any valid Fulcio signature is accepted and an `unsafe` warning is printed.
 
 ### Offline Verification
 
