@@ -34,18 +34,5 @@ build-errors.log
 .vscode/
 .air.toml
 
-# agent config dirs
-.agents/
-.agentvibes/
-.claude/
-.clinerules/
-.gemini/
-.mcp.json
-.windsurf/
-
-# bmad framework and output
-_bmad/
-_bmad-output/
-
 # build output
 bin/
