@@ -168,15 +168,9 @@ func downloadGHReleaseBundle(ctx context.Context, uri string, opts *ResolveOptio
 // directory is removed on any error after creation, and a cleanup func is
 // returned on success.
 func resolveGHReleaseToDir(ctx context.Context, client ghReleaseClient, ref ghRef, opts *ResolveOptions) (string, func(), error) {
-	// asset name: an explicit ?asset= wins, else the per-call default
-	// (bundle.tar.gz vs schemas.tar.gz). opts is always non-nil from
-	// NewOPAEvaluator with a default set, but guard defensively.
-	assetName := ref.Asset
-	if assetName == "" && opts != nil {
-		assetName = opts.DefaultAsset
-	}
-	if assetName == "" {
-		return "", nil, fmt.Errorf("invalid ghrel reference %q: no asset specified and no default asset configured", ref.Owner+"/"+ref.Repo)
+	assetName, err := resolveGHReleaseAssetName(ref, opts)
+	if err != nil {
+		return "", nil, err
 	}
 
 	// resolve the release (latest or by tag) with transient-failure retry.
@@ -193,72 +187,18 @@ func resolveGHReleaseToDir(ctx context.Context, client ghReleaseClient, ref ghRe
 		return "", nil, fmt.Errorf("failed to resolve release tag %q for %s/%s: %w", ref.Tag, ref.Owner, ref.Repo, err)
 	}
 
-	// find the asset by name; the ID is required to download (no download-by-name).
-	var assetID int64
-	found := false
-	for _, a := range release.Assets {
-		if a.GetName() == assetName {
-			assetID = a.GetID()
-			found = true
-			break
-		}
-	}
-	if !found {
-		return "", nil, fmt.Errorf("asset %q not found in release %q for %s/%s", assetName, release.GetTagName(), ref.Owner, ref.Repo)
-	}
-
-	// download the asset. http.DefaultClient follows GitHub's redirect to the
-	// pre-signed CDN URL (the value recommended by DownloadReleaseAsset); that
-	// URL needs no auth, while the API call itself is authenticated via the
-	// client token.
-	rc, _, err := client.DownloadReleaseAsset(ctx, ref.Owner, ref.Repo, assetID, http.DefaultClient)
+	assetID, err := findGHReleaseAssetID(release, ref, assetName)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to download asset %q (id %d) from %s/%s: %w", assetName, assetID, ref.Owner, ref.Repo, err)
+		return "", nil, err
 	}
-	if rc == nil {
-		// DownloadReleaseAsset returns exactly one of (reader, redirectURL);
-		// passing http.DefaultClient always yields the reader, but guard so a nil
-		// body can never nil-deref the deferred Close below.
-		return "", nil, fmt.Errorf("no readable body for asset %q (id %d) from %s/%s", assetName, assetID, ref.Owner, ref.Repo)
-	}
-	defer func() {
-		if closeErr := rc.Close(); closeErr != nil {
-			log.Printf("warning: failed to close ghrel asset reader: %v", closeErr)
-		}
-	}()
 
-	// read once into memory so the bytes can be both digested (AC9) and
-	// extracted. Cap with io.LimitReader (+1 so an exactly-at-limit overflow is
-	// detectable) — the asset's declared size is not trusted.
-	data, err := io.ReadAll(io.LimitReader(rc, maxGHReleaseAssetSize+1))
+	data, err := downloadGHReleaseAssetBytes(ctx, client, ref, assetID, assetName)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to read asset %q from %s/%s: %w", assetName, ref.Owner, ref.Repo, err)
-	}
-	if int64(len(data)) > maxGHReleaseAssetSize {
-		return "", nil, fmt.Errorf("ghrel asset %q size exceeds maximum allowed %d bytes", assetName, maxGHReleaseAssetSize)
+		return "", nil, err
 	}
 
-	// digest the archive bytes; ALWAYS log for auditability (AC9).
-	got, err := digest.CalculateReader(bytes.NewReader(data))
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to digest asset %q: %w", assetName, err)
-	}
-	refLabel := ref.Tag
-	if refLabel == "" {
-		refLabel = "latest"
-	}
-	log.Printf("ghrel: downloaded %s (%s/%s@%s) sha256=%s", assetName, ref.Owner, ref.Repo, refLabel, got)
-
-	// optional integrity enforcement, bundle path only (AC9). Compare normalized
-	// so a bare-hex flag value still matches. Enforce BEFORE extracting so a
-	// mismatch leaves no temp dir behind.
-	if opts != nil && opts.ExpectedDigest != "" {
-		// compare case-insensitively: CalculateReader emits lowercase hex, but a
-		// user may paste an uppercase pin from a checksum tool — that is a valid
-		// match, not tampering.
-		if !strings.EqualFold(digest.Normalize(got), digest.Normalize(opts.ExpectedDigest)) {
-			return "", nil, fmt.Errorf("policy bundle digest mismatch: expected %s, got %s", digest.Normalize(opts.ExpectedDigest), got)
-		}
+	if err := verifyGHReleaseDigest(data, ref, assetName, opts); err != nil {
+		return "", nil, err
 	}
 
 	// extract into a temp dir; clean up on any post-creation error (leak hygiene).
@@ -272,6 +212,94 @@ func resolveGHReleaseToDir(ctx context.Context, client ghReleaseClient, ref ghRe
 	}
 
 	return tempDir, cleanup, nil
+}
+
+// resolveGHReleaseAssetName picks the asset name to download: an explicit
+// ?asset= wins, else the per-call default (bundle.tar.gz vs schemas.tar.gz).
+// opts is always non-nil from NewOPAEvaluator with a default set, but it guards
+// defensively. An empty result is a config error, not a missing asset.
+func resolveGHReleaseAssetName(ref ghRef, opts *ResolveOptions) (string, error) {
+	assetName := ref.Asset
+	if assetName == "" && opts != nil {
+		assetName = opts.DefaultAsset
+	}
+	if assetName == "" {
+		return "", fmt.Errorf("invalid ghrel reference %q: no asset specified and no default asset configured", ref.Owner+"/"+ref.Repo)
+	}
+	return assetName, nil
+}
+
+// findGHReleaseAssetID returns the ID of the named asset in the release; the ID
+// is required to download (no download-by-name). A missing asset is an error.
+func findGHReleaseAssetID(release *gogithub.RepositoryRelease, ref ghRef, assetName string) (int64, error) {
+	for _, a := range release.Assets {
+		if a.GetName() == assetName {
+			return a.GetID(), nil
+		}
+	}
+	return 0, fmt.Errorf("asset %q not found in release %q for %s/%s", assetName, release.GetTagName(), ref.Owner, ref.Repo)
+}
+
+// downloadGHReleaseAssetBytes downloads the asset and reads it once into memory
+// so the bytes can be both digested (AC9) and extracted. http.DefaultClient
+// follows GitHub's redirect to the pre-signed CDN URL (the value recommended by
+// DownloadReleaseAsset); that URL needs no auth, while the API call itself is
+// authenticated via the client token. The read is capped with io.LimitReader
+// (+1 so an exactly-at-limit overflow is detectable) — the asset's declared
+// size is not trusted.
+func downloadGHReleaseAssetBytes(ctx context.Context, client ghReleaseClient, ref ghRef, assetID int64, assetName string) ([]byte, error) {
+	rc, _, err := client.DownloadReleaseAsset(ctx, ref.Owner, ref.Repo, assetID, http.DefaultClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download asset %q (id %d) from %s/%s: %w", assetName, assetID, ref.Owner, ref.Repo, err)
+	}
+	if rc == nil {
+		// DownloadReleaseAsset returns exactly one of (reader, redirectURL);
+		// passing http.DefaultClient always yields the reader, but guard so a nil
+		// body can never nil-deref the deferred Close below.
+		return nil, fmt.Errorf("no readable body for asset %q (id %d) from %s/%s", assetName, assetID, ref.Owner, ref.Repo)
+	}
+	defer func() {
+		if closeErr := rc.Close(); closeErr != nil {
+			log.Printf("warning: failed to close ghrel asset reader: %v", closeErr)
+		}
+	}()
+
+	data, err := io.ReadAll(io.LimitReader(rc, maxGHReleaseAssetSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read asset %q from %s/%s: %w", assetName, ref.Owner, ref.Repo, err)
+	}
+	if int64(len(data)) > maxGHReleaseAssetSize {
+		return nil, fmt.Errorf("ghrel asset %q size exceeds maximum allowed %d bytes", assetName, maxGHReleaseAssetSize)
+	}
+	return data, nil
+}
+
+// verifyGHReleaseDigest digests the archive bytes, ALWAYS logging for
+// auditability (AC9), and optionally enforces an expected digest (bundle path
+// only). Enforcing here — before extraction — ensures a mismatch leaves no temp
+// dir behind.
+func verifyGHReleaseDigest(data []byte, ref ghRef, assetName string, opts *ResolveOptions) error {
+	got, err := digest.CalculateReader(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("failed to digest asset %q: %w", assetName, err)
+	}
+	refLabel := ref.Tag
+	if refLabel == "" {
+		refLabel = "latest"
+	}
+	log.Printf("ghrel: downloaded %s (%s/%s@%s) sha256=%s", assetName, ref.Owner, ref.Repo, refLabel, got)
+
+	// optional integrity enforcement, bundle path only (AC9). Compare normalized
+	// so a bare-hex flag value still matches.
+	if opts != nil && opts.ExpectedDigest != "" {
+		// compare case-insensitively: CalculateReader emits lowercase hex, but a
+		// user may paste an uppercase pin from a checksum tool — that is a valid
+		// match, not tampering.
+		if !strings.EqualFold(digest.Normalize(got), digest.Normalize(opts.ExpectedDigest)) {
+			return fmt.Errorf("policy bundle digest mismatch: expected %s, got %s", digest.Normalize(opts.ExpectedDigest), got)
+		}
+	}
+	return nil
 }
 
 // resolveReleaseWithRetry runs a release-resolution call with transient-failure

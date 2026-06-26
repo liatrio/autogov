@@ -9,6 +9,7 @@ import (
 
 	"github.com/liatrio/autogov/pkg/helper/changelog"
 	githelper "github.com/liatrio/autogov/pkg/helper/git"
+	"github.com/liatrio/autogov/pkg/helper/version"
 	"github.com/spf13/cobra"
 )
 
@@ -109,29 +110,9 @@ func runChangelog(cmd *cobra.Command, args []string) error {
 	}
 
 	// 6. Generate output
-	var result string
-	switch format {
-	case "json":
-		jsonData := changelog.GenerateChangelogJSON(parsed, &changelog.Options{
-			Version:    versionFlag,
-			IncludeAll: includeAll,
-		})
-		jsonBytes, err := json.MarshalIndent(jsonData, "", "  ")
-		if err != nil {
-			return fmt.Errorf("changelog: marshaling JSON: %w", err)
-		}
-		result = string(jsonBytes) + "\n"
-	case "markdown", "md":
-		opts := &changelog.Options{
-			Version:    versionFlag,
-			IncludeAll: includeAll,
-		}
-		result, err = changelog.GenerateChangelog(parsed, opts)
-		if err != nil {
-			return fmt.Errorf("changelog: generating markdown: %w", err)
-		}
-	default:
-		return fmt.Errorf("changelog: unsupported format %q (use markdown or json)", format)
+	result, err := renderChangelog(format, parsed, versionFlag, includeAll)
+	if err != nil {
+		return err
 	}
 
 	// 7. Output
@@ -145,4 +126,32 @@ func runChangelog(cmd *cobra.Command, args []string) error {
 
 	_, _ = fmt.Fprint(cmd.OutOrStdout(), result)
 	return nil
+}
+
+// renderChangelog produces the changelog output string for the requested format.
+func renderChangelog(format string, parsed []version.ParsedCommit, versionFlag string, includeAll bool) (string, error) {
+	switch format {
+	case "json":
+		jsonData := changelog.GenerateChangelogJSON(parsed, &changelog.Options{
+			Version:    versionFlag,
+			IncludeAll: includeAll,
+		})
+		jsonBytes, err := json.MarshalIndent(jsonData, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("changelog: marshaling JSON: %w", err)
+		}
+		return string(jsonBytes) + "\n", nil
+	case "markdown", "md":
+		opts := &changelog.Options{
+			Version:    versionFlag,
+			IncludeAll: includeAll,
+		}
+		result, err := changelog.GenerateChangelog(parsed, opts)
+		if err != nil {
+			return "", fmt.Errorf("changelog: generating markdown: %w", err)
+		}
+		return result, nil
+	default:
+		return "", fmt.Errorf("changelog: unsupported format %q (use markdown or json)", format)
+	}
 }

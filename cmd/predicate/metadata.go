@@ -58,26 +58,20 @@ func getWorkflowPermissions(artifactType pred.ArtifactType) map[string]string {
 	return perms
 }
 
-func runMetadata(_ *cobra.Command, _ []string) error {
-	var opts pred.Options
-
-	// set artifact type
-	switch metadataType {
+// parseArtifactType maps the --type flag to an ArtifactType.
+func parseArtifactType(t string) (pred.ArtifactType, error) {
+	switch t {
 	case "image":
-		opts.Type = pred.ArtifactTypeContainerImage
+		return pred.ArtifactTypeContainerImage, nil
 	case "blob":
-		opts.Type = pred.ArtifactTypeBlob
+		return pred.ArtifactTypeBlob, nil
 	default:
-		return fmt.Errorf("invalid type %q, must be 'image' or 'blob'", metadataType)
+		return "", fmt.Errorf("invalid type %q, must be 'image' or 'blob'", t)
 	}
+}
 
-	// load github context
-	ctx, err := pred.LoadGitHubContext()
-	if err != nil {
-		return fmt.Errorf("failed to load GitHub context: %w", err)
-	}
-
-	// set github context fields
+// applyGitHubContext copies GitHub context fields into opts.
+func applyGitHubContext(opts *pred.Options, ctx *pred.Context) {
 	opts.Repository = ctx.Repository
 	opts.RepositoryID = ctx.RepositoryID
 	opts.GitHubServerURL = ctx.ServerURL
@@ -96,38 +90,41 @@ func runMetadata(_ *cobra.Command, _ []string) error {
 	opts.SHA = ctx.SHA
 	opts.OrgName = ctx.Organization.Name
 	opts.Inputs = ctx.Inputs
+}
 
-	// set subject fields from flags
-	opts.SubjectPath = metadataSubjectPath
-	opts.FullName = metadataSubjectName
-	opts.Digest = metadataSubjectDigest
-
-	// parse workflow run creation time
-	if ctx.Event.WorkflowRun.CreatedAt != "" {
-		if startTime, err := time.Parse(time.RFC3339, ctx.Event.WorkflowRun.CreatedAt); err == nil {
-			opts.StartedAt = startTime.UTC()
-		} else {
-			opts.StartedAt = time.Now().UTC()
+// parseTimestampOrNow parses an RFC3339 timestamp in UTC, falling back to now.
+func parseTimestampOrNow(value string) time.Time {
+	if value != "" {
+		if t, err := time.Parse(time.RFC3339, value); err == nil {
+			return t.UTC()
 		}
-	} else {
-		opts.StartedAt = time.Now().UTC()
 	}
+	return time.Now().UTC()
+}
 
-	// set completed time
+// applyTimestamps sets the time-related fields on opts from the GitHub context.
+func applyTimestamps(opts *pred.Options, ctx *pred.Context) {
+	opts.StartedAt = parseTimestampOrNow(ctx.Event.WorkflowRun.CreatedAt)
 	opts.CompletedAt = time.Now().UTC()
-
-	// parse commit timestamp
-	if ctx.Event.HeadCommit.Timestamp != "" {
-		if commitTime, err := time.Parse(time.RFC3339, ctx.Event.HeadCommit.Timestamp); err == nil {
-			opts.Timestamp = commitTime.UTC()
-		} else {
-			opts.Timestamp = time.Now().UTC()
-		}
-	} else {
-		opts.Timestamp = time.Now().UTC()
+	opts.Timestamp = parseTimestampOrNow(ctx.Event.HeadCommit.Timestamp)
+	if opts.Created.IsZero() {
+		opts.Created = time.Now().UTC()
 	}
+}
 
-	// set version from sha and run number
+// resolvePolicyRef returns the policy ref from the flag, env var, or default.
+func resolvePolicyRef(flagRef string) string {
+	if flagRef != "" {
+		return flagRef
+	}
+	if envPolicyRef := os.Getenv("POLICY_REF"); envPolicyRef != "" {
+		return envPolicyRef
+	}
+	return "https://github.com/liatrio/autogov-policy-library"
+}
+
+// applyVersion sets opts.Version from the SHA and run number when both are present.
+func applyVersion(opts *pred.Options) {
 	if opts.SHA != "" && opts.RunNumber != "" {
 		shortSHA := opts.SHA
 		if len(shortSHA) > 7 {
@@ -135,22 +132,10 @@ func runMetadata(_ *cobra.Command, _ []string) error {
 		}
 		opts.Version = fmt.Sprintf("%s-%s", shortSHA, opts.RunNumber)
 	}
+}
 
-	// set created time
-	if opts.Created.IsZero() {
-		opts.Created = time.Now().UTC()
-	}
-
-	// set policy ref
-	if metadataPolicyRef != "" {
-		opts.PolicyRef = metadataPolicyRef
-	} else if envPolicyRef := os.Getenv("POLICY_REF"); envPolicyRef != "" {
-		opts.PolicyRef = envPolicyRef
-	} else {
-		opts.PolicyRef = "https://github.com/liatrio/autogov-policy-library"
-	}
-
-	// set control ids
+// applyControlIds sets the control ids derived from the owner when present.
+func applyControlIds(opts *pred.Options) {
 	if opts.Owner != "" {
 		opts.ControlIds = []string{
 			opts.Owner + "-PROVENANCE-001",
@@ -158,39 +143,96 @@ func runMetadata(_ *cobra.Command, _ []string) error {
 			opts.Owner + "-METADATA-003",
 		}
 	}
+}
+
+// enrichImageSubject validates and enriches the subject for container image type.
+func enrichImageSubject(opts *pred.Options) error {
+	if opts.FullName == "" {
+		return fmt.Errorf("--subject-name is required for image type")
+	}
+	if opts.Digest == "" {
+		return fmt.Errorf("--subject-digest is required for image type")
+	}
+	// add sha256 to fullname if missing
+	if !strings.Contains(opts.FullName, "@sha256:") {
+		opts.FullName = fmt.Sprintf("%s@%s", opts.FullName, opts.Digest)
+	}
+	// get registry from hostname in subject-name
+	if parts := strings.Split(opts.FullName, "/"); len(parts) > 2 && strings.Contains(parts[0], ".") {
+		opts.Registry = parts[0]
+	}
+	return nil
+}
+
+// enrichBlobSubject validates and enriches the subject for blob type.
+func enrichBlobSubject(opts *pred.Options) error {
+	if opts.SubjectPath == "" {
+		return fmt.Errorf("--subject-path is required for blob type")
+	}
+	// calc digest for blob if not provided
+	if opts.Digest == "" {
+		digest, err := pred.CalculateDigest(opts.SubjectPath)
+		if err != nil {
+			return fmt.Errorf("failed to calculate digest: %w", err)
+		}
+		opts.Digest = digest
+	}
+	return nil
+}
+
+// enrichSubject runs type-specific validation and enrichment.
+func enrichSubject(opts *pred.Options) error {
+	switch opts.Type {
+	case pred.ArtifactTypeContainerImage:
+		return enrichImageSubject(opts)
+	case pred.ArtifactTypeBlob:
+		return enrichBlobSubject(opts)
+	}
+	return nil
+}
+
+func runMetadata(_ *cobra.Command, _ []string) error {
+	var opts pred.Options
+
+	// set artifact type
+	artifactType, err := parseArtifactType(metadataType)
+	if err != nil {
+		return err
+	}
+	opts.Type = artifactType
+
+	// load github context
+	ctx, err := pred.LoadGitHubContext()
+	if err != nil {
+		return fmt.Errorf("failed to load GitHub context: %w", err)
+	}
+
+	// set github context fields
+	applyGitHubContext(&opts, ctx)
+
+	// set subject fields from flags
+	opts.SubjectPath = metadataSubjectPath
+	opts.FullName = metadataSubjectName
+	opts.Digest = metadataSubjectDigest
+
+	// set time-related fields
+	applyTimestamps(&opts, ctx)
+
+	// set version from sha and run number
+	applyVersion(&opts)
+
+	// set policy ref
+	opts.PolicyRef = resolvePolicyRef(metadataPolicyRef)
+
+	// set control ids
+	applyControlIds(&opts)
 
 	// set permissions
 	opts.Permissions = getWorkflowPermissions(opts.Type)
 
 	// type-specific validation and enrichment
-	switch opts.Type {
-	case pred.ArtifactTypeContainerImage:
-		if opts.FullName == "" {
-			return fmt.Errorf("--subject-name is required for image type")
-		}
-		if opts.Digest == "" {
-			return fmt.Errorf("--subject-digest is required for image type")
-		}
-		// add sha256 to fullname if missing
-		if !strings.Contains(opts.FullName, "@sha256:") {
-			opts.FullName = fmt.Sprintf("%s@%s", opts.FullName, opts.Digest)
-		}
-		// get registry from hostname in subject-name
-		if parts := strings.Split(opts.FullName, "/"); len(parts) > 2 && strings.Contains(parts[0], ".") {
-			opts.Registry = parts[0]
-		}
-	case pred.ArtifactTypeBlob:
-		if opts.SubjectPath == "" {
-			return fmt.Errorf("--subject-path is required for blob type")
-		}
-		// calc digest for blob if not provided
-		if opts.Digest == "" {
-			digest, err := pred.CalculateDigest(opts.SubjectPath)
-			if err != nil {
-				return fmt.Errorf("failed to calculate digest: %w", err)
-			}
-			opts.Digest = digest
-		}
+	if err := enrichSubject(&opts); err != nil {
+		return err
 	}
 
 	return pred.GenerateMetadata(opts, metadataOutput)

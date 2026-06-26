@@ -43,18 +43,28 @@ func LoadBundles(bundlePath string) ([]*bundle.Bundle, error) {
 	// parse as JSON array
 	var jsonBundles []json.RawMessage
 	if err := json.Unmarshal(data, &jsonBundles); err == nil {
-		bundles := make([]*bundle.Bundle, 0, len(jsonBundles))
-		for i, raw := range jsonBundles {
-			b := &bundle.Bundle{}
-			if err := b.UnmarshalJSON(raw); err != nil {
-				return nil, fmt.Errorf("failed to parse bundle %d: %w", i, err)
-			}
-			bundles = append(bundles, b)
-		}
-		return bundles, nil
+		return parseBundlesFromJSONArray(jsonBundles)
 	}
 
 	// parse as JSONL
+	return parseBundlesFromJSONL(data)
+}
+
+// parses a decoded JSON array of raw bundle messages
+func parseBundlesFromJSONArray(jsonBundles []json.RawMessage) ([]*bundle.Bundle, error) {
+	bundles := make([]*bundle.Bundle, 0, len(jsonBundles))
+	for i, raw := range jsonBundles {
+		b := &bundle.Bundle{}
+		if err := b.UnmarshalJSON(raw); err != nil {
+			return nil, fmt.Errorf("failed to parse bundle %d: %w", i, err)
+		}
+		bundles = append(bundles, b)
+	}
+	return bundles, nil
+}
+
+// parses raw file data as JSONL (one bundle or array of bundles per line)
+func parseBundlesFromJSONL(data []byte) ([]*bundle.Bundle, error) {
 	bundles := make([]*bundle.Bundle, 0)
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	// buffer size to handle large attestations (up to 10MB per line)
@@ -68,27 +78,11 @@ func LoadBundles(bundlePath string) ([]*bundle.Bundle, error) {
 			continue
 		}
 
-		// single bundle
-		b := &bundle.Bundle{}
-		if err := b.UnmarshalJSON(line); err == nil {
-			bundles = append(bundles, b)
-			continue
+		lineBundles, err := parseBundleLine(line)
+		if err != nil {
+			return nil, err
 		}
-
-		// array of bundles (some files have arrays on each line)
-		var arrayBundles []json.RawMessage
-		if err := json.Unmarshal(line, &arrayBundles); err == nil {
-			for _, raw := range arrayBundles {
-				b := &bundle.Bundle{}
-				if err := b.UnmarshalJSON(raw); err != nil {
-					return nil, fmt.Errorf("failed to parse bundle in array: %w", err)
-				}
-				bundles = append(bundles, b)
-			}
-			continue
-		}
-
-		return nil, fmt.Errorf("failed to parse bundle line")
+		bundles = append(bundles, lineBundles...)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -100,6 +94,31 @@ func LoadBundles(bundlePath string) ([]*bundle.Bundle, error) {
 	}
 
 	return bundles, nil
+}
+
+// parses a single JSONL line as either a single bundle or an array of bundles
+func parseBundleLine(line []byte) ([]*bundle.Bundle, error) {
+	// single bundle
+	b := &bundle.Bundle{}
+	if err := b.UnmarshalJSON(line); err == nil {
+		return []*bundle.Bundle{b}, nil
+	}
+
+	// array of bundles (some files have arrays on each line)
+	var arrayBundles []json.RawMessage
+	if err := json.Unmarshal(line, &arrayBundles); err == nil {
+		bundles := make([]*bundle.Bundle, 0, len(arrayBundles))
+		for _, raw := range arrayBundles {
+			b := &bundle.Bundle{}
+			if err := b.UnmarshalJSON(raw); err != nil {
+				return nil, fmt.Errorf("failed to parse bundle in array: %w", err)
+			}
+			bundles = append(bundles, b)
+		}
+		return bundles, nil
+	}
+
+	return nil, fmt.Errorf("failed to parse bundle line")
 }
 
 // loads bundles from all JSON/JSONL files in a directory

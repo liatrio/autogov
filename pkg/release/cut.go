@@ -182,49 +182,9 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 		opts = DefaultCutOptions()
 	}
 
-	if err := ValidateMode(opts.Mode); err != nil {
-		return nil, err
-	}
-
-	// fail-fast: every asset path must exist before any commit/tag/push side effects
-	if err := validateAssets(opts.Assets, opts.AssetLabels); err != nil {
-		return nil, err
-	}
-
-	repo, err := githelper.OpenRepository(opts.RepoPath)
+	repo, err := preflightCut(opts)
 	if err != nil {
 		return nil, err
-	}
-
-	// initialize GitHub release service if token is available
-	if opts.Token != "" && opts.ReleaseAPI == nil {
-		releaseAPI, err := newGitHubReleaseService(opts.Token)
-		if err != nil {
-			return nil, err
-		}
-		opts.ReleaseAPI = releaseAPI
-	}
-
-	// fail early if api mode requires a token
-	if opts.Mode == ModeAPI && opts.ReleaseAPI == nil {
-		return nil, fmt.Errorf("--mode=api requires a GitHub token")
-	}
-
-	// step 1: validate working tree / branch
-	if opts.Mode == ModeAPI && opts.ReleaseAPI != nil {
-		// in API mode skip local worktree clean check — verify branch exists via API
-		owner, repoName, parseErr := parseOwnerRepo(repo)
-		if parseErr != nil {
-			return nil, parseErr
-		}
-		ctx := context.Background()
-		if err := validateBranchViaAPI(ctx, opts.ReleaseAPI, owner, repoName, opts.Branch); err != nil {
-			return nil, fmt.Errorf("branch validation failed: %w", err)
-		}
-	} else {
-		if err := validateWorktree(repo, opts.Branch); err != nil {
-			return nil, fmt.Errorf("worktree validation failed: %w", err)
-		}
 	}
 
 	// step 2: generate or load the release plan
@@ -247,21 +207,9 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 	// (rolled back per #249), a failure in steps 8–10 leaves the tag, commit, and a draft
 	// release in place. Detect that draft and resume into it instead of failing the
 	// immutability check.
-	var resumeRelease *gogithub.RepositoryRelease
-	if opts.ReleaseAPI != nil {
-		owner, repoName, parseErr := parseOwnerRepo(repo)
-		if parseErr != nil {
-			return nil, parseErr
-		}
-		resumeRelease, err = detectResume(context.Background(), opts, owner, repoName, tagName)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if resumeRelease == nil {
-		if err := checkImmutability(repo, opts, tagName); err != nil {
-			return nil, fmt.Errorf("immutability check failed: %w", err)
-		}
+	resumeRelease, err := resolveResumeOrImmutability(repo, opts, tagName)
+	if err != nil {
+		return nil, err
 	}
 
 	result := &CutResult{
@@ -292,22 +240,7 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 	}
 
 	if opts.DryRun {
-		fmt.Fprintf(os.Stderr, "dry-run: would create release %s\n", tagName)
-		if len(mutationSummary) > 0 {
-			fmt.Fprintf(os.Stderr, "dry-run: would modify files: %s\n", strings.Join(mutationSummary, ", "))
-		}
-		action := "draft"
-		if opts.Publish {
-			action = "published"
-		}
-		fmt.Fprintf(os.Stderr, "dry-run: would create commit, tag, push, and create %s GitHub release\n", action)
-		if len(opts.Assets) > 0 {
-			names := make([]string, len(opts.Assets))
-			for i, p := range opts.Assets {
-				names[i] = filepath.Base(p)
-			}
-			fmt.Fprintf(os.Stderr, "dry-run: would upload %d asset(s): %s\n", len(names), strings.Join(names, ", "))
-		}
+		printDryRunPlan(opts, mutationSummary, tagName)
 		return result, nil
 	}
 
@@ -316,6 +249,131 @@ func ExecuteCut(opts *CutOptions) (*CutResult, error) {
 		return nil, fmt.Errorf("GitHub token is required for release cut (API-signed commits per SLSA v1.2)")
 	}
 
+	return performCutSideEffects(repo, opts, plan, result, tagName)
+}
+
+// preflightCut runs the fail-fast checks that precede any release side effects: validate the
+// mode, validate the requested assets, open the repository, initialize the release service,
+// and validate the target branch/worktree. It returns the opened repository.
+func preflightCut(opts *CutOptions) (*git.Repository, error) {
+	if err := ValidateMode(opts.Mode); err != nil {
+		return nil, err
+	}
+
+	// fail-fast: every asset path must exist before any commit/tag/push side effects
+	if err := validateAssets(opts.Assets, opts.AssetLabels); err != nil {
+		return nil, err
+	}
+
+	repo, err := githelper.OpenRepository(opts.RepoPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := setupCutService(opts); err != nil {
+		return nil, err
+	}
+
+	// step 1: validate working tree / branch
+	if err := validateCutBranch(repo, opts); err != nil {
+		return nil, err
+	}
+
+	return repo, nil
+}
+
+// setupCutService initializes opts.ReleaseAPI from opts.Token when a token is present and no
+// service was injected, then enforces that API mode has a release service available.
+func setupCutService(opts *CutOptions) error {
+	// initialize GitHub release service if token is available
+	if opts.Token != "" && opts.ReleaseAPI == nil {
+		releaseAPI, err := newGitHubReleaseService(opts.Token)
+		if err != nil {
+			return err
+		}
+		opts.ReleaseAPI = releaseAPI
+	}
+
+	// fail early if api mode requires a token
+	if opts.Mode == ModeAPI && opts.ReleaseAPI == nil {
+		return fmt.Errorf("--mode=api requires a GitHub token")
+	}
+
+	return nil
+}
+
+// validateCutBranch validates the release target. In API mode it skips the local worktree
+// clean check and verifies the branch exists via the GitHub API; otherwise it validates the
+// local worktree is clean and on the expected branch.
+func validateCutBranch(repo *git.Repository, opts *CutOptions) error {
+	if opts.Mode == ModeAPI && opts.ReleaseAPI != nil {
+		// in API mode skip local worktree clean check — verify branch exists via API
+		owner, repoName, parseErr := parseOwnerRepo(repo)
+		if parseErr != nil {
+			return parseErr
+		}
+		ctx := context.Background()
+		if err := validateBranchViaAPI(ctx, opts.ReleaseAPI, owner, repoName, opts.Branch); err != nil {
+			return fmt.Errorf("branch validation failed: %w", err)
+		}
+		return nil
+	}
+	if err := validateWorktree(repo, opts.Branch); err != nil {
+		return fmt.Errorf("worktree validation failed: %w", err)
+	}
+	return nil
+}
+
+// resolveResumeOrImmutability detects a resumable draft release for tagName when a release
+// service is available, and otherwise enforces immutability. It returns the draft release to
+// resume into (nil for a fresh cut). When no resumable draft exists, the immutability check
+// runs and any conflict is returned as an error.
+func resolveResumeOrImmutability(repo *git.Repository, opts *CutOptions, tagName string) (*gogithub.RepositoryRelease, error) {
+	var resumeRelease *gogithub.RepositoryRelease
+	if opts.ReleaseAPI != nil {
+		owner, repoName, parseErr := parseOwnerRepo(repo)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		var err error
+		resumeRelease, err = detectResume(context.Background(), opts, owner, repoName, tagName)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if resumeRelease == nil {
+		if err := checkImmutability(repo, opts, tagName); err != nil {
+			return nil, fmt.Errorf("immutability check failed: %w", err)
+		}
+	}
+	return resumeRelease, nil
+}
+
+// printDryRunPlan writes the dry-run summary of what the cut would do to stderr.
+func printDryRunPlan(opts *CutOptions, mutationSummary []string, tagName string) {
+	fmt.Fprintf(os.Stderr, "dry-run: would create release %s\n", tagName)
+	if len(mutationSummary) > 0 {
+		fmt.Fprintf(os.Stderr, "dry-run: would modify files: %s\n", strings.Join(mutationSummary, ", "))
+	}
+	action := "draft"
+	if opts.Publish {
+		action = "published"
+	}
+	fmt.Fprintf(os.Stderr, "dry-run: would create commit, tag, push, and create %s GitHub release\n", action)
+	if len(opts.Assets) > 0 {
+		names := make([]string, len(opts.Assets))
+		for i, p := range opts.Assets {
+			names[i] = filepath.Base(p)
+		}
+		fmt.Fprintf(os.Stderr, "dry-run: would upload %d asset(s): %s\n", len(names), strings.Join(names, ", "))
+	}
+}
+
+// performCutSideEffects executes the remote, mutating phase of the cut (steps 5–10): create
+// the API-signed commit and tag, fast-forward the branch, create the draft release, upload
+// assets, and publish if requested. It mutates and returns result; on a failure after the
+// release exists it returns the partial result so the caller can recover.
+func performCutSideEffects(repo *git.Repository, opts *CutOptions, plan *ReleasePlan, result *CutResult, tagName string) (*CutResult, error) {
 	owner, repoName, err := parseOwnerRepo(repo)
 	if err != nil {
 		return nil, err
@@ -734,6 +792,20 @@ func checkImmutability(repo *git.Repository, opts *CutOptions, tagName string) e
 
 	// check remote tags: use GitHub API if available (works with shallow clones),
 	// otherwise fall back to go-git ls-remote
+	if err := checkRemoteTagImmutable(repo, opts, tagName); err != nil {
+		return err
+	}
+
+	// check for a published (non-draft) GitHub release. GetReleaseByTag 404s on drafts, so
+	// a returned release is always a published conflict; resumable drafts are handled
+	// earlier by detectResume.
+	return checkPublishedReleaseImmutable(repo, opts, tagName)
+}
+
+// checkRemoteTagImmutable reports an error if tagName already exists on the remote. In API
+// mode (with a release service) it queries the GitHub API so shallow clones still work;
+// otherwise it falls back to a go-git ls-remote against opts.Remote.
+func checkRemoteTagImmutable(repo *git.Repository, opts *CutOptions, tagName string) error {
 	if opts.Mode == ModeAPI && opts.ReleaseAPI != nil {
 		owner, repoName, parseErr := parseOwnerRepo(repo)
 		if parseErr == nil {
@@ -741,47 +813,53 @@ func checkImmutability(repo *git.Repository, opts *CutOptions, tagName string) e
 				return err
 			}
 		}
-	} else {
-		remote, err := repo.Remote(opts.Remote)
-		if err == nil {
-			listOpts := &git.ListOptions{}
-			if opts.Token != "" {
-				listOpts.Auth = &http.BasicAuth{Username: "x-access-token", Password: opts.Token}
-			}
-
-			refs, err := remote.List(listOpts)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: could not list remote refs: %v\n", err)
-			} else {
-				tagRef := plumbing.NewTagReferenceName(tagName)
-				for _, ref := range refs {
-					if ref.Name() == tagRef {
-						return fmt.Errorf("tag %s already exists on remote %q", tagName, opts.Remote)
-					}
-				}
-			}
-		}
+		return nil
 	}
 
-	// check for a published (non-draft) GitHub release. GetReleaseByTag 404s on drafts, so
-	// a returned release is always a published conflict; resumable drafts are handled
-	// earlier by detectResume.
-	if opts.ReleaseAPI != nil {
-		repoName := githelper.GetRepositoryName(repo)
-		parts := strings.SplitN(repoName, "/", 2)
-		if len(parts) == 2 {
-			ctx := context.Background()
-
-			rel, resp, err := opts.ReleaseAPI.GetReleaseByTag(ctx, parts[0], parts[1], tagName)
-			if resp != nil {
-				_ = resp.Body.Close()
-			}
-			if err == nil && rel != nil && !rel.GetDraft() {
-				return fmt.Errorf("published release already exists for tag %s (id: %d)", tagName, rel.GetID())
-			}
-		}
+	remote, err := repo.Remote(opts.Remote)
+	if err != nil {
+		return nil
+	}
+	listOpts := &git.ListOptions{}
+	if opts.Token != "" {
+		listOpts.Auth = &http.BasicAuth{Username: "x-access-token", Password: opts.Token}
 	}
 
+	refs, err := remote.List(listOpts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not list remote refs: %v\n", err)
+		return nil
+	}
+	tagRef := plumbing.NewTagReferenceName(tagName)
+	for _, ref := range refs {
+		if ref.Name() == tagRef {
+			return fmt.Errorf("tag %s already exists on remote %q", tagName, opts.Remote)
+		}
+	}
+	return nil
+}
+
+// checkPublishedReleaseImmutable reports an error if a published (non-draft) GitHub release
+// already exists for tagName. Drafts are not conflicts (GetReleaseByTag 404s on drafts, and
+// resumable drafts are handled earlier by detectResume).
+func checkPublishedReleaseImmutable(repo *git.Repository, opts *CutOptions, tagName string) error {
+	if opts.ReleaseAPI == nil {
+		return nil
+	}
+	repoName := githelper.GetRepositoryName(repo)
+	parts := strings.SplitN(repoName, "/", 2)
+	if len(parts) != 2 {
+		return nil
+	}
+	ctx := context.Background()
+
+	rel, resp, err := opts.ReleaseAPI.GetReleaseByTag(ctx, parts[0], parts[1], tagName)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err == nil && rel != nil && !rel.GetDraft() {
+		return fmt.Errorf("published release already exists for tag %s (id: %d)", tagName, rel.GetID())
+	}
 	return nil
 }
 
