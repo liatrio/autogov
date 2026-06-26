@@ -9,10 +9,11 @@ import (
 )
 
 const (
-	flagRepoPath = "repo-path"
-	flagFormat   = "format"
-	flagFrom     = "from"
-	flagTo       = "to"
+	flagRepoPath      = "repo-path"
+	flagFormat        = "format"
+	flagFrom          = "from"
+	flagTo            = "to"
+	flagAllowUnsigned = "allow-unsigned"
 )
 
 // newGitCmd creates a fresh git subcommand. Used internally and for testing.
@@ -39,7 +40,10 @@ Examples:
   autogov verify git --from v1.0.0 --to HEAD
 
   # Verify with expected identity
-  autogov verify git --cert-identity user@example.com --cert-issuer https://accounts.google.com`,
+  autogov verify git --cert-identity user@example.com --cert-issuer https://accounts.google.com
+
+Unsigned commits fail verification by default ("no signature" is the easiest
+forgery). Pass --allow-unsigned to treat unsigned commits as success.`,
 		RunE: runVerifyGit,
 	}
 
@@ -49,6 +53,7 @@ Examples:
 	cmd.Flags().String(flagFormat, "text", "Output format: text, json")
 	cmd.Flags().String(flagFrom, "", "Starting commit/ref for range verification")
 	cmd.Flags().String(flagTo, "HEAD", "Ending commit/ref for range verification")
+	cmd.Flags().Bool(flagAllowUnsigned, false, "Treat unsigned commits as success instead of failure")
 
 	return cmd
 }
@@ -60,6 +65,7 @@ func runVerifyGit(cmd *cobra.Command, args []string) error {
 	format, _ := cmd.Flags().GetString(flagFormat)
 	from, _ := cmd.Flags().GetString(flagFrom)
 	to, _ := cmd.Flags().GetString(flagTo)
+	allowUnsigned, _ := cmd.Flags().GetBool(flagAllowUnsigned)
 
 	repo, err := gitsign.OpenRepository(repoPath)
 	if err != nil {
@@ -94,7 +100,21 @@ func runVerifyGit(cmd *cobra.Command, args []string) error {
 		results = []*gitsign.VerificationResult{result}
 	}
 
-	return outputResults(cmd, results, format)
+	// write output first, then make the format-independent failure decision: an
+	// unsigned commit (the easiest forgery) fails by default unless --allow-unsigned
+	// is set, and any commit with an explicit error always fails.
+	if err := outputResults(cmd, results, format); err != nil {
+		return err
+	}
+	for _, r := range results {
+		if r.ErrorMsg != "" {
+			return fmt.Errorf("verify git: one or more commits failed verification")
+		}
+		if r.Unsigned && !allowUnsigned {
+			return fmt.Errorf("verify git: commit %s is unsigned", r.CommitHash)
+		}
+	}
+	return nil
 }
 
 // outputResults writes results to cmd.OutOrStdout() in the requested format.
@@ -161,12 +181,7 @@ func outputText(cmd *cobra.Command, results []*gitsign.VerificationResult) error
 			total, verified, unsigned, failed)
 	}
 
-	// report overall failure if any commits failed verification
-	for _, r := range results {
-		if r.ErrorMsg != "" {
-			return fmt.Errorf("verify git: one or more commits failed verification")
-		}
-	}
-
+	// write-only: the overall failure decision (unsigned / errored commits) is made
+	// in runVerifyGit so it is format-independent (json fails closed too).
 	return nil
 }

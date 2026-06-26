@@ -213,7 +213,12 @@ func (ov *OfflineVerifier) VerifyArtifactDigest(digest string) (*VerificationRes
 	return ov.verifyWithDigest(digest)
 }
 
-// verifies all artifacts in a directory
+// verifies all artifacts in a directory.
+//
+// each file's sha256 is computed and bound to an attestation subject digest via
+// WithArtifactDigest — the directory path never falls back to WithoutArtifactUnsafe,
+// which would accept a validly-signed-but-unrelated bundle without matching any
+// on-disk bytes (the asymmetric hole the single-file path never had).
 func (ov *OfflineVerifier) verifyDirectory(dirPath string) (*VerificationResult, error) {
 	// reads all files in the dir
 	entries, err := os.ReadDir(dirPath)
@@ -233,8 +238,6 @@ func (ov *OfflineVerifier) verifyDirectory(dirPath string) (*VerificationResult,
 		return nil, fmt.Errorf("no files found in directory %s", dirPath)
 	}
 
-	// for multiple artifacts, verify attestations without specific digest matching
-	// the attestations themselves contain the subject digests
 	if !ov.options.Quiet {
 		fmt.Printf("Verifying %d artifact(s) in directory: %s\n", len(artifactFiles), dirPath)
 		for _, file := range artifactFiles {
@@ -242,14 +245,110 @@ func (ov *OfflineVerifier) verifyDirectory(dirPath string) (*VerificationResult,
 		}
 	}
 
-	// verify attestations without a specific artifact digest
-	// validates the attestations are properly signed and match their internal subjects
-	return ov.verifyWithDigest("")
+	// single-file directory: identical to the single-file path. CalculateFile
+	// returns sha256:<hex>, which verifyWithDigest parses and binds via
+	// WithArtifactDigest. the production offline path pre-expands directories into
+	// single files (cli.ExpandBlobPaths), so this is the common case.
+	if len(artifactFiles) == 1 {
+		expectedDigest, err := digest.CalculateFile(artifactFiles[0])
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate artifact digest: %w", err)
+		}
+		return ov.verifyWithDigest(expectedDigest)
+	}
+
+	// genuine multi-file directory: bind each file to its own digest, scoping each
+	// per-file pass to only the bundle(s) whose subject digest matches that file so
+	// non-matching siblings (file A's bundle vs file B) are not counted as failures.
+	// require every file to bind to at least one verified, in-allowlist bundle.
+	return ov.verifyDirectoryMultiFile(artifactFiles)
 }
 
-// performs verification with the given digest
-func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*VerificationResult, error) {
+// verifyDirectoryMultiFile binds each file in a multi-file directory to its own
+// digest. For each file it verifies only the bundles whose subject digest matches
+// that file (so sibling files' bundles do not count as mismatches), and requires
+// every file to bind to at least one verified bundle. Any file that matches no
+// verified bundle fails the whole directory.
+func (ov *OfflineVerifier) verifyDirectoryMultiFile(artifactFiles []string) (*VerificationResult, error) {
+	result := &VerificationResult{
+		Attestations:     make([]AttestationResult, 0),
+		PolicyCompliance: make(map[string]bool),
+		Errors:           make([]string, 0),
+		Warnings:         make([]string, 0),
+	}
 
+	allFilesBound := true
+	for _, file := range artifactFiles {
+		fileDigest, err := digest.CalculateFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate digest for %s: %w", file, err)
+		}
+
+		// select only the bundles whose attested subject digest matches this file.
+		matchingBundles := ov.bundlesMatchingDigest(fileDigest)
+		if len(matchingBundles) == 0 {
+			allFilesBound = false
+			result.Errors = append(result.Errors,
+				fmt.Sprintf("no attestation subject matches file %s (%s)", filepath.Base(file), fileDigest))
+			if !ov.options.Quiet {
+				fmt.Printf("✗ No attestation subject matches %s\n", filepath.Base(file))
+			}
+			continue
+		}
+
+		// verify the matching bundles against this file's digest.
+		fileResult, err := ov.verifyBundles(matchingBundles, fileDigest)
+		if err != nil {
+			return nil, err
+		}
+		result.Attestations = append(result.Attestations, fileResult.Attestations...)
+		if !fileResult.Verified {
+			allFilesBound = false
+		}
+	}
+
+	result.Verified = allFilesBound && len(result.Attestations) > 0
+	return result, nil
+}
+
+// bundlesMatchingDigest returns the loaded bundles whose attested subject digest
+// equals the given digest (in sha256:<hex> or bare <hex> form).
+func (ov *OfflineVerifier) bundlesMatchingDigest(expectedDigest string) []*bundle.Bundle {
+	alg, hexDigest := splitDigest(expectedDigest)
+
+	var matching []*bundle.Bundle
+	for _, b := range ov.bundles {
+		_, subjectDigest := bundleutils.ExtractSubject(b)
+		if subjectDigest == nil {
+			continue
+		}
+		if got, ok := subjectDigest[alg]; ok && strings.EqualFold(got, hexDigest) {
+			matching = append(matching, b)
+		}
+	}
+	return matching
+}
+
+// splitDigest parses a sha256:<hex> or bare <hex> digest into (alg, hex).
+func splitDigest(d string) (alg, hexDigest string) {
+	parts := strings.SplitN(d, ":", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return "sha256", d
+}
+
+// performs verification of all loaded bundles with the given digest
+func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*VerificationResult, error) {
+	return ov.verifyBundles(ov.bundles, expectedDigest)
+}
+
+// verifyBundles verifies the given bundles against expectedDigest and aggregates
+// the per-bundle results into a single VerificationResult. An empty expectedDigest
+// uses WithoutArtifactUnsafe (attestations-only path); a non-empty digest binds via
+// WithArtifactDigest. Returns an error only for infrastructure failures (trusted
+// root / verifier construction).
+func (ov *OfflineVerifier) verifyBundles(bundles []*bundle.Bundle, expectedDigest string) (*VerificationResult, error) {
 	result := &VerificationResult{
 		Attestations:     make([]AttestationResult, 0),
 		PolicyCompliance: make(map[string]bool),
@@ -259,7 +358,7 @@ func (ov *OfflineVerifier) verifyWithDigest(expectedDigest string) (*Verificatio
 
 	// verify each bundle
 	validAttestations := 0
-	for i, b := range ov.bundles {
+	for i, b := range bundles {
 		// show which attestation is being verified
 		if !ov.options.Quiet {
 			// get attestation type for display
