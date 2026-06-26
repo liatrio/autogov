@@ -24,21 +24,35 @@ type VerifyOptions struct {
 	CertIdentity string
 	// CertIssuer is the expected OIDC issuer URL.
 	CertIssuer string
-	// SkipRekor skips Rekor transparency log verification (default: true — Rekor not yet implemented).
-	SkipRekor bool
 }
 
 // VerificationResult holds the outcome of verifying a single commit.
 type VerificationResult struct {
-	CommitHash      string    `json:"commit"`
+	CommitHash string `json:"commit"`
+	// Verified is true only when the cms signature is valid AND the signature is
+	// bound to the transparency log. in the interim posture (no rekor verification
+	// yet) this stays false for any signature, even a structurally valid one — see
+	// TransparencyVerified for the distinction between "cms ok but unbound" and
+	// "cms failed".
 	Verified        bool      `json:"verified"`
 	Signer          string    `json:"signer,omitempty"`
 	Issuer          string    `json:"issuer,omitempty"`
 	CertFingerprint string    `json:"cert_fingerprint,omitempty"`
 	Timestamp       time.Time `json:"timestamp,omitempty"`
-	RekorLogIndex   int64     `json:"rekor_log_index,omitempty"`
-	ErrorMsg        string    `json:"error,omitempty"`
-	Unsigned        bool      `json:"unsigned,omitempty"`
+	// RekorLogIndex is populated from the verified rekor entry once transparency
+	// verification lands. it is 0/absent for any result that was not transparency-
+	// verified.
+	RekorLogIndex int64 `json:"rekor_log_index,omitempty"`
+	// CMSVerified is true when the cms signature validates against a trusted fulcio
+	// chain pinned to "now" and the signer identity matches. it does NOT imply the
+	// signature was logged to a transparency log; callers that gate on signing
+	// trust must use Verified, not CMSVerified.
+	CMSVerified bool `json:"cms_verified,omitempty"`
+	// TransparencyVerified is true only when the signature was matched to a verified
+	// rekor inclusion proof. in the interim posture it is always false.
+	TransparencyVerified bool   `json:"transparency_verified,omitempty"`
+	ErrorMsg             string `json:"error,omitempty"`
+	Unsigned             bool   `json:"unsigned,omitempty"`
 }
 
 // OpenRepository opens a git repository at the given path.
@@ -160,14 +174,19 @@ func verifyCommitObject(commit *object.Commit, opts VerifyOptions) (*Verificatio
 	}
 
 	// build Fulcio cert pool from embedded trusted root
-	certPool, err := buildFulcioPool()
+	certPool, err := fulcioPoolFn()
 	if err != nil {
 		result.ErrorMsg = fmt.Sprintf("failed to build Fulcio cert pool: %v", err)
 		return result, nil
 	}
 
-	// verify CMS signature against the commit data
-	if err := p7.VerifyWithChain(certPool); err != nil {
+	// verify the CMS signature against the commit data, pinning the cert-chain
+	// check to "now" rather than the signer-supplied cms signingTime attribute. a
+	// fulcio leaf is valid for ~10 minutes; trusting the unauthenticated signingTime
+	// would let a stale-but-once-valid (or forged) cert with a backdated attribute
+	// pass indefinitely. once transparency verification lands, this time source
+	// becomes the verified rekor integrated timestamp.
+	if err := p7.VerifyWithChainAtTime(certPool, time.Now().UTC()); err != nil {
 		result.ErrorMsg = fmt.Sprintf("CMS signature verification failed: %v", err)
 		return result, nil
 	}
@@ -190,7 +209,13 @@ func verifyCommitObject(commit *object.Commit, opts VerifyOptions) (*Verificatio
 		return result, nil
 	}
 
-	result.Verified = true
+	// the cms signature is valid against a trusted chain at "now" and the identity
+	// matches. record that, but do NOT mark the result Verified: transparency-log
+	// inclusion has not been proven, so there is no tamper-evident anchor for when
+	// the signature was produced. callers gate signing trust on Verified, which
+	// stays false until a verified rekor entry is matched.
+	result.CMSVerified = true
+	result.ErrorMsg = "not transparency-verified: cms signature is valid but no rekor inclusion proof was checked (interim posture)"
 	return result, nil
 }
 
@@ -266,6 +291,23 @@ func collectCommitRange(repo *git.Repository, from, to plumbing.Hash) ([]*object
 	}
 
 	return commits, nil
+}
+
+// fulcioPoolFn resolves the trusted Fulcio cert pool. it defaults to
+// buildFulcioPool (the embedded trusted roots) and is a seam so tests can inject a
+// self-signed root and exercise the CMS-at-now verification path with a
+// controllable trust anchor.
+var fulcioPoolFn = buildFulcioPool
+
+// SetFulcioPoolForTesting overrides the trusted Fulcio cert pool used by
+// VerifyCommit and returns a restore func. it exists so tests in this and sibling
+// packages can install a self-signed leaf as the trust anchor; production code
+// never calls it. mirrors the SetBuildInfo / NewVerifyCmdForTesting test-seam
+// convention used elsewhere in the repo.
+func SetFulcioPoolForTesting(pool *x509.CertPool) (restore func()) {
+	prev := fulcioPoolFn
+	fulcioPoolFn = func() (*x509.CertPool, error) { return pool, nil }
+	return func() { fulcioPoolFn = prev }
 }
 
 // buildFulcioPool extracts Fulcio CA certificates from the embedded trusted roots

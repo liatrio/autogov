@@ -152,6 +152,8 @@ gh attestation verify oci://ghcr.io/liatrio/autogov:latest --owner liatrio
 
 `verify` is a parent command with four subcommands: `attestation` (GitHub artifact attestations), `git` (gitsign commit signatures), `source` (source provenance), and `policy` (repository policy enforcement). Artifact verification uses the `attestation` subcommand:
 
+> **Note (interim posture):** in the current release, `verify git` and the commit-signature checks in `verify policy` validate the gitsign CMS signature and signer identity but do **not** yet verify Rekor transparency-log inclusion. They are identity/CMS checks, **not** transparency-log-backed gates — a commit signature with no verifiable Rekor entry is reported as not verified. This caveat is removed once transparency verification ships.
+
 ```bash
 autogov verify attestation --repo <owner/repo> [options]
 ```

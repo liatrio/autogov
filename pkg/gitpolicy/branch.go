@@ -44,9 +44,7 @@ func VerifyBranchProtection(repo *git.Repository, ref string, policy *Policy, ma
 
 	status.TotalCommitCount = len(commits)
 
-	verifyOpts := gitsign.VerifyOptions{
-		SkipRekor: true,
-	}
+	verifyOpts := gitsign.VerifyOptions{}
 
 	for _, c := range commits {
 		// Merge commits indicate PR workflow.

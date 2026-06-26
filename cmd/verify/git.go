@@ -43,7 +43,13 @@ Examples:
   autogov verify git --cert-identity user@example.com --cert-issuer https://accounts.google.com
 
 Unsigned commits fail verification by default ("no signature" is the easiest
-forgery). Pass --allow-unsigned to treat unsigned commits as success.`,
+forgery). Pass --allow-unsigned to treat unsigned commits as success.
+
+Transparency note (interim posture): this command validates the gitsign CMS
+signature and signer identity but does not yet verify Rekor transparency-log
+inclusion. It is therefore an identity/CMS check, NOT a transparency-log-backed
+gate — a signature with no verifiable Rekor entry is reported as not verified.
+This caveat is removed once transparency verification ships.`,
 		RunE: runVerifyGit,
 	}
 
@@ -75,7 +81,6 @@ func runVerifyGit(cmd *cobra.Command, args []string) error {
 	opts := gitsign.VerifyOptions{
 		CertIdentity: certIdentity,
 		CertIssuer:   certIssuer,
-		SkipRekor:    true,
 	}
 
 	var results []*gitsign.VerificationResult

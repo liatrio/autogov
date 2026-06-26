@@ -236,5 +236,6 @@ func TestNewVerifyOptions_Defaults(t *testing.T) {
 	opts := gitsign.VerifyOptions{}
 	assert.Empty(t, opts.CertIdentity)
 	assert.Empty(t, opts.CertIssuer)
-	assert.False(t, opts.SkipRekor)
+	// the dead SkipRekor field has been removed: no caller may set a flag that
+	// silently disables transparency verification.
 }

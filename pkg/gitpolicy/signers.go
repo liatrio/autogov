@@ -44,7 +44,6 @@ func VerifySignerPolicy(repo *git.Repository, ref string, policy *Policy, opts V
 	verifyOpts := gitsign.VerifyOptions{
 		CertIdentity: opts.CertIdentity,
 		CertIssuer:   opts.CertIssuer,
-		SkipRekor:    true,
 	}
 
 	signersSeen := make(map[string]bool)
