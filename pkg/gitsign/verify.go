@@ -260,12 +260,26 @@ func establishTrustedTimestamp(cmsDER []byte, signerCert *x509.Certificate) (*tr
 			return nil, fmt.Errorf("TSA timestamp verification failed: %w", err)
 		}
 		return &trustedTimestamp{Time: genTime, Source: "tsa"}, nil
+	case root.TrustedRootSourcePublic:
+		// public-good path (sigstore.dev): the transparency anchor is the Rekor
+		// inclusion entry gitsign embeds in the CMS (OID 1.3.6.1.4.1.57264.3.1).
+		// Verify its inclusion offline against the embedded public trusted-root
+		// log key and pin to the Rekor integrated time. A signature with no
+		// embedded entry (e.g. legacy "online" gitsign) fails closed here.
+		entryProto, sigValue, signedAttrs, ok := extractRekorEntry(cmsDER)
+		if !ok {
+			return nil, fmt.Errorf("no embedded Rekor transparency log entry present")
+		}
+		integratedTime, logIndex, err := verifyRekorInclusion(entryProto, sigValue, signedAttrs, signerCert)
+		if err != nil {
+			return nil, fmt.Errorf("verify Rekor inclusion: %w", err)
+		}
+		return &trustedTimestamp{Time: integratedTime, Source: "rekor", RekorLogIndex: logIndex}, nil
 	default:
-		// public-good path (sigstore.dev): a Rekor inclusion proof is the
-		// transparency anchor. live-log lookup / recorded-fixture verification is
-		// not yet wired into the gitsign path (tracked in issue #306), so fail
-		// closed rather than trust an unverified signature.
-		return nil, fmt.Errorf("public-good Rekor inclusion verification not yet supported on the gitsign path")
+		// no transparency anchor is defined for any other backend; fail closed
+		// rather than silently routing it onto the Rekor path (mirrors the
+		// do-not-guess stance above).
+		return nil, fmt.Errorf("unsupported sigstore backend %q for gitsign transparency verification", src)
 	}
 }
 
