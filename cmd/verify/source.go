@@ -194,7 +194,14 @@ func runSource(cmd *cobra.Command, _ []string) error {
 // the numbered level, and never as a SLSA_SOURCE_LEVEL_4 (there is no such tier;
 // two-party review is recorded as a separate annotation).
 func generateStandardsSourceVSA(result *source.VerificationResult, vsaOutput, policyURI string) error {
-	sourceLevel := source.MapToCanonicalSourceLevel(result.Verified)
+	// use the verifier's computed level as the single source of truth so the VSA
+	// SourceLevel always matches the metadata recorded below; the verifier sets
+	// this on every path (L0 default, L1 on a verified signature), so fall back
+	// to the conservative mapper only if it was somehow left unset.
+	sourceLevel := result.SLSASourceLevel
+	if sourceLevel == "" {
+		sourceLevel = source.MapToCanonicalSourceLevel(result.Verified)
+	}
 
 	opts := vsa.SourceVSAOptions{
 		RepoURI:     result.RepoURI,
