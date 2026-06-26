@@ -13,15 +13,31 @@ import (
 	"github.com/spf13/viper"
 )
 
+// applyBoolFlagToViper resolves a bool flag into viper without clobbering an
+// env binding. the key is bound to viper in cmd/root.go via BindEnv, so the env
+// value is already present. only overwrite it when the flag was explicitly
+// passed, otherwise an unconditional viper.Set with the flag default would
+// clobber the env binding. an explicit flag therefore wins over the env var.
+func applyBoolFlagToViper(cmd *cobra.Command, flag string) {
+	if cmd.Flags().Changed(flag) {
+		v, _ := cmd.Flags().GetBool(flag)
+		viper.Set(flag, v)
+	}
+}
+
+// ApplyFailOnPolicyError resolves the fail-on-policy-error setting into viper.
+func ApplyFailOnPolicyError(cmd *cobra.Command) {
+	applyBoolFlagToViper(cmd, "fail-on-policy-error")
+}
+
 // handles the offline command execution
 func RunCommand(cmd *cobra.Command, args []string) error {
-	// gets config values
-	quiet, _ := cmd.Flags().GetBool("quiet")
-
-	// propagate CLI flags to viper for pkg code that reads directly from viper
-	viper.Set("quiet", quiet)
-	failOnPolicyError, _ := cmd.Flags().GetBool("fail-on-policy-error")
-	viper.Set("fail-on-policy-error", failOnPolicyError)
+	// resolve quiet without clobbering QUIET env (same class as fail-on-policy-error):
+	// only write the flag value when it was explicitly passed, then read the effective
+	// value back from viper so local control flow honors the env binding too.
+	applyBoolFlagToViper(cmd, "quiet")
+	ApplyFailOnPolicyError(cmd)
+	quiet := viper.GetBool("quiet")
 	policyBundleDigest, _ := cmd.Flags().GetString("policy-bundle-digest")
 	viper.Set("policy-bundle-digest", policyBundleDigest)
 	blobPath, _ := cmd.Flags().GetString("blob-path")
