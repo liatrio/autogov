@@ -2,7 +2,10 @@ package certid
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -18,11 +21,27 @@ import (
 // default cache dir
 const CacheDir = ".autogov"
 
-// default cache file
-const CacheFile = "cert-identities.json"
+// default cache file basename prefix; the on-disk cache filename is keyed by
+// sha256(Options.URL) so two validators with distinct URLs but a shared CacheDir
+// never read or write the same file (cross-url collision).
+const cacheFilePrefix = "cert-identities-"
 
 // default cache expiration
 const CacheExpirationHours = 24
+
+// sentinel errors returned by the revocation/expiry guards so callers can
+// classify an identity (errors.Is) without coupling to the human-readable text.
+var (
+	errRevoked = errors.New("certificate identity is revoked")
+	errExpired = errors.New("certificate identity has expired")
+)
+
+// warnf routes an ungated warning to stderr. it is a package-level var so tests
+// can swap it to capture output. it must stay off stdout (the result channel),
+// matching the unsafe-mode warning precedent in cmd/verify/attestation.go.
+var warnf = func(format string, a ...any) {
+	fmt.Fprintf(os.Stderr, format, a...)
+}
 
 // represents a single certificate identity
 type Identity struct {
@@ -71,6 +90,15 @@ type Validator struct {
 	list    *IdentityList
 }
 
+// returns the per-url cache path: cert-identities-<sha256(URL)>.json under
+// CacheDir. keying by url prevents a cache populated from one source url being
+// served, unchecked, for a different url that happens to share the same CacheDir.
+func (v *Validator) cacheFilePath() string {
+	sum := sha256.Sum256([]byte(v.options.URL))
+	name := cacheFilePrefix + hex.EncodeToString(sum[:]) + ".json"
+	return filepath.Join(v.options.CacheDir, name)
+}
+
 // creates a new cert-id validator
 func NewValidator(opts Options) (*Validator, error) {
 	// URL is required and must be explicitly provided
@@ -97,7 +125,7 @@ func (v *Validator) LoadIdentities(ctx context.Context) error {
 
 	// check cache if enabled
 	if !v.options.DisableCache {
-		cacheFilePath := filepath.Join(v.options.CacheDir, CacheFile)
+		cacheFilePath := v.cacheFilePath()
 		data, err = v.loadFromCache(cacheFilePath)
 		if err == nil {
 			// cache hit / parse the data
@@ -210,12 +238,14 @@ func (v *Validator) loadFromCache(cacheFilePath string) ([]byte, error) {
 
 // updates cache file with latest cert-id list
 func (v *Validator) updateCache(data []byte) error {
-	// check if cache dir exists
-	if err := os.MkdirAll(v.options.CacheDir, 0755); err != nil {
+	// cache dir holds only allowlist state; 0700 keeps it owner-only
+	if err := os.MkdirAll(v.options.CacheDir, 0o700); err != nil {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(v.options.CacheDir, CacheFile), data, 0644)
+	// 0600: the allowlist is security-relevant local state; keep it owner-only
+	// so another local user can neither read nor tamper with it.
+	return os.WriteFile(v.cacheFilePath(), data, 0o600)
 }
 
 // checks if the given cert-id is valid
@@ -281,12 +311,12 @@ func checkIfRevoked(id Identity, certIdentity, normalizedIdentity, certSHA strin
 
 	for _, identity := range id.Identities {
 		if identity == certIdentity || identity == normalizedIdentity {
-			return fmt.Errorf("certificate identity is revoked: %s", id.Reason)
+			return fmt.Errorf("%w: %s", errRevoked, id.Reason)
 		}
 	}
 
 	if certSHA != "" && id.Sha == certSHA {
-		return fmt.Errorf("certificate identity is revoked: %s", id.Reason)
+		return fmt.Errorf("%w: %s", errRevoked, id.Reason)
 	}
 
 	return nil
@@ -315,7 +345,7 @@ func checkIfValid(id Identity, certIdentity, normalizedIdentity, certSHA string)
 		return false, err
 	}
 	if expired {
-		return false, fmt.Errorf("certificate identity has expired")
+		return false, errExpired
 	}
 
 	return true, nil
@@ -446,6 +476,35 @@ func ResolveAcceptedIdentities(ctx context.Context, certIdentity string, listOpt
 		if err := v.LoadIdentities(ctx); err != nil {
 			return nil, fmt.Errorf("failed to load certificate identities: %w", err)
 		}
+
+		// the as-typed --cert-identity is accepted via the operator-vouch union above
+		// (NOT list-membership checked). but if the operator types a SAN/sha the list
+		// has actively marked revoked or expired, silently re-blessing it is a footgun.
+		// classify the as-typed identity against the loaded list and, only on a
+		// revoked/expired hit, emit ONE ungated stderr warning — then keep accepting it
+		// (no behavior change; preserves the deliberate vouch semantics and any
+		// legitimate emergency override). this runs BEFORE the empty-allowlist guard
+		// below so the warning still fires when the list itself resolves empty.
+		if certIdentity != "" {
+			if ok, verr := v.IsValidIdentity(certIdentity); !ok {
+				// (true, nil): valid via any entry → no warning (genuinely accepted).
+				// (false, errRevoked|errExpired): the as-typed SAN is actively
+				//   revoked/expired in the list → warn once.
+				// (false, "not found in approved lists"): the ordinary vouch case
+				//   (absent from the list, NOT revoked/expired) → no warning.
+				var reason string
+				switch {
+				case errors.Is(verr, errRevoked):
+					reason = "revoked"
+				case errors.Is(verr, errExpired):
+					reason = "expired"
+				}
+				if reason != "" {
+					warnf("warning: --cert-identity %q is %s in the supplied certificate-identity list; accepting as-typed anyway (operator override)\n", certIdentity, reason)
+				}
+			}
+		}
+
 		sans, err := v.GetValidIdentitySANs()
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve valid certificate identities: %w", err)
