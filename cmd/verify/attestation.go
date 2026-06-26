@@ -92,12 +92,23 @@ func preRunAttestation(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// applyFailOnPolicyError resolves the fail-on-policy-error setting into viper.
+// the env var (FAIL_ON_POLICY_ERROR) is bound to viper in cmd/root.go via BindEnv,
+// so it is already present. only overwrite it when the flag was explicitly passed,
+// otherwise an unconditional viper.Set with the flag default (false) would clobber
+// the env binding. an explicit flag therefore wins over the env var.
+func applyFailOnPolicyError(cmd *cobra.Command) {
+	if cmd.Flags().Changed(flagFailOnPolicyError) {
+		failOnPolicyError, _ := cmd.Flags().GetBool(flagFailOnPolicyError)
+		viper.Set("fail-on-policy-error", failOnPolicyError)
+	}
+}
+
 func runAttestation(cmd *cobra.Command, args []string) error {
 	quiet, _ := cmd.Flags().GetBool(flagQuiet)
 
 	viper.Set("quiet", quiet)
-	failOnPolicyError, _ := cmd.Flags().GetBool(flagFailOnPolicyError)
-	viper.Set("fail-on-policy-error", failOnPolicyError)
+	applyFailOnPolicyError(cmd)
 	policyBundleDigest, _ := cmd.Flags().GetString(flagPolicyBundleDigest)
 	viper.Set("policy-bundle-digest", policyBundleDigest)
 

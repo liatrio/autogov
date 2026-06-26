@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // createTestCmd creates a cobra command with offline flags for testing
@@ -35,6 +36,8 @@ func createTestCmd() *cobra.Command {
 	cmd.Flags().String("policy-bundle-path", "", "policy bundle path")
 	cmd.Flags().String("policy-schemas-path", "", "policy schemas path")
 	cmd.Flags().String("policy-data-path", "", "policy data path")
+	cmd.Flags().String("policy-bundle-digest", "", "policy bundle digest")
+	cmd.Flags().Bool("fail-on-policy-error", false, "fail on policy error")
 
 	return cmd
 }
@@ -493,6 +496,64 @@ func TestRunCommandUnsafeWarningUngatedByQuiet(t *testing.T) {
 	const want = "warning: no certificate identity enforced"
 	if got := strings.Count(stderr, want); got != 1 {
 		t.Errorf("expected exactly one unsafe-mode warning on stderr (ungated by --quiet), got %d; stderr: %q", got, stderr)
+	}
+}
+
+// TestApplyFailOnPolicyError_EnvHonored locks the regression at cmd.go: with
+// FAIL_ON_POLICY_ERROR=true and no --fail-on-policy-error flag, the env-bound
+// viper value must survive (not be clobbered by the flag default false).
+func TestApplyFailOnPolicyError_EnvHonored(t *testing.T) {
+	defer viper.Reset()
+	viper.Reset()
+	if err := viper.BindEnv("fail-on-policy-error", "FAIL_ON_POLICY_ERROR"); err != nil {
+		t.Fatalf("BindEnv: %v", err)
+	}
+	t.Setenv("FAIL_ON_POLICY_ERROR", "true")
+
+	cmd := createTestCmd()
+	// do NOT pass --fail-on-policy-error; the env value must survive
+	ApplyFailOnPolicyError(cmd)
+
+	if !viper.GetBool("fail-on-policy-error") {
+		t.Error("FAIL_ON_POLICY_ERROR=true was clobbered to false when the flag was absent")
+	}
+}
+
+// TestApplyFailOnPolicyError_FlagOverridesEnv: an explicit
+// --fail-on-policy-error=false wins over FAIL_ON_POLICY_ERROR=true.
+func TestApplyFailOnPolicyError_FlagOverridesEnv(t *testing.T) {
+	defer viper.Reset()
+	viper.Reset()
+	if err := viper.BindEnv("fail-on-policy-error", "FAIL_ON_POLICY_ERROR"); err != nil {
+		t.Fatalf("BindEnv: %v", err)
+	}
+	t.Setenv("FAIL_ON_POLICY_ERROR", "true")
+
+	cmd := createTestCmd()
+	if err := cmd.Flags().Set("fail-on-policy-error", "false"); err != nil {
+		t.Fatalf("set flag: %v", err)
+	}
+	ApplyFailOnPolicyError(cmd)
+
+	if viper.GetBool("fail-on-policy-error") {
+		t.Error("explicit --fail-on-policy-error=false should override FAIL_ON_POLICY_ERROR=true")
+	}
+}
+
+// TestApplyFailOnPolicyError_NeitherSet: no flag and no env → false (default,
+// backwards compatible).
+func TestApplyFailOnPolicyError_NeitherSet(t *testing.T) {
+	defer viper.Reset()
+	viper.Reset()
+	if err := viper.BindEnv("fail-on-policy-error", "FAIL_ON_POLICY_ERROR"); err != nil {
+		t.Fatalf("BindEnv: %v", err)
+	}
+
+	cmd := createTestCmd()
+	ApplyFailOnPolicyError(cmd)
+
+	if viper.GetBool("fail-on-policy-error") {
+		t.Error("with neither flag nor env set, fail-on-policy-error should be false")
 	}
 }
 

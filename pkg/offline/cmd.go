@@ -13,6 +13,18 @@ import (
 	"github.com/spf13/viper"
 )
 
+// ApplyFailOnPolicyError resolves the fail-on-policy-error setting into viper.
+// the env var (FAIL_ON_POLICY_ERROR) is bound to viper in cmd/root.go via BindEnv,
+// so it is already present. only overwrite it when the flag was explicitly passed,
+// otherwise an unconditional viper.Set with the flag default (false) would clobber
+// the env binding. an explicit flag therefore wins over the env var.
+func ApplyFailOnPolicyError(cmd *cobra.Command) {
+	if cmd.Flags().Changed("fail-on-policy-error") {
+		failOnPolicyError, _ := cmd.Flags().GetBool("fail-on-policy-error")
+		viper.Set("fail-on-policy-error", failOnPolicyError)
+	}
+}
+
 // handles the offline command execution
 func RunCommand(cmd *cobra.Command, args []string) error {
 	// gets config values
@@ -20,8 +32,7 @@ func RunCommand(cmd *cobra.Command, args []string) error {
 
 	// propagate CLI flags to viper for pkg code that reads directly from viper
 	viper.Set("quiet", quiet)
-	failOnPolicyError, _ := cmd.Flags().GetBool("fail-on-policy-error")
-	viper.Set("fail-on-policy-error", failOnPolicyError)
+	ApplyFailOnPolicyError(cmd)
 	policyBundleDigest, _ := cmd.Flags().GetString("policy-bundle-digest")
 	viper.Set("policy-bundle-digest", policyBundleDigest)
 	blobPath, _ := cmd.Flags().GetString("blob-path")
