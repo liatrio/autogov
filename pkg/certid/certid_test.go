@@ -2,6 +2,7 @@ package certid
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -663,4 +664,252 @@ func TestGetValidIdentitySANsSkipsEmpty(t *testing.T) {
 	if len(sans) != 1 || sans[0] != realSAN {
 		t.Errorf("expected exactly [%q], got %v", realSAN, sans)
 	}
+}
+
+// the on-disk cache filename is derived from sha256(Options.URL), so two
+// validators with different URLs but the SAME CacheDir never read or write the
+// same file. a cache warmed from url A must NOT be served for url B; B refetches.
+func TestCacheKeyedByURL(t *testing.T) {
+	today := time.Now().Format("2006-01-02")
+	const (
+		sanA = "https://github.com/liatrio/test-repo/.github/workflows/a.yaml@refs/tags/v1.0.0"
+		sanB = "https://github.com/liatrio/test-repo/.github/workflows/b.yaml@refs/tags/v1.0.0"
+	)
+	mkBody := func(san string) string {
+		return `{"identities":[{"version":"1.0.0","sha":"abcabcabcabcabca","status":"latest","identities":["` + san + `"],"added":"` + today + `"}],"metadata":{"last_updated":"` + today + `","version":"1.0.0","maintainer":"Test"}}`
+	}
+
+	bodyA, bodyB := mkBody(sanA), mkBody(sanB)
+	var hitsA, hitsB int
+	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hitsA++
+		_, _ = w.Write([]byte(bodyA))
+	}))
+	defer srvA.Close()
+	srvB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hitsB++
+		_, _ = w.Write([]byte(bodyB))
+	}))
+	defer srvB.Close()
+
+	cacheDir := t.TempDir() // one shared CacheDir for both validators
+
+	// warm the cache from url A
+	vA, err := NewValidator(Options{URL: srvA.URL, CacheDir: cacheDir})
+	if err != nil {
+		t.Fatalf("NewValidator(A): %v", err)
+	}
+	if err := vA.LoadIdentities(context.Background()); err != nil {
+		t.Fatalf("LoadIdentities(A): %v", err)
+	}
+	if hitsA != 1 {
+		t.Fatalf("expected url A hit once warming cache, got %d", hitsA)
+	}
+
+	// load url B against the SAME CacheDir: must NOT be served A's warm cache
+	vB, err := NewValidator(Options{URL: srvB.URL, CacheDir: cacheDir})
+	if err != nil {
+		t.Fatalf("NewValidator(B): %v", err)
+	}
+	if err := vB.LoadIdentities(context.Background()); err != nil {
+		t.Fatalf("LoadIdentities(B): %v", err)
+	}
+
+	// (a) B's server is hit at least once (fresh fetch, not A's cache)
+	if hitsB < 1 {
+		t.Errorf("expected url B to be fetched (cross-url cache must not serve A's data), got %d hits", hitsB)
+	}
+
+	// (b) the two cache files on disk have different names
+	pathA, pathB := vA.cacheFilePath(), vB.cacheFilePath()
+	if pathA == pathB {
+		t.Fatalf("expected distinct url-keyed cache filenames, both = %q", pathA)
+	}
+	if _, err := os.Stat(pathA); err != nil {
+		t.Errorf("url A cache file missing: %v", err)
+	}
+	if _, err := os.Stat(pathB); err != nil {
+		t.Errorf("url B cache file missing: %v", err)
+	}
+
+	// (c) B's loaded list matches B's body, not A's
+	sansB, err := vB.GetValidIdentitySANs()
+	if err != nil {
+		t.Fatalf("GetValidIdentitySANs(B): %v", err)
+	}
+	if !slices.Contains(sansB, sanB) || slices.Contains(sansB, sanA) {
+		t.Errorf("url B served the wrong (cross-url) list: got %v, want only %q", sansB, sanB)
+	}
+}
+
+// the cache file must be written 0600 (owner-only): the allowlist is
+// security-relevant local state.
+func TestCacheFileMode0600(t *testing.T) {
+	today := time.Now().Format("2006-01-02")
+	body := `{"identities":[{"version":"1.0.0","sha":"abcabcabcabcabca","status":"latest","identities":["https://github.com/liatrio/test-repo/.github/workflows/test.yaml@refs/tags/v1.0.0"],"added":"` + today + `"}],"metadata":{"last_updated":"` + today + `","version":"1.0.0","maintainer":"Test"}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	cacheDir := t.TempDir()
+	v, err := NewValidator(Options{URL: srv.URL, CacheDir: cacheDir})
+	if err != nil {
+		t.Fatalf("NewValidator: %v", err)
+	}
+	if err := v.LoadIdentities(context.Background()); err != nil {
+		t.Fatalf("LoadIdentities: %v", err)
+	}
+
+	fi, err := os.Stat(v.cacheFilePath())
+	if err != nil {
+		t.Fatalf("stat cache file: %v", err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o600 {
+		t.Errorf("cache file mode = %#o, want 0600", perm)
+	}
+}
+
+// an as-typed --cert-identity that the list marks revoked/expired is still
+// accepted (no behavior change) but emits exactly ONE stderr warning. a SAN that
+// is valid, merely absent (ordinary vouch), or supplied with no list at all gets
+// no warning.
+func TestResolveAcceptedWarnsOnRevokedAsTyped(t *testing.T) {
+	// capture warnings into a buffer; restore in cleanup
+	var warnings []string
+	orig := warnf
+	warnf = func(format string, a ...any) { warnings = append(warnings, fmt.Sprintf(format, a...)) }
+	t.Cleanup(func() { warnf = orig })
+
+	today := time.Now().Format("2006-01-02")
+	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+
+	const (
+		sanRevoked = "https://github.com/liatrio/test-repo/.github/workflows/revoked.yaml@refs/tags/v0.5.0"
+		sanExpired = "https://github.com/liatrio/test-repo/.github/workflows/expired.yaml@refs/tags/v0.6.0"
+		sanValid   = "https://github.com/liatrio/test-repo/.github/workflows/valid.yaml@refs/tags/v1.0.0"
+		sanAbsent  = "https://github.com/liatrio/test-repo/.github/workflows/absent.yaml@refs/heads/main"
+	)
+
+	// ONE fixture list: a revoked SAN R, an expired approved SAN E, and a valid latest SAN V.
+	list := `{
+		"identities": [
+			{"version":"0.5.0","sha":"aaaaaaaaaaaaaaaa","status":"revoked","identities":["` + sanRevoked + `"],"added":"` + yesterday + `","revoked":"` + today + `","reason":"compromised"},
+			{"version":"0.6.0","sha":"bbbbbbbbbbbbbbbb","status":"approved","identities":["` + sanExpired + `"],"added":"` + yesterday + `","expires":"` + yesterday + `"},
+			{"version":"1.0.0","sha":"cccccccccccccccc","status":"latest","identities":["` + sanValid + `"],"added":"` + today + `","expires":"` + tomorrow + `"}
+		],
+		"metadata": {"last_updated":"` + today + `","version":"1.0.0","maintainer":"Test"}
+	}`
+
+	writeList := func(t *testing.T, body string) *Options {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), "list.json")
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatalf("write list: %v", err)
+		}
+		return &Options{URL: p, DisableCache: true}
+	}
+
+	reset := func() { warnings = nil }
+
+	t.Run("positive: revoked as-typed accepted + exactly one warning", func(t *testing.T) {
+		reset()
+		got, err := ResolveAcceptedIdentities(context.Background(), sanRevoked, writeList(t, list))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !slices.Contains(got, sanRevoked) {
+			t.Errorf("revoked as-typed identity must still be accepted, got %v", got)
+		}
+		if len(warnings) != 1 {
+			t.Fatalf("expected exactly one warning, got %d: %v", len(warnings), warnings)
+		}
+		if !strings.HasPrefix(warnings[0], "warning:") || !strings.Contains(warnings[0], "revoked") || !strings.Contains(warnings[0], sanRevoked) {
+			t.Errorf("warning text wrong: %q", warnings[0])
+		}
+	})
+
+	t.Run("positive: expired as-typed accepted + exactly one warning", func(t *testing.T) {
+		reset()
+		got, err := ResolveAcceptedIdentities(context.Background(), sanExpired, writeList(t, list))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !slices.Contains(got, sanExpired) {
+			t.Errorf("expired as-typed identity must still be accepted, got %v", got)
+		}
+		if len(warnings) != 1 {
+			t.Fatalf("expected exactly one warning, got %d: %v", len(warnings), warnings)
+		}
+		if !strings.Contains(warnings[0], "expired") || !strings.Contains(warnings[0], sanExpired) {
+			t.Errorf("warning text wrong: %q", warnings[0])
+		}
+	})
+
+	t.Run("negative: valid-in-list as-typed → no warning", func(t *testing.T) {
+		reset()
+		got, err := ResolveAcceptedIdentities(context.Background(), sanValid, writeList(t, list))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !slices.Contains(got, sanValid) {
+			t.Errorf("valid identity must be accepted, got %v", got)
+		}
+		if len(warnings) != 0 {
+			t.Errorf("expected no warning for a genuinely valid identity, got %v", warnings)
+		}
+	})
+
+	t.Run("negative: absent (ordinary vouch) as-typed → no warning", func(t *testing.T) {
+		reset()
+		got, err := ResolveAcceptedIdentities(context.Background(), sanAbsent, writeList(t, list))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !slices.Contains(got, sanAbsent) {
+			t.Errorf("absent as-typed identity must still be accepted (vouch), got %v", got)
+		}
+		if len(warnings) != 0 {
+			t.Errorf("expected no warning for an absent (not revoked/expired) identity, got %v", warnings)
+		}
+	})
+
+	t.Run("negative: no list → accepted, no warning, no load", func(t *testing.T) {
+		reset()
+		got, err := ResolveAcceptedIdentities(context.Background(), sanRevoked, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 1 || got[0] != sanRevoked {
+			t.Errorf("expected [%q] accepted as-typed with no list, got %v", sanRevoked, got)
+		}
+		if len(warnings) != 0 {
+			t.Errorf("expected no warning when no list is supplied, got %v", warnings)
+		}
+	})
+
+	t.Run("edge: revoked as-typed with an all-revoked/expired list → accepted, one warning, no fail-closed", func(t *testing.T) {
+		reset()
+		// every entry is revoked or expired → GetValidIdentitySANs yields nothing.
+		// the warning must fire BEFORE the len(accepted)==0 guard, which does not trip
+		// because the revoked as-typed identity was added.
+		allInvalid := `{
+			"identities": [
+				{"version":"0.5.0","sha":"aaaaaaaaaaaaaaaa","status":"revoked","identities":["` + sanRevoked + `"],"added":"` + yesterday + `","revoked":"` + today + `","reason":"compromised"},
+				{"version":"0.6.0","sha":"bbbbbbbbbbbbbbbb","status":"approved","identities":["` + sanExpired + `"],"added":"` + yesterday + `","expires":"` + yesterday + `"}
+			],
+			"metadata": {"last_updated":"` + today + `","version":"1.0.0","maintainer":"Test"}
+		}`
+		got, err := ResolveAcceptedIdentities(context.Background(), sanRevoked, writeList(t, allInvalid))
+		if err != nil {
+			t.Fatalf("must not fail closed when the revoked as-typed identity keeps the set non-empty: %v", err)
+		}
+		if len(got) != 1 || got[0] != sanRevoked {
+			t.Errorf("expected [%q] accepted, got %v", sanRevoked, got)
+		}
+		if len(warnings) != 1 {
+			t.Errorf("expected exactly one warning, got %d: %v", len(warnings), warnings)
+		}
+	})
 }
