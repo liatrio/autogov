@@ -44,9 +44,7 @@ func VerifyBranchProtection(repo *git.Repository, ref string, policy *Policy, ma
 
 	status.TotalCommitCount = len(commits)
 
-	verifyOpts := gitsign.VerifyOptions{
-		SkipRekor: true,
-	}
+	verifyOpts := gitsign.VerifyOptions{}
 
 	for _, c := range commits {
 		// Merge commits indicate PR workflow.
@@ -55,7 +53,10 @@ func VerifyBranchProtection(repo *git.Repository, ref string, policy *Policy, ma
 		}
 
 		// Cryptographically verify commit signatures rather than just
-		// checking presence, so invalid/expired signatures don't count.
+		// checking presence, so invalid/expired/transparency-unbound signatures
+		// don't count. result.Verified is true only when the signature is both
+		// cms-valid (chain pinned to a trusted timestamp) and transparency-bound,
+		// so a presence-only or backdated signature is excluded here.
 		if c.PGPSignature != "" {
 			result, err := gitsign.VerifyCommit(repo, c.Hash.String(), verifyOpts)
 			if err == nil && result.Verified {
