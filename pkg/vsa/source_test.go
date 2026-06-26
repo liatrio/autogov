@@ -42,12 +42,12 @@ func TestGenerateSourceVSA(t *testing.T) {
 	assert.Equal(t, "v0.30.0", v.Predicate.Verifier.Version["autogov"])
 }
 
-func TestGenerateSourceVSAWithControlledBuilderAnnotation(t *testing.T) {
+func TestGenerateSourceVSAWithAnnotation(t *testing.T) {
 	opts := SourceVSAOptions{
 		RepoURI:          "https://github.com/org/repo",
 		Commit:           "abcdef1234567890abcdef1234567890abcdef12",
 		SourceLevel:      "SLSA_SOURCE_LEVEL_1",
-		AdditionalLevels: []string{"ORG_SOURCE_CONTROLLED_BUILDER"},
+		AdditionalLevels: []string{"ORG_SOURCE_FORCE_PUSH_BLOCKED"},
 		Passed:           true,
 		PolicyURI:        "https://example.com/policy",
 	}
@@ -55,8 +55,9 @@ func TestGenerateSourceVSAWithControlledBuilderAnnotation(t *testing.T) {
 	v, err := GenerateSourceVSA(opts)
 	require.NoError(t, err)
 
-	// the controlled-builder annotation rides alongside the numbered level, not as a higher level.
-	assert.Equal(t, []string{"SLSA_SOURCE_LEVEL_1", "ORG_SOURCE_CONTROLLED_BUILDER"}, v.Predicate.VerifiedLevels)
+	// a non-numbered ORG_SOURCE_* annotation rides alongside the numbered level,
+	// not as a higher level.
+	assert.Equal(t, []string{"SLSA_SOURCE_LEVEL_1", "ORG_SOURCE_FORCE_PUSH_BLOCKED"}, v.Predicate.VerifiedLevels)
 }
 
 func TestGenerateSourceVSARejectsNumberedAdditionalLevel(t *testing.T) {
@@ -81,14 +82,14 @@ func TestGenerateSourceVSADedupesAdditionalLevels(t *testing.T) {
 		RepoURI:          "https://github.com/org/repo",
 		Commit:           "abcdef1234567890abcdef1234567890abcdef12",
 		SourceLevel:      "SLSA_SOURCE_LEVEL_1",
-		AdditionalLevels: []string{"ORG_SOURCE_CONTROLLED_BUILDER", "ORG_SOURCE_CONTROLLED_BUILDER"},
+		AdditionalLevels: []string{"ORG_SOURCE_FORCE_PUSH_BLOCKED", "ORG_SOURCE_FORCE_PUSH_BLOCKED"},
 		Passed:           true,
 		PolicyURI:        "https://example.com/policy",
 	}
 
 	v, err := GenerateSourceVSA(opts)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"SLSA_SOURCE_LEVEL_1", "ORG_SOURCE_CONTROLLED_BUILDER"}, v.Predicate.VerifiedLevels)
+	assert.Equal(t, []string{"SLSA_SOURCE_LEVEL_1", "ORG_SOURCE_FORCE_PUSH_BLOCKED"}, v.Predicate.VerifiedLevels)
 }
 
 func TestGenerateSourceVSAFailed(t *testing.T) {

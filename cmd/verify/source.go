@@ -33,10 +33,10 @@ WithoutIdentitiesUnsafe fallback. The numbered verifiedLevels entry is mapped
 conservatively: a verified source-provenance signature proves
 SLSA_SOURCE_LEVEL_1 (version control plus provenance). It does not, on its
 own, prove the higher source levels' continuity (L2) or
-continuous-control-enforcement (L3) requirements, so the level is not
-inflated. A recognized controlled builder is recorded as a non-numbered
-annotation alongside the level; it attests a recognized CI builder, not
-observed two-party review.
+continuous-control-enforcement (L3) requirements, so the level is never
+inflated and is never inferred from the builder identity. Two-party review is
+a separate, higher control (the v1.2 "L4" tier) with no numbered token; it is
+recorded as a non-numbered annotation, never as a level.
 
 Examples:
   # Verify source provenance
@@ -188,28 +188,20 @@ func runSource(cmd *cobra.Command, _ []string) error {
 // generateStandardsSourceVSA writes a standards-shaped SLSA Source VSA
 // (slsa.dev/verification_summary/v1) whose subject is the verified source
 // revision. The numbered verifiedLevels entry is mapped conservatively from the
-// evidence; a recognized controlled builder, when detected, is recorded as a
-// separate non-numbered annotation rather than inflating the level.
+// evidence (a verified signature proves L1); honest L2/L3 require recorded +
+// enforced branch-protection controls, which are surfaced as non-numbered
+// ORG_SOURCE_* annotations once that evidence is recorded — never by inflating
+// the numbered level, and never as a SLSA_SOURCE_LEVEL_4 (there is no such tier;
+// two-party review is recorded as a separate annotation).
 func generateStandardsSourceVSA(result *source.VerificationResult, vsaOutput, policyURI string) error {
 	sourceLevel := source.MapToCanonicalSourceLevel(result.Verified)
 
-	var additionalLevels []string
-	// the heuristic level (recognized controlled builder + build type) is the
-	// only builder-grade signal available on this path; surface it as an advisory
-	// annotation without promoting the numbered level. IsComputedSourceLevel3
-	// tolerates the legacy token form, so this is correct whether or not the
-	// canonical-token fix has merged yet.
-	if source.IsComputedSourceLevel3(result.SLSASourceLevel) {
-		additionalLevels = append(additionalLevels, source.ControlledBuilderAnnotation)
-	}
-
 	opts := vsa.SourceVSAOptions{
-		RepoURI:          result.RepoURI,
-		Commit:           result.Commit,
-		SourceLevel:      sourceLevel,
-		AdditionalLevels: additionalLevels,
-		Passed:           result.Verified,
-		PolicyURI:        policyURI,
+		RepoURI:     result.RepoURI,
+		Commit:      result.Commit,
+		SourceLevel: sourceLevel,
+		Passed:      result.Verified,
+		PolicyURI:   policyURI,
 		AdditionalVerifiers: map[string]string{
 			"autogov": version,
 		},
@@ -224,11 +216,11 @@ func generateStandardsSourceVSA(result *source.VerificationResult, vsaOutput, po
 		generatedVSA.Metadata = make(map[string]interface{})
 	}
 	generatedVSA.Metadata["autogov.source.verification"] = map[string]interface{}{
-		"repo_uri":              result.RepoURI,
-		"commit":                result.Commit,
-		"source_ref":            result.SourceRef,
-		"builder_id":            result.BuilderID,
-		"legacy_computed_level": result.SLSASourceLevel,
+		"repo_uri":       result.RepoURI,
+		"commit":         result.Commit,
+		"source_ref":     result.SourceRef,
+		"builder_id":     result.BuilderID,
+		"computed_level": result.SLSASourceLevel,
 	}
 
 	return vsa.WriteToFile(generatedVSA, vsaOutput)
