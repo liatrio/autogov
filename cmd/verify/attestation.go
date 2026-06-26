@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/google/go-github/v88/github"
 	"github.com/liatrio/autogov/pkg/certid"
 	"github.com/liatrio/autogov/pkg/cli"
 	ghclient "github.com/liatrio/autogov/pkg/github"
@@ -138,16 +139,8 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 	blobPath, _ := cmd.Flags().GetString(flagBlobPath)
 	attestationsPath, _ := cmd.Flags().GetString(flagAttestationsPath)
 
-	// opt-in: refresh the public-good trusted root live from the Sigstore TUF repo
-	// before verifying anything. fail-closed — on any error we abort instead of
-	// falling back to the embedded snapshot. off by default keeps verify hermetic.
-	if refresh, _ := cmd.Flags().GetBool(flagRefreshTrustedRoot); refresh {
-		if !quiet {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Refreshing public-good trusted root from the Sigstore TUF repo...")
-		}
-		if err := root.RefreshPublicTrustedRoot(); err != nil {
-			return fmt.Errorf("--%s requested but live refresh failed: %w", flagRefreshTrustedRoot, err)
-		}
+	if err := refreshTrustedRootIfRequested(cmd, quiet); err != nil {
+		return err
 	}
 
 	client, err := ghclient.NewClient()
@@ -160,81 +153,191 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to expand blob paths: %w", err)
 	}
 
-	// when neither a single identity nor a list is enforced, verification accepts
-	// any valid Fulcio signature (unsafe). warn exactly once on stderr, ungated by
-	// --quiet and off the stdout summary, so it survives quiet CI runs and stdout capture.
+	warnIfNoIdentityEnforced(certIdentity, certIdentityList)
+
+	// dispatch returns the possibly-normalized image digest so the later VSA
+	// subject/URI derivation sees the same value the online path verified.
+	sigs, imageDigest, err := verifyAttestations(cmd, quiet, client, verifyInputs{
+		imageDigest:      imageDigest,
+		certIdentity:     certIdentity,
+		certIdentityList: certIdentityList,
+		certIssuer:       certIssuer,
+		sourceRef:        sourceRef,
+		blobPath:         blobPath,
+		blobPaths:        blobPaths,
+		attestationsPath: attestationsPath,
+		noCache:          noCache,
+	})
+	if err != nil {
+		return err
+	}
+
+	vsaArtifactRef, vsaSubjects, err := buildVSASubjects(cmd, imageDigest, blobPaths)
+	if err != nil {
+		return err
+	}
+
+	if !quiet {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "\nSummary:")
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "✓ Successfully verified %d attestations\n", len(sigs))
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "\nAttestation Types:")
+	}
+
+	attestationTypes, inputAttestations := collectAttestationInputs(cmd, quiet, sigs, imageDigest)
+
+	return maybeGenerateVSA(cmd, quiet, vsaArtifactRef, vsaSubjects, inputAttestations, attestationTypes, sigs)
+}
+
+// warnIfNoIdentityEnforced emits the unsafe-mode warning when neither a single
+// identity nor a list is enforced (verification then accepts any valid Fulcio
+// signature). the warning goes to stderr, ungated by --quiet and off the stdout
+// summary, so it survives quiet CI runs and stdout capture.
+func warnIfNoIdentityEnforced(certIdentity, certIdentityList string) {
 	if certIdentity == "" && certIdentityList == "" {
 		fmt.Fprintf(os.Stderr, "warning: no certificate identity enforced — accepting any valid Fulcio signature (unsafe); set --%s and/or --%s to enforce a signer allowlist\n", flagCertIdentity, flagCertIdentityList)
 	}
+}
 
-	var sigs []oci.Signature
+// verifyInputs bundles the resolved inputs for verifyAttestations.
+type verifyInputs struct {
+	imageDigest      string
+	certIdentity     string
+	certIdentityList string
+	certIssuer       string
+	sourceRef        string
+	blobPath         string
+	blobPaths        []string
+	attestationsPath string
+	noCache          bool
+}
 
-	if attestationsPath != "" && blobPath != "" {
-		if !quiet {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Using offline verification mode")
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Attestations path: %s\n", attestationsPath)
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Blob path: %s\n", blobPath)
-		}
-
-		// resolve the signer allowlist once (union) and enforce it on the offline
-		// path too — previously the offline branch ignored --cert-identity-list entirely.
-		certOpts := orchestrate.SetupCertIdentityValidation(certIdentityList, noCache, quiet)
-		accepted, err := certid.ResolveAcceptedIdentities(cmd.Context(), certIdentity, certOpts)
-		if err != nil {
-			return fmt.Errorf("failed to resolve accepted certificate identities: %w", err)
-		}
-
-		verifyOpts := offline.VerifyOptions{
-			CertIdentity:       certIdentity,
-			CertOIDCIssuer:     certIssuer,
-			AcceptedIdentities: accepted,
-		}
-
-		verifier, err := offline.NewOfflineVerifier("", verifyOpts)
-		if err != nil {
-			return fmt.Errorf("failed to create offline verifier: %w", err)
-		}
-
-		if err := verifier.LoadBundlesFromFile(attestationsPath); err != nil {
-			return fmt.Errorf("failed to load attestation bundles: %w", err)
-		}
-
-		result, err := verifier.VerifyArtifact(blobPath)
-		if err != nil {
-			return fmt.Errorf("offline verification failed: %w", err)
-		}
-
-		if !result.Verified {
-			return fmt.Errorf("offline verification failed: attestations could not be verified")
-		}
-
-		sigs = []oci.Signature{}
-	} else {
-		if !quiet {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Using online verification mode")
-		}
-
-		certOpts := orchestrate.SetupCertIdentityValidation(certIdentityList, noCache, quiet)
-
-		repo, _ := cmd.Flags().GetString(flagRepo)
-		if repo != "" && imageDigest != "" && !strings.Contains(imageDigest, "/") {
-			imageDigest = fmt.Sprintf("ghcr.io/%s@%s", repo, imageDigest)
-		}
-		sigs, err = orchestrate.VerifyBlobs(cmd.Context(), client, orchestrate.Options{
-			ArtifactDigest:         imageDigest,
-			Repository:             repo,
-			CertIdentity:           certIdentity,
-			CertIssuer:             certIssuer,
-			SourceRef:              sourceRef,
-			BlobPaths:              blobPaths,
-			Quiet:                  quiet,
-			CertIdentityValidation: certOpts,
-		})
-		if err != nil {
-			return fmt.Errorf("verification failed: %w", err)
-		}
+// verifyAttestations dispatches to the offline or online verification path and
+// returns the verified signatures alongside the (possibly normalized) image digest.
+func verifyAttestations(cmd *cobra.Command, quiet bool, client *github.Client, in verifyInputs) ([]oci.Signature, string, error) {
+	if in.attestationsPath != "" && in.blobPath != "" {
+		sigs, err := verifyOffline(cmd, quiet, in.attestationsPath, in.blobPath, in.certIdentity, in.certIdentityList, in.certIssuer, in.noCache)
+		return sigs, in.imageDigest, err
 	}
 
+	imageDigest := in.imageDigest
+	repo, _ := cmd.Flags().GetString(flagRepo)
+	if repo != "" && imageDigest != "" && !strings.Contains(imageDigest, "/") {
+		imageDigest = fmt.Sprintf("ghcr.io/%s@%s", repo, imageDigest)
+	}
+	sigs, err := verifyOnline(cmd, quiet, client, onlineVerifyInputs{
+		imageDigest:      imageDigest,
+		repo:             repo,
+		certIdentity:     in.certIdentity,
+		certIdentityList: in.certIdentityList,
+		certIssuer:       in.certIssuer,
+		sourceRef:        in.sourceRef,
+		blobPaths:        in.blobPaths,
+		noCache:          in.noCache,
+	})
+	return sigs, imageDigest, err
+}
+
+// refreshTrustedRootIfRequested is opt-in: refresh the public-good trusted root
+// live from the Sigstore TUF repo before verifying anything. fail-closed — on any
+// error we abort instead of falling back to the embedded snapshot. off by default
+// keeps verify hermetic.
+func refreshTrustedRootIfRequested(cmd *cobra.Command, quiet bool) error {
+	if refresh, _ := cmd.Flags().GetBool(flagRefreshTrustedRoot); refresh {
+		if !quiet {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Refreshing public-good trusted root from the Sigstore TUF repo...")
+		}
+		if err := root.RefreshPublicTrustedRoot(); err != nil {
+			return fmt.Errorf("--%s requested but live refresh failed: %w", flagRefreshTrustedRoot, err)
+		}
+	}
+	return nil
+}
+
+// verifyOffline performs offline attestation verification against a local set of
+// attestation bundles. it returns an empty signature slice on success (the offline
+// path verifies bundles directly rather than producing oci signatures).
+func verifyOffline(cmd *cobra.Command, quiet bool, attestationsPath, blobPath, certIdentity, certIdentityList, certIssuer string, noCache bool) ([]oci.Signature, error) {
+	if !quiet {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Using offline verification mode")
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Attestations path: %s\n", attestationsPath)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Blob path: %s\n", blobPath)
+	}
+
+	// resolve the signer allowlist once (union) and enforce it on the offline
+	// path too — previously the offline branch ignored --cert-identity-list entirely.
+	certOpts := orchestrate.SetupCertIdentityValidation(certIdentityList, noCache, quiet)
+	accepted, err := certid.ResolveAcceptedIdentities(cmd.Context(), certIdentity, certOpts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve accepted certificate identities: %w", err)
+	}
+
+	verifyOpts := offline.VerifyOptions{
+		CertIdentity:       certIdentity,
+		CertOIDCIssuer:     certIssuer,
+		AcceptedIdentities: accepted,
+	}
+
+	verifier, err := offline.NewOfflineVerifier("", verifyOpts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create offline verifier: %w", err)
+	}
+
+	if err := verifier.LoadBundlesFromFile(attestationsPath); err != nil {
+		return nil, fmt.Errorf("failed to load attestation bundles: %w", err)
+	}
+
+	result, err := verifier.VerifyArtifact(blobPath)
+	if err != nil {
+		return nil, fmt.Errorf("offline verification failed: %w", err)
+	}
+
+	if !result.Verified {
+		return nil, fmt.Errorf("offline verification failed: attestations could not be verified")
+	}
+
+	return []oci.Signature{}, nil
+}
+
+// onlineVerifyInputs bundles the resolved inputs for verifyOnline.
+type onlineVerifyInputs struct {
+	imageDigest      string
+	repo             string
+	certIdentity     string
+	certIdentityList string
+	certIssuer       string
+	sourceRef        string
+	blobPaths        []string
+	noCache          bool
+}
+
+// verifyOnline performs online attestation verification by fetching attestations
+// from GitHub and verifying their signatures.
+func verifyOnline(cmd *cobra.Command, quiet bool, client *github.Client, in onlineVerifyInputs) ([]oci.Signature, error) {
+	if !quiet {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Using online verification mode")
+	}
+
+	certOpts := orchestrate.SetupCertIdentityValidation(in.certIdentityList, in.noCache, quiet)
+
+	sigs, err := orchestrate.VerifyBlobs(cmd.Context(), client, orchestrate.Options{
+		ArtifactDigest:         in.imageDigest,
+		Repository:             in.repo,
+		CertIdentity:           in.certIdentity,
+		CertIssuer:             in.certIssuer,
+		SourceRef:              in.sourceRef,
+		BlobPaths:              in.blobPaths,
+		Quiet:                  quiet,
+		CertIdentityValidation: certOpts,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("verification failed: %w", err)
+	}
+	return sigs, nil
+}
+
+// buildVSASubjects derives the VSA artifact reference and subject descriptors from
+// the verified blob paths or image digest.
+func buildVSASubjects(cmd *cobra.Command, imageDigest string, blobPaths []string) (string, []vsa.VSASubject, error) {
 	vsaArtifactRef := imageDigest
 	var vsaSubjects []vsa.VSASubject
 
@@ -242,7 +345,7 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 		for _, path := range blobPaths {
 			blobData, err := os.ReadFile(path)
 			if err != nil {
-				return fmt.Errorf("failed to read blob file %s for VSA: %w", path, err)
+				return "", nil, fmt.Errorf("failed to read blob file %s for VSA: %w", path, err)
 			}
 			h := sha256.New()
 			h.Write(blobData)
@@ -275,12 +378,14 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 		vsaArtifactRef = imageDigest
 	}
 
-	if !quiet {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "\nSummary:")
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "✓ Successfully verified %d attestations\n", len(sigs))
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "\nAttestation Types:")
-	}
+	return vsaArtifactRef, vsaSubjects, nil
+}
 
+// collectAttestationInputs decodes each verified signature's statement to gather
+// the predicate types and the input-attestation resource descriptors used for VSA
+// generation. malformed entries are skipped with a warning, preserving original
+// behavior.
+func collectAttestationInputs(cmd *cobra.Command, quiet bool, sigs []oci.Signature, imageDigest string) ([]string, []vsa.ResourceDescriptor) {
 	var attestationTypes []string
 	var inputAttestations []vsa.ResourceDescriptor
 
@@ -314,57 +419,69 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 		h.Write(decodedPayload)
 		attestationDigest := fmt.Sprintf("%x", h.Sum(nil))
 
-		var attestationURI string
-		if imageDigest != "" {
-			digestParts := strings.Split(imageDigest, "@")
-			if len(digestParts) >= 2 {
-				imagePart := digestParts[0]
-				if strings.Contains(imagePart, "/") {
-					parts := strings.Split(imagePart, "/")
-					if len(parts) >= 2 {
-						org := parts[len(parts)-2]
-						digestValue := strings.TrimPrefix(digestParts[1], "sha256:")
-						attestationURI = fmt.Sprintf("https://api.github.com/orgs/%s/attestations/%s#%s",
-							org, digestValue, attestationDigest)
-					} else {
-						attestationURI = fmt.Sprintf(attestationURNFormat, attestationDigest)
-					}
-				} else {
-					attestationURI = fmt.Sprintf(attestationURNFormat, attestationDigest)
-				}
-			} else {
-				attestationURI = fmt.Sprintf(attestationURNFormat, attestationDigest)
-			}
-		} else {
-			attestationURI = fmt.Sprintf(attestationURNFormat, attestationDigest)
-		}
-
 		inputAttestations = append(inputAttestations, vsa.ResourceDescriptor{
-			URI: attestationURI,
+			URI: attestationURIFor(imageDigest, attestationDigest),
 			Digest: map[string]string{
 				"sha256": attestationDigest,
 			},
 		})
 	}
 
+	return attestationTypes, inputAttestations
+}
+
+// attestationURIFor builds the input-attestation URI for the given image digest.
+// when the image digest encodes an org-scoped registry reference, it points at the
+// GitHub attestations API; otherwise it falls back to the URN format.
+func attestationURIFor(imageDigest, attestationDigest string) string {
+	if imageDigest == "" {
+		return fmt.Sprintf(attestationURNFormat, attestationDigest)
+	}
+
+	digestParts := strings.Split(imageDigest, "@")
+	if len(digestParts) < 2 {
+		return fmt.Sprintf(attestationURNFormat, attestationDigest)
+	}
+
+	imagePart := digestParts[0]
+	if !strings.Contains(imagePart, "/") {
+		return fmt.Sprintf(attestationURNFormat, attestationDigest)
+	}
+
+	parts := strings.Split(imagePart, "/")
+	if len(parts) < 2 {
+		return fmt.Sprintf(attestationURNFormat, attestationDigest)
+	}
+
+	org := parts[len(parts)-2]
+	digestValue := strings.TrimPrefix(digestParts[1], "sha256:")
+	return fmt.Sprintf("https://api.github.com/orgs/%s/attestations/%s#%s",
+		org, digestValue, attestationDigest)
+}
+
+// maybeGenerateVSA generates a Verification Summary Attestation when --generate-vsa
+// is set, validating that the required output path and policy URI are provided.
+func maybeGenerateVSA(cmd *cobra.Command, quiet bool, vsaArtifactRef string, vsaSubjects []vsa.VSASubject, inputAttestations []vsa.ResourceDescriptor, attestationTypes []string, sigs []oci.Signature) error {
 	generateVSA, _ := cmd.Flags().GetBool(flagGenerateVSA)
-	if generateVSA {
-		vsaOutput, _ := cmd.Flags().GetString(flagVSAOutput)
-		policyURI, _ := cmd.Flags().GetString(flagPolicyURI)
+	if !generateVSA {
+		return nil
+	}
 
-		if vsaOutput == "" {
-			return fmt.Errorf("VSA output path is required when --generate-vsa is used")
-		}
-		if policyURI == "" {
-			return fmt.Errorf("policy URI is required when --generate-vsa is used")
-		}
+	vsaOutput, _ := cmd.Flags().GetString(flagVSAOutput)
+	policyURI, _ := cmd.Flags().GetString(flagPolicyURI)
 
-		policyBundlePath, _ := cmd.Flags().GetString(flagPolicyBundlePath)
-		policySchemasPath, _ := cmd.Flags().GetString(flagPolicySchemasPath)
-		policyDataPath, _ := cmd.Flags().GetString(flagPolicyDataPath)
-		if err := generateVSAWithOptions(context.Background(), vsaArtifactRef, vsaSubjects, inputAttestations, attestationTypes, sigs, quiet, vsaOutput, policyURI, policyBundlePath, policySchemasPath, policyDataPath); err != nil {
-			return fmt.Errorf("failed to generate VSA: %w", err)
-		}
+	if vsaOutput == "" {
+		return fmt.Errorf("VSA output path is required when --generate-vsa is used")
+	}
+	if policyURI == "" {
+		return fmt.Errorf("policy URI is required when --generate-vsa is used")
+	}
+
+	policyBundlePath, _ := cmd.Flags().GetString(flagPolicyBundlePath)
+	policySchemasPath, _ := cmd.Flags().GetString(flagPolicySchemasPath)
+	policyDataPath, _ := cmd.Flags().GetString(flagPolicyDataPath)
+	if err := generateVSAWithOptions(context.Background(), vsaArtifactRef, vsaSubjects, inputAttestations, attestationTypes, sigs, quiet, vsaOutput, policyURI, policyBundlePath, policySchemasPath, policyDataPath); err != nil {
+		return fmt.Errorf("failed to generate VSA: %w", err)
 	}
 
 	return nil

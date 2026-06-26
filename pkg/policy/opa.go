@@ -71,13 +71,8 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 	// warn (don't fail) when it is set for a path that cannot honor it, so it never
 	// gives a false sense of integrity for local/http/oci/tar.gz bundle paths.
 	expectedDigest := viper.GetString("policy-bundle-digest")
-	if expectedDigest != "" {
-		if !strings.HasPrefix(policyBundlePath, ghrelScheme) {
-			log.Printf("warning: --policy-bundle-digest is only enforced for ghrel:// bundle paths; ignoring it for %q", policyBundlePath)
-		} else if err := validateExpectedDigest(expectedDigest); err != nil {
-			// fail fast on a malformed pin, before any network I/O
-			return nil, fmt.Errorf("invalid --policy-bundle-digest %q: %w", expectedDigest, err)
-		}
+	if err := validateBundleDigestPin(policyBundlePath, expectedDigest); err != nil {
+		return nil, err
 	}
 	bundlePath, bundleCleanup, err := resolveBundlePath(ctx, policyBundlePath, &ResolveOptions{DefaultAsset: "bundle.tar.gz", ExpectedDigest: expectedDigest})
 	cleanups = append(cleanups, bundleCleanup)
@@ -102,70 +97,15 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 
 	// add schemas if provided
 	if schemasPath != "" {
-		var actualSchemasPath string
-		if schemasPath == policyBundlePath {
-			// schemas default to the bundle path (generate.go). Reuse the already
-			// resolved bundle directory instead of resolving it a second time —
-			// otherwise an http(s):// bundle would be downloaded twice. ghrel://
-			// and oci:// reuse here too (consistent across remote schemes); a
-			// separate schemas.tar.gz asset is fetched only when an explicit,
-			// distinct --policy-schemas-path is given. Revisit in Story 3.4 once
-			// the policy-library asset packaging is fixed.
-			actualSchemasPath = bundlePath
-		} else {
-			// resolve the schemas path (URL download, tar.gz extraction, or local dir).
-			// preserve graceful degradation: on failure, log a warning and fall back to
-			// the original path rather than failing evaluator construction.
-			resolvedSchemas, schemasCleanup, err := resolveBundlePath(ctx, schemasPath, &ResolveOptions{DefaultAsset: "schemas.tar.gz"})
-			if err != nil {
-				log.Printf("warning: failed to resolve schemas path: %v", err)
-				resolvedSchemas = schemasPath // fallback to original path
-				schemasCleanup = func() {}
-			}
-			cleanups = append(cleanups, schemasCleanup)
-			actualSchemasPath = resolvedSchemas
-		}
-
-		if _, err := os.Stat(actualSchemasPath); err == nil {
-			// load schemas from directory
-			schemas, err := loadSchemasFromPath(actualSchemasPath)
-			if err != nil {
-				// a malformed schema should be visible, not silently disable all
-				// type checking
-				log.Printf("warning: failed to load schemas from %s: %v", actualSchemasPath, err)
-			} else if len(schemas) > 0 {
-				// convert to SchemaSet
-				schemaSet := ast.NewSchemaSet()
-				for name, schema := range schemas {
-					// schema names with hyphens need to be quoted for OPA refs
-					var refStr string
-					if strings.Contains(name, "-") {
-						refStr = fmt.Sprintf(`schema["%s"]`, name)
-					} else {
-						refStr = fmt.Sprintf("schema.%s", name)
-					}
-					schemaSet.Put(ast.MustParseRef(refStr), schema)
-				}
-				modules = append(modules, rego.Schemas(schemaSet))
-				if !viper.GetBool("quiet") {
-					fmt.Printf("Loaded %d schemas for validation\n", len(schemas))
-				}
-			}
-		}
+		actualSchemasPath := resolveSchemasPath(ctx, schemasPath, policyBundlePath, bundlePath, &cleanups)
+		modules = appendSchemaModules(modules, actualSchemasPath)
 	}
 
 	// load additional data file if provided (e.g., vulnerability_thresholds.json)
 	if dataPath != "" {
-		dataContent, err := loadDataFromPath(dataPath)
+		modules, err = appendDataModule(modules, dataPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load policy data from %s: %w", dataPath, err)
-		}
-		if dataContent != nil {
-			store := inmem.NewFromObject(dataContent)
-			modules = append(modules, rego.Store(store))
-			if !viper.GetBool("quiet") {
-				fmt.Printf("Loaded policy data from %s\n", dataPath)
-			}
+			return nil, err
 		}
 	}
 
@@ -192,6 +132,110 @@ func NewOPAEvaluator(ctx context.Context, policyBundlePath string, schemasPath s
 		prepared:     &prepared,
 		cleanups:     cleanups,
 	}, nil
+}
+
+// validateBundleDigestPin checks a non-empty --policy-bundle-digest pin: it
+// warns (not fails) when set for a non-ghrel:// path that cannot honor it, and
+// fails fast on a malformed pin before any network I/O. A nil return means
+// construction may proceed.
+func validateBundleDigestPin(policyBundlePath, expectedDigest string) error {
+	if expectedDigest == "" {
+		return nil
+	}
+	if !strings.HasPrefix(policyBundlePath, ghrelScheme) {
+		log.Printf("warning: --policy-bundle-digest is only enforced for ghrel:// bundle paths; ignoring it for %q", policyBundlePath)
+		return nil
+	}
+	if err := validateExpectedDigest(expectedDigest); err != nil {
+		// fail fast on a malformed pin, before any network I/O
+		return fmt.Errorf("invalid --policy-bundle-digest %q: %w", expectedDigest, err)
+	}
+	return nil
+}
+
+// resolveSchemasPath returns the local directory to load schemas from, appending
+// any cleanup to cleanups. When schemasPath defaults to the bundle path it reuses
+// the already-resolved bundle directory (avoiding a second download); otherwise it
+// resolves the schemas path, degrading gracefully to the original path on failure.
+func resolveSchemasPath(ctx context.Context, schemasPath, policyBundlePath, bundlePath string, cleanups *[]func()) string {
+	if schemasPath == policyBundlePath {
+		// schemas default to the bundle path (generate.go). Reuse the already
+		// resolved bundle directory instead of resolving it a second time —
+		// otherwise an http(s):// bundle would be downloaded twice. ghrel://
+		// and oci:// reuse here too (consistent across remote schemes); a
+		// separate schemas.tar.gz asset is fetched only when an explicit,
+		// distinct --policy-schemas-path is given. Revisit in Story 3.4 once
+		// the policy-library asset packaging is fixed.
+		return bundlePath
+	}
+	// resolve the schemas path (URL download, tar.gz extraction, or local dir).
+	// preserve graceful degradation: on failure, log a warning and fall back to
+	// the original path rather than failing evaluator construction.
+	resolvedSchemas, schemasCleanup, err := resolveBundlePath(ctx, schemasPath, &ResolveOptions{DefaultAsset: "schemas.tar.gz"})
+	if err != nil {
+		log.Printf("warning: failed to resolve schemas path: %v", err)
+		resolvedSchemas = schemasPath // fallback to original path
+		schemasCleanup = func() {}
+	}
+	*cleanups = append(*cleanups, schemasCleanup)
+	return resolvedSchemas
+}
+
+// appendSchemaModules loads schemas from actualSchemasPath and appends a
+// rego.Schemas module when any are found. A missing path or load failure is
+// logged (not fatal) so a malformed schema is visible without disabling all
+// type checking.
+func appendSchemaModules(modules []func(*rego.Rego), actualSchemasPath string) []func(*rego.Rego) {
+	if _, err := os.Stat(actualSchemasPath); err != nil {
+		return modules
+	}
+	// load schemas from directory
+	schemas, err := loadSchemasFromPath(actualSchemasPath)
+	if err != nil {
+		// a malformed schema should be visible, not silently disable all
+		// type checking
+		log.Printf("warning: failed to load schemas from %s: %v", actualSchemasPath, err)
+		return modules
+	}
+	if len(schemas) == 0 {
+		return modules
+	}
+	// convert to SchemaSet
+	schemaSet := ast.NewSchemaSet()
+	for name, schema := range schemas {
+		schemaSet.Put(ast.MustParseRef(schemaRefString(name)), schema)
+	}
+	modules = append(modules, rego.Schemas(schemaSet))
+	if !viper.GetBool("quiet") {
+		fmt.Printf("Loaded %d schemas for validation\n", len(schemas))
+	}
+	return modules
+}
+
+// schemaRefString builds the OPA schema ref for a schema name. Names with
+// hyphens must be quoted as a bracketed ref.
+func schemaRefString(name string) string {
+	if strings.Contains(name, "-") {
+		return fmt.Sprintf(`schema["%s"]`, name)
+	}
+	return fmt.Sprintf("schema.%s", name)
+}
+
+// appendDataModule loads a JSON data file and appends a rego.Store module for it.
+// A load failure is fatal (returns an error); empty content is a no-op.
+func appendDataModule(modules []func(*rego.Rego), dataPath string) ([]func(*rego.Rego), error) {
+	dataContent, err := loadDataFromPath(dataPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load policy data from %s: %w", dataPath, err)
+	}
+	if dataContent != nil {
+		store := inmem.NewFromObject(dataContent)
+		modules = append(modules, rego.Store(store))
+		if !viper.GetBool("quiet") {
+			fmt.Printf("Loaded policy data from %s\n", dataPath)
+		}
+	}
+	return modules, nil
 }
 
 // isGitHubHost reports whether the GitHub token may be sent to host h. Scoped
@@ -310,14 +354,9 @@ func extractTarGz(r io.Reader, dest string) error {
 			return fmt.Errorf("failed to read tar: %w", err)
 		}
 
-		// validate path to prevent path traversal attacks. allow an entry that
-		// resolves to dest itself (e.g. a "./" archive-root entry, which tar
-		// archives commonly include) — only reject entries that escape dest.
-		path := filepath.Join(dest, header.Name)
-		cleanPath := filepath.Clean(path)
-		cleanDest := filepath.Clean(dest)
-		if cleanPath != cleanDest && !strings.HasPrefix(cleanPath, cleanDest+string(os.PathSeparator)) {
-			return fmt.Errorf("invalid path in archive (path traversal attempt): %s", header.Name)
+		path, err := safeArchivePath(dest, header.Name)
+		if err != nil {
+			return err
 		}
 
 		switch header.Typeflag {
@@ -326,33 +365,59 @@ func extractTarGz(r io.Reader, dest string) error {
 				return fmt.Errorf("failed to create directory: %w", err)
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-				return fmt.Errorf("failed to create parent directory: %w", err)
-			}
-
-			outFile, err := os.Create(path)
-			if err != nil {
-				return fmt.Errorf("failed to create file: %w", err)
-			}
-
-			// Bound total decompressed output to defend against gzip bombs: read
-			// at most the remaining budget (+1 so an exactly-at-limit overflow is
-			// detectable), accumulate, then reject if the archive blows the cap.
-			written, copyErr := io.Copy(outFile, io.LimitReader(tr, maxDecompressedSize-totalWritten+1))
+			written, err := writeRegularFile(path, tr, totalWritten)
 			totalWritten += written
-			if err := outFile.Close(); err != nil {
-				log.Printf("warning: failed to close file: %v", err)
-			}
-			if copyErr != nil {
-				return fmt.Errorf("failed to write file: %w", copyErr)
-			}
-			if totalWritten > maxDecompressedSize {
-				return fmt.Errorf("decompressed bundle exceeds maximum size of %d bytes (possible gzip bomb)", maxDecompressedSize)
+			if err != nil {
+				return err
 			}
 		}
 	}
 
 	return nil
+}
+
+// safeArchivePath joins a tar entry name onto dest and rejects path-traversal
+// entries that escape dest. An entry resolving to dest itself (e.g. a "./"
+// archive-root entry, which tar archives commonly include) is allowed.
+func safeArchivePath(dest, name string) (string, error) {
+	path := filepath.Join(dest, name)
+	cleanPath := filepath.Clean(path)
+	cleanDest := filepath.Clean(dest)
+	if cleanPath != cleanDest && !strings.HasPrefix(cleanPath, cleanDest+string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid path in archive (path traversal attempt): %s", name)
+	}
+	return path, nil
+}
+
+// writeRegularFile creates path (and its parent) and copies the current tar
+// entry into it, bounding total decompressed output to defend against gzip
+// bombs. alreadyWritten is the byte total already extracted; the returned count
+// is the bytes written for this entry (always added by the caller, even on
+// error).
+func writeRegularFile(path string, tr io.Reader, alreadyWritten int64) (int64, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return 0, fmt.Errorf("failed to create parent directory: %w", err)
+	}
+
+	outFile, err := os.Create(path)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create file: %w", err)
+	}
+
+	// Bound total decompressed output to defend against gzip bombs: read
+	// at most the remaining budget (+1 so an exactly-at-limit overflow is
+	// detectable), accumulate, then reject if the archive blows the cap.
+	written, copyErr := io.Copy(outFile, io.LimitReader(tr, maxDecompressedSize-alreadyWritten+1))
+	if err := outFile.Close(); err != nil {
+		log.Printf("warning: failed to close file: %v", err)
+	}
+	if copyErr != nil {
+		return written, fmt.Errorf("failed to write file: %w", copyErr)
+	}
+	if alreadyWritten+written > maxDecompressedSize {
+		return written, fmt.Errorf("decompressed bundle exceeds maximum size of %d bytes (possible gzip bomb)", maxDecompressedSize)
+	}
+	return written, nil
 }
 
 // loads all .json schema files from a directory
@@ -490,29 +555,7 @@ func (e *OPAEvaluator) evaluatePolicyWithBundleData(ctx context.Context, bundleD
 	}
 
 	// results to find governance.allow and governance.violations
-	var allow bool
-	var violations map[string]interface{}
-
-	for _, r := range rs {
-		for _, expr := range r.Expressions {
-			// for data.governance query, get the whole governance module
-			if expr.Text == "data.governance" {
-				if govData, ok := expr.Value.(map[string]interface{}); ok {
-					// get allow and violations from governance data
-					if allowVal, exists := govData["allow"]; exists {
-						if allowBool, ok := allowVal.(bool); ok {
-							allow = allowBool
-						}
-					}
-					if violationsVal, exists := govData["violations"]; exists {
-						if violationsMap, ok := violationsVal.(map[string]interface{}); ok {
-							violations = violationsMap
-						}
-					}
-				}
-			}
-		}
-	}
+	allow, violations := extractGovernanceResults(rs)
 
 	if allow {
 		result.Result = "PASSED"
@@ -520,28 +563,7 @@ func (e *OPAEvaluator) evaluatePolicyWithBundleData(ctx context.Context, bundleD
 
 	// violations if policy failed
 	if !allow && violations != nil {
-		// iterate over violation categories (sbom, provenance, etc.)
-		for category, categoryViolations := range violations {
-			// handle sets/arrays of violations
-			if violationSet, ok := categoryViolations.([]interface{}); ok {
-				for _, v := range violationSet {
-					violation := PolicyViolation{
-						Policy:  category,
-						Message: fmt.Sprintf("%v", v),
-					}
-					result.Violations = append(result.Violations, violation)
-				}
-			} else if categoryViolations != nil {
-				// handle single violation or non-empty value
-				if msg := fmt.Sprintf("%v", categoryViolations); msg != "[]" && msg != "<nil>" {
-					violation := PolicyViolation{
-						Policy:  category,
-						Message: msg,
-					}
-					result.Violations = append(result.Violations, violation)
-				}
-			}
-		}
+		result.Violations = collectViolations(violations)
 	}
 
 	// evaluation details
@@ -550,6 +572,66 @@ func (e *OPAEvaluator) evaluatePolicyWithBundleData(ctx context.Context, bundleD
 	result.Details["raw_results"] = rs
 
 	return result, nil
+}
+
+// extractGovernanceResults scans the prepared-eval result set for the
+// data.governance expression and returns its allow flag and violations map.
+// Missing or wrongly-typed values leave the zero defaults (false, nil).
+func extractGovernanceResults(rs rego.ResultSet) (bool, map[string]interface{}) {
+	var allow bool
+	var violations map[string]interface{}
+	for _, r := range rs {
+		for _, expr := range r.Expressions {
+			// for data.governance query, get the whole governance module
+			if expr.Text != "data.governance" {
+				continue
+			}
+			govData, ok := expr.Value.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			// get allow and violations from governance data
+			if allowVal, exists := govData["allow"]; exists {
+				if allowBool, ok := allowVal.(bool); ok {
+					allow = allowBool
+				}
+			}
+			if violationsVal, exists := govData["violations"]; exists {
+				if violationsMap, ok := violationsVal.(map[string]interface{}); ok {
+					violations = violationsMap
+				}
+			}
+		}
+	}
+	return allow, violations
+}
+
+// collectViolations flattens the governance violations map into a list. Each
+// category may hold a set/array of violations or a single non-empty value;
+// empty ("[]") and nil ("<nil>") singletons are skipped.
+func collectViolations(violations map[string]interface{}) []PolicyViolation {
+	var out []PolicyViolation
+	// iterate over violation categories (sbom, provenance, etc.)
+	for category, categoryViolations := range violations {
+		// handle sets/arrays of violations
+		if violationSet, ok := categoryViolations.([]interface{}); ok {
+			for _, v := range violationSet {
+				out = append(out, PolicyViolation{
+					Policy:  category,
+					Message: fmt.Sprintf("%v", v),
+				})
+			}
+		} else if categoryViolations != nil {
+			// handle single violation or non-empty value
+			if msg := fmt.Sprintf("%v", categoryViolations); msg != "[]" && msg != "<nil>" {
+				out = append(out, PolicyViolation{
+					Policy:  category,
+					Message: msg,
+				})
+			}
+		}
+	}
+	return out
 }
 
 // converts OCI signatures to the Sigstore bundle format expected by OPA policies

@@ -122,47 +122,76 @@ func computeOverallStatus(result *VerificationResult) bool {
 
 	// Update rule enforcement status based on results.
 	for i := range result.PolicyRules {
-		rule := &result.PolicyRules[i]
-		switch rule.Name {
-		case "require-pr":
-			if result.BranchProtection != nil {
-				rule.Enforced = result.BranchProtection.MergeCommitCount > 0
-				if rule.Enforced {
-					rule.Details = fmt.Sprintf("%d merge commits found", result.BranchProtection.MergeCommitCount)
-				} else {
-					rule.Details = "no merge commits found"
-				}
-			}
-		case "require-reviews":
-			if result.BranchProtection != nil {
-				rule.Enforced = result.BranchProtection.MergeCommitCount > 0
-				if rule.Enforced {
-					rule.Details = "merge commits indicate review workflow"
-				} else {
-					rule.Details = "cannot verify review count from commit history alone"
-				}
-			}
-		case "require-signed-commits":
-			if result.BranchProtection != nil {
-				rule.Enforced = result.BranchProtection.SignedCommitCount == result.BranchProtection.TotalCommitCount &&
-					result.BranchProtection.TotalCommitCount > 0
-				rule.Details = fmt.Sprintf("%d/%d commits signed",
-					result.BranchProtection.SignedCommitCount, result.BranchProtection.TotalCommitCount)
-			}
-		case "enforce-admins":
-			// Cannot verify admin enforcement from commit history alone.
-			rule.Details = "cannot verify admin enforcement from commit history"
-		case "required-signers":
-			if result.SignerPolicy != nil {
-				rule.Enforced = result.SignerPolicy.AllSigned
-				if rule.Enforced {
-					rule.Details = "all required signers verified"
-				} else if len(result.SignerPolicy.MissingSigners) > 0 {
-					rule.Details = fmt.Sprintf("missing signers: %v", result.SignerPolicy.MissingSigners)
-				}
-			}
-		}
+		updatePolicyRuleStatus(&result.PolicyRules[i], result)
 	}
 
 	return allPassed
+}
+
+// updatePolicyRuleStatus updates a single policy rule's enforcement status and
+// details based on the verification result.
+func updatePolicyRuleStatus(rule *PolicyRule, result *VerificationResult) {
+	switch rule.Name {
+	case "require-pr":
+		updateRequirePRRule(rule, result.BranchProtection)
+	case "require-reviews":
+		updateRequireReviewsRule(rule, result.BranchProtection)
+	case "require-signed-commits":
+		updateRequireSignedCommitsRule(rule, result.BranchProtection)
+	case "enforce-admins":
+		// Cannot verify admin enforcement from commit history alone.
+		rule.Details = "cannot verify admin enforcement from commit history"
+	case "required-signers":
+		updateRequiredSignersRule(rule, result.SignerPolicy)
+	}
+}
+
+// updateRequirePRRule updates the require-pr rule from branch protection status.
+func updateRequirePRRule(rule *PolicyRule, bp *BranchProtectionStatus) {
+	if bp == nil {
+		return
+	}
+	rule.Enforced = bp.MergeCommitCount > 0
+	if rule.Enforced {
+		rule.Details = fmt.Sprintf("%d merge commits found", bp.MergeCommitCount)
+	} else {
+		rule.Details = "no merge commits found"
+	}
+}
+
+// updateRequireReviewsRule updates the require-reviews rule from branch protection status.
+func updateRequireReviewsRule(rule *PolicyRule, bp *BranchProtectionStatus) {
+	if bp == nil {
+		return
+	}
+	rule.Enforced = bp.MergeCommitCount > 0
+	if rule.Enforced {
+		rule.Details = "merge commits indicate review workflow"
+	} else {
+		rule.Details = "cannot verify review count from commit history alone"
+	}
+}
+
+// updateRequireSignedCommitsRule updates the require-signed-commits rule from branch protection status.
+func updateRequireSignedCommitsRule(rule *PolicyRule, bp *BranchProtectionStatus) {
+	if bp == nil {
+		return
+	}
+	rule.Enforced = bp.SignedCommitCount == bp.TotalCommitCount &&
+		bp.TotalCommitCount > 0
+	rule.Details = fmt.Sprintf("%d/%d commits signed",
+		bp.SignedCommitCount, bp.TotalCommitCount)
+}
+
+// updateRequiredSignersRule updates the required-signers rule from signer policy status.
+func updateRequiredSignersRule(rule *PolicyRule, sp *SignerPolicyStatus) {
+	if sp == nil {
+		return
+	}
+	rule.Enforced = sp.AllSigned
+	if rule.Enforced {
+		rule.Details = "all required signers verified"
+	} else if len(sp.MissingSigners) > 0 {
+		rule.Details = fmt.Sprintf("missing signers: %v", sp.MissingSigners)
+	}
 }

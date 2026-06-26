@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/liatrio/autogov/pkg/helper/changelog"
 	githelper "github.com/liatrio/autogov/pkg/helper/git"
 	"github.com/liatrio/autogov/pkg/helper/version"
@@ -86,6 +87,14 @@ func DefaultPlanOptions() *PlanOptions {
 	}
 }
 
+// planState holds the version/commit data resolved for a release plan.
+type planState struct {
+	currentVersion *version.Version
+	tagName        string
+	parsedCommits  []version.ParsedCommit
+	apiSucceeded   bool
+}
+
 // GeneratePlan generates a complete release plan
 func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 	if opts == nil {
@@ -96,19 +105,8 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 		return nil, err
 	}
 
-	// build the GitHub release service from the token if one wasn't supplied —
-	// lets API mode discover tags/commits without a full local clone
-	if opts.Token != "" && opts.ReleaseAPI == nil {
-		releaseAPI, err := newGitHubReleaseService(opts.Token)
-		if err != nil {
-			return nil, err
-		}
-		opts.ReleaseAPI = releaseAPI
-	}
-
-	// fail early if api mode requires a token
-	if opts.Mode == ModeAPI && opts.ReleaseAPI == nil {
-		return nil, fmt.Errorf("mode=api requires a GitHub API client (set --mode=api with a token)")
+	if err := prepareReleaseAPI(opts); err != nil {
+		return nil, err
 	}
 
 	// open repository
@@ -118,9 +116,45 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 	}
 
 	// get repository name
-	repoFullName := githelper.GetRepositoryName(repo)
+	repoName := githelper.GetRepositoryName(repo)
+
+	// resolve base version and commits (via API where possible, else local)
+	state, err := resolvePlanState(opts, repo, repoName)
+	if err != nil {
+		return nil, err
+	}
+
+	parsedCommits := state.parsedCommits
+
+	// filter to releasable commits for version computation
+	releasableCommits := version.FilterReleasableCommits(parsedCommits)
+
+	// compute next version
+	nextVersion, bumpType := version.ComputeNextVersion(state.currentVersion, releasableCommits)
+
+	// create release plan
+	plan := &ReleasePlan{
+		GeneratedAt:     time.Now(),
+		Repository:      repoName,
+		CurrentVersion:  state.currentVersion.String(),
+		NextVersion:     nextVersion.String(),
+		BumpType:        string(bumpType),
+		Commits:         parsedCommits,
+		BreakingChanges: version.ExtractBreakingChanges(parsedCommits),
+		ReleaseNeeded:   bumpType != version.BumpNone,
+	}
+
+	if err := finalizePlan(opts, plan, nextVersion); err != nil {
+		return nil, err
+	}
+
+	return plan, nil
+}
+
+// resolvePlanState discovers the base version and commits for the plan, using
+// the GitHub API where possible and falling back to local go-git otherwise.
+func resolvePlanState(opts *PlanOptions, repo *git.Repository, repoFullName string) (*planState, error) {
 	parts := strings.SplitN(repoFullName, "/", 2)
-	repoName := repoFullName
 
 	// determine owner/repo for API mode
 	var owner, repoShortName string
@@ -134,133 +168,45 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 		owner != "" && repoShortName != "" &&
 		opts.FromRef == "" // FromRef overrides to local always
 
-	var currentVersion *version.Version
-	var tagName string
-	var parsedCommits []version.ParsedCommit
-	apiSucceeded := false
+	state := &planState{}
 
 	if useAPI {
-		// get local HEAD SHA (works even with shallow clone or detached HEAD)
-		head, headErr := repo.Head()
-		if headErr != nil {
-			if opts.Mode == ModeAPI {
-				return nil, fmt.Errorf("failed to get HEAD: %w", headErr)
-			}
-			fmt.Fprintf(os.Stderr, "using local git for tag discovery (reason: %v)\n", headErr)
-		} else {
-			headSHA := head.Hash().String()
-			ctx := context.Background()
-
-			// API tag discovery
-			sortedTags, tagsErr := listTagsFromAPI(ctx, opts.ReleaseAPI, owner, repoShortName)
-			if tagsErr != nil {
-				if opts.Mode == ModeAPI {
-					return nil, fmt.Errorf("API tag discovery failed: %w", tagsErr)
-				}
-				fmt.Fprintf(os.Stderr, "using local git for tag discovery (reason: %v)\n", tagsErr)
-			} else {
-				fmt.Fprintf(os.Stderr, "using GitHub API for tag discovery\n")
-				if len(sortedTags) == 0 {
-					currentVersion = version.ZeroVersion()
-					tagName = ""
-				} else {
-					tagName = sortedTags[0]
-					if v, parseErr := version.ParseVersion(tagName); parseErr == nil {
-						currentVersion = v
-					} else {
-						currentVersion = version.ZeroVersion()
-					}
-				}
-
-				// API commit walking — only when we have a base tag
-				if tagName != "" {
-					rawCmts, cmtErr := getCommitsFromAPI(ctx, opts.ReleaseAPI, owner, repoShortName, tagName, headSHA)
-					if cmtErr != nil {
-						if opts.Mode == ModeAPI {
-							return nil, fmt.Errorf("API commit walking failed: %w", cmtErr)
-						}
-						fmt.Fprintf(os.Stderr, "using local git for commit walking (reason: %v)\n", cmtErr)
-					} else {
-						parsedCommits = parseRawCommits(rawCmts)
-						apiSucceeded = true
-					}
-				} else {
-					// no tags: fall back to local for commit walking (need full history)
-					if opts.Mode == ModeAPI {
-						return nil, fmt.Errorf("no tags found; API mode cannot walk commits without a base tag")
-					}
-					fmt.Fprintf(os.Stderr, "using local git for commit walking (reason: no tags found)\n")
-				}
-			}
+		if err := resolveViaAPI(opts, repo, owner, repoShortName, state); err != nil {
+			return nil, err
 		}
 	}
 
-	if !apiSucceeded {
+	if !state.apiSucceeded {
 		// local mode: use go-git for tag discovery and commit walking
-		if opts.FromRef != "" {
-			currentVersion, err = version.ParseVersion(opts.FromRef)
-			if err != nil {
-				return nil, fmt.Errorf("invalid from-ref version: %w", err)
-			}
-			tagName = opts.FromRef
-		} else {
-			currentVersion, tagName, err = githelper.DiscoverLatestTag(repo, opts.FirstParent)
-			if err != nil {
-				return nil, fmt.Errorf("failed to discover latest tag: %w", err)
-			}
+		if err := resolveViaLocal(opts, repo, state); err != nil {
+			return nil, err
 		}
-
-		if currentVersion == nil {
-			currentVersion = version.ZeroVersion()
-		}
-
-		toRef := opts.ToRef
-		if toRef == "" {
-			toRef = "HEAD"
-		}
-		commits, commitsErr := githelper.GetCommitsSinceTag(repo, tagName, toRef, opts.FirstParent)
-		if commitsErr != nil {
-			return nil, fmt.Errorf("failed to get commits: %w", commitsErr)
-		}
-		parsedCommits = githelper.ParseCommits(commits)
 	}
 
-	// filter to releasable commits for version computation
-	releasableCommits := version.FilterReleasableCommits(parsedCommits)
+	return state, nil
+}
 
-	// compute next version
-	nextVersion, bumpType := version.ComputeNextVersion(currentVersion, releasableCommits)
-
-	// create release plan
-	plan := &ReleasePlan{
-		GeneratedAt:     time.Now(),
-		Repository:      repoName,
-		CurrentVersion:  currentVersion.String(),
-		NextVersion:     nextVersion.String(),
-		BumpType:        string(bumpType),
-		Commits:         parsedCommits,
-		BreakingChanges: version.ExtractBreakingChanges(parsedCommits),
-		ReleaseNeeded:   bumpType != version.BumpNone,
-	}
-
+// finalizePlan fills in the reason, changelog preview, and file mutations.
+func finalizePlan(opts *PlanOptions, plan *ReleasePlan, nextVersion *version.Version) error {
 	// set reason if no release needed
 	if !plan.ReleaseNeeded {
-		if len(parsedCommits) == 0 {
+		if len(plan.Commits) == 0 {
 			plan.Reason = "no commits since last release"
 		} else {
 			plan.Reason = "no releasable commits (only docs, chore, etc.)"
 		}
-	} else {
-		// generate changelog preview
-		changelogText, err := changelog.GenerateChangelogPreview(parsedCommits, nextVersion.String())
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate changelog: %w", err)
-		}
-		plan.ChangelogPreview = changelogText
+		return nil
 	}
 
+	// generate changelog preview
+	changelogText, err := changelog.GenerateChangelogPreview(plan.Commits, nextVersion.String())
+	if err != nil {
+		return fmt.Errorf("failed to generate changelog: %w", err)
+	}
+	plan.ChangelogPreview = changelogText
+
 	// populate file mutations if config provided
-	if opts.MutationsConfig != "" && plan.ReleaseNeeded {
+	if opts.MutationsConfig != "" {
 		mutations, err := previewMutations(opts.RepoPath, opts.MutationsConfig, nextVersion.StringWithoutV())
 		if err != nil {
 			// non-fatal: log warning but don't fail the plan
@@ -272,7 +218,125 @@ func GeneratePlan(opts *PlanOptions) (*ReleasePlan, error) {
 		}
 	}
 
-	return plan, nil
+	return nil
+}
+
+// prepareReleaseAPI builds the GitHub release service from the token when one
+// wasn't supplied, then enforces the API-mode token requirement.
+func prepareReleaseAPI(opts *PlanOptions) error {
+	// build the GitHub release service from the token if one wasn't supplied —
+	// lets API mode discover tags/commits without a full local clone
+	if opts.Token != "" && opts.ReleaseAPI == nil {
+		releaseAPI, err := newGitHubReleaseService(opts.Token)
+		if err != nil {
+			return err
+		}
+		opts.ReleaseAPI = releaseAPI
+	}
+
+	// fail early if api mode requires a token
+	if opts.Mode == ModeAPI && opts.ReleaseAPI == nil {
+		return fmt.Errorf("mode=api requires a GitHub API client (set --mode=api with a token)")
+	}
+
+	return nil
+}
+
+// resolveViaAPI discovers the base tag and commits using the GitHub API,
+// falling back to local git (unless mode=api) on any recoverable error.
+func resolveViaAPI(opts *PlanOptions, repo *git.Repository, owner, repoShortName string, state *planState) error {
+	// get local HEAD SHA (works even with shallow clone or detached HEAD)
+	head, headErr := repo.Head()
+	if headErr != nil {
+		if opts.Mode == ModeAPI {
+			return fmt.Errorf("failed to get HEAD: %w", headErr)
+		}
+		fmt.Fprintf(os.Stderr, "using local git for tag discovery (reason: %v)\n", headErr)
+		return nil
+	}
+
+	headSHA := head.Hash().String()
+	ctx := context.Background()
+
+	// API tag discovery
+	sortedTags, tagsErr := listTagsFromAPI(ctx, opts.ReleaseAPI, owner, repoShortName)
+	if tagsErr != nil {
+		if opts.Mode == ModeAPI {
+			return fmt.Errorf("API tag discovery failed: %w", tagsErr)
+		}
+		fmt.Fprintf(os.Stderr, "using local git for tag discovery (reason: %v)\n", tagsErr)
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "using GitHub API for tag discovery\n")
+	state.currentVersion, state.tagName = resolveAPIBaseVersion(sortedTags)
+
+	// no tags: fall back to local for commit walking (need full history)
+	if state.tagName == "" {
+		if opts.Mode == ModeAPI {
+			return fmt.Errorf("no tags found; API mode cannot walk commits without a base tag")
+		}
+		fmt.Fprintf(os.Stderr, "using local git for commit walking (reason: no tags found)\n")
+		return nil
+	}
+
+	// API commit walking — only when we have a base tag
+	rawCmts, cmtErr := getCommitsFromAPI(ctx, opts.ReleaseAPI, owner, repoShortName, state.tagName, headSHA)
+	if cmtErr != nil {
+		if opts.Mode == ModeAPI {
+			return fmt.Errorf("API commit walking failed: %w", cmtErr)
+		}
+		fmt.Fprintf(os.Stderr, "using local git for commit walking (reason: %v)\n", cmtErr)
+		return nil
+	}
+
+	state.parsedCommits = parseRawCommits(rawCmts)
+	state.apiSucceeded = true
+	return nil
+}
+
+// resolveAPIBaseVersion picks the base version/tag from API-sorted tags.
+func resolveAPIBaseVersion(sortedTags []string) (*version.Version, string) {
+	if len(sortedTags) == 0 {
+		return version.ZeroVersion(), ""
+	}
+	tagName := sortedTags[0]
+	if v, parseErr := version.ParseVersion(tagName); parseErr == nil {
+		return v, tagName
+	}
+	return version.ZeroVersion(), tagName
+}
+
+// resolveViaLocal discovers the base tag and commits using local go-git.
+func resolveViaLocal(opts *PlanOptions, repo *git.Repository, state *planState) error {
+	var err error
+	if opts.FromRef != "" {
+		state.currentVersion, err = version.ParseVersion(opts.FromRef)
+		if err != nil {
+			return fmt.Errorf("invalid from-ref version: %w", err)
+		}
+		state.tagName = opts.FromRef
+	} else {
+		state.currentVersion, state.tagName, err = githelper.DiscoverLatestTag(repo, opts.FirstParent)
+		if err != nil {
+			return fmt.Errorf("failed to discover latest tag: %w", err)
+		}
+	}
+
+	if state.currentVersion == nil {
+		state.currentVersion = version.ZeroVersion()
+	}
+
+	toRef := opts.ToRef
+	if toRef == "" {
+		toRef = "HEAD"
+	}
+	commits, commitsErr := githelper.GetCommitsSinceTag(repo, state.tagName, toRef, opts.FirstParent)
+	if commitsErr != nil {
+		return fmt.Errorf("failed to get commits: %w", commitsErr)
+	}
+	state.parsedCommits = githelper.ParseCommits(commits)
+	return nil
 }
 
 // previewMutations loads mutation config and performs a dry-run

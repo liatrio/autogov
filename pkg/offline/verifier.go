@@ -360,24 +360,7 @@ func (ov *OfflineVerifier) verifyBundles(bundles []*bundle.Bundle, expectedDiges
 	validAttestations := 0
 	for i, b := range bundles {
 		// show which attestation is being verified
-		if !ov.options.Quiet {
-			// get attestation type for display
-			attType := bundleutils.DetectType(b)
-
-			// lookup predicate type metadata for display
-			var predicateInfo string
-			if info, exists := attestations.LookupPredicateType(attType); exists {
-				predicateInfo = fmt.Sprintf("%s: %s", info.ShortName, attType)
-			} else {
-				predicateInfo = fmt.Sprintf("Unknown: %s", attType)
-
-				// log warning for unknown predicate types (already in !Quiet block)
-				fmt.Fprintf(os.Stderr, "⚠ warning: unknown predicate type: %s\n", attType)
-				fmt.Fprintf(os.Stderr, "  consider updating PredicateTypeRegistry if this is a standard type\n")
-			}
-
-			fmt.Printf("Verifying attestation %d (%s)...\n", i+1, predicateInfo)
-		}
+		ov.logVerifyingAttestation(i, b)
 
 		// select the trusted root and timestamp options for this bundle so a mixed
 		// set of public-good and GitHub-internal attestations each verify correctly.
@@ -402,40 +385,9 @@ func (ov *OfflineVerifier) verifyBundles(bundles []*bundle.Bundle, expectedDiges
 			validAttestations++
 
 			// checks for source ref in SLSA provenance attestations
-			if ov.options.SourceRef != "" && attestationResult.Type == "https://slsa.dev/provenance/v1" {
-				if b.GetDsseEnvelope() != nil {
-					payload := b.GetDsseEnvelope().GetPayload()
-					var statement struct {
-						PredicateType string `json:"predicateType"`
-						Predicate     struct {
-							BuildDefinition struct {
-								ExternalParameters struct {
-									Workflow struct {
-										Ref string `json:"ref"`
-									} `json:"workflow"`
-								} `json:"externalParameters"`
-							} `json:"buildDefinition"`
-						} `json:"predicate"`
-					}
-
-					if err := json.Unmarshal(payload, &statement); err == nil {
-						if statement.PredicateType == "https://slsa.dev/provenance/v1" {
-							workflowRef := statement.Predicate.BuildDefinition.ExternalParameters.Workflow.Ref
-							if workflowRef != ov.options.SourceRef {
-								// source ref mismatch / mark attestation as failed
-								attestationResult.Verified = false
-								attestationResult.Error = fmt.Sprintf("source ref mismatch: expected %s, found %s", ov.options.SourceRef, workflowRef)
-								result.Attestations[i] = attestationResult
-								validAttestations--
-								if !ov.options.Quiet {
-									fmt.Printf("✗ Source ref mismatch: expected %s, found %s\n", ov.options.SourceRef, workflowRef)
-								}
-							} else if !ov.options.Quiet {
-								fmt.Printf("✓ Source repository ref verified: %s\n", ov.options.SourceRef)
-							}
-						}
-					}
-				}
+			if ov.checkSourceRef(b, &attestationResult) {
+				result.Attestations[i] = attestationResult
+				validAttestations--
 			}
 
 			if !ov.options.Quiet {
@@ -473,6 +425,83 @@ func (ov *OfflineVerifier) verifyBundles(bundles []*bundle.Bundle, expectedDiges
 	}
 
 	return result, nil
+}
+
+// logVerifyingAttestation prints the per-bundle "Verifying attestation N (...)"
+// banner (and an unknown-predicate-type warning) when not in quiet mode.
+func (ov *OfflineVerifier) logVerifyingAttestation(i int, b *bundle.Bundle) {
+	if ov.options.Quiet {
+		return
+	}
+
+	// get attestation type for display
+	attType := bundleutils.DetectType(b)
+
+	// lookup predicate type metadata for display
+	var predicateInfo string
+	if info, exists := attestations.LookupPredicateType(attType); exists {
+		predicateInfo = fmt.Sprintf("%s: %s", info.ShortName, attType)
+	} else {
+		predicateInfo = fmt.Sprintf("Unknown: %s", attType)
+
+		// log warning for unknown predicate types (already in !Quiet block)
+		fmt.Fprintf(os.Stderr, "⚠ warning: unknown predicate type: %s\n", attType)
+		fmt.Fprintf(os.Stderr, "  consider updating PredicateTypeRegistry if this is a standard type\n")
+	}
+
+	fmt.Printf("Verifying attestation %d (%s)...\n", i+1, predicateInfo)
+}
+
+// checkSourceRef enforces the expected source repository ref on a verified SLSA
+// provenance attestation. It returns true only when the ref mismatched, in which
+// case att has been marked failed (Verified=false, Error set) and the caller must
+// persist it and decrement the valid count. A match, a missing ref option, a
+// non-provenance attestation, or an unparseable envelope returns false and leaves
+// att untouched.
+func (ov *OfflineVerifier) checkSourceRef(b *bundle.Bundle, att *AttestationResult) bool {
+	if ov.options.SourceRef == "" || att.Type != "https://slsa.dev/provenance/v1" {
+		return false
+	}
+	if b.GetDsseEnvelope() == nil {
+		return false
+	}
+
+	payload := b.GetDsseEnvelope().GetPayload()
+	var statement struct {
+		PredicateType string `json:"predicateType"`
+		Predicate     struct {
+			BuildDefinition struct {
+				ExternalParameters struct {
+					Workflow struct {
+						Ref string `json:"ref"`
+					} `json:"workflow"`
+				} `json:"externalParameters"`
+			} `json:"buildDefinition"`
+		} `json:"predicate"`
+	}
+
+	if err := json.Unmarshal(payload, &statement); err != nil {
+		return false
+	}
+	if statement.PredicateType != "https://slsa.dev/provenance/v1" {
+		return false
+	}
+
+	workflowRef := statement.Predicate.BuildDefinition.ExternalParameters.Workflow.Ref
+	if workflowRef != ov.options.SourceRef {
+		// source ref mismatch / mark attestation as failed
+		att.Verified = false
+		att.Error = fmt.Sprintf("source ref mismatch: expected %s, found %s", ov.options.SourceRef, workflowRef)
+		if !ov.options.Quiet {
+			fmt.Printf("✗ Source ref mismatch: expected %s, found %s\n", ov.options.SourceRef, workflowRef)
+		}
+		return true
+	}
+
+	if !ov.options.Quiet {
+		fmt.Printf("✓ Source repository ref verified: %s\n", ov.options.SourceRef)
+	}
+	return false
 }
 
 // aggregateHasFailures reports whether the per-bundle results should fail the overall

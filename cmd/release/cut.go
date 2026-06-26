@@ -73,6 +73,30 @@ func parseAssetLabels(pairs []string) (map[string]string, error) {
 }
 
 func runCut(cmd *cobra.Command, args []string) error {
+	outputFormat, _ := cmd.Flags().GetString("output")
+
+	opts, err := cutOptionsFromFlags(cmd)
+	if err != nil {
+		return err
+	}
+
+	result, err := release.ExecuteCut(opts)
+	if err != nil {
+		if result != nil && result.ReleaseURL != "" {
+			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "note: release was created at %s before the failure (assets uploaded: %d)\n", result.ReleaseURL, len(result.UploadedAssets))
+		}
+		return fmt.Errorf("release cut failed: %w", err)
+	}
+
+	if result.NoRelease {
+		return reportNoRelease(cmd, result, outputFormat)
+	}
+
+	return reportCutResult(cmd, result, outputFormat)
+}
+
+// cutOptionsFromFlags reads the cut command flags into a release.CutOptions.
+func cutOptionsFromFlags(cmd *cobra.Command) (*release.CutOptions, error) {
 	planFile, _ := cmd.Flags().GetString("plan-file")
 	branch, _ := cmd.Flags().GetString("branch")
 	remote, _ := cmd.Flags().GetString("remote")
@@ -83,18 +107,17 @@ func runCut(cmd *cobra.Command, args []string) error {
 	repoPath, _ := cmd.Flags().GetString("repo")
 	commitAuthor, _ := cmd.Flags().GetString("commit-author")
 	commitEmail, _ := cmd.Flags().GetString("commit-email")
-	outputFormat, _ := cmd.Flags().GetString("output")
 	assets, _ := cmd.Flags().GetStringArray("asset")
 	assetLabelPairs, _ := cmd.Flags().GetStringArray("asset-label")
 
 	assetLabels, err := parseAssetLabels(assetLabelPairs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	token := ghpkg.GetToken()
 
-	opts := &release.CutOptions{
+	return &release.CutOptions{
 		RepoPath:        repoPath,
 		Branch:          branch,
 		Remote:          remote,
@@ -108,30 +131,11 @@ func runCut(cmd *cobra.Command, args []string) error {
 		Token:           token,
 		Assets:          assets,
 		AssetLabels:     assetLabels,
-	}
+	}, nil
+}
 
-	result, err := release.ExecuteCut(opts)
-	if err != nil {
-		if result != nil && result.ReleaseURL != "" {
-			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "note: release was created at %s before the failure (assets uploaded: %d)\n", result.ReleaseURL, len(result.UploadedAssets))
-		}
-		return fmt.Errorf("release cut failed: %w", err)
-	}
-
-	if result.NoRelease {
-		switch outputFormat {
-		case "json":
-			data, err := result.ToJSON()
-			if err != nil {
-				return fmt.Errorf("failed to serialize result: %w", err)
-			}
-			_, _ = fmt.Fprintln(os.Stdout, string(data))
-		default:
-			_, _ = fmt.Fprintf(cmd.OutOrStderr(), "No release needed: %s\n", result.Reason)
-		}
-		return nil
-	}
-
+// reportNoRelease renders the outcome when no release was needed.
+func reportNoRelease(cmd *cobra.Command, result *release.CutResult, outputFormat string) error {
 	switch outputFormat {
 	case "json":
 		data, err := result.ToJSON()
@@ -140,33 +144,52 @@ func runCut(cmd *cobra.Command, args []string) error {
 		}
 		_, _ = fmt.Fprintln(os.Stdout, string(data))
 	default:
-		action := "draft"
-		if result.Published {
-			action = "published"
+		_, _ = fmt.Fprintf(cmd.OutOrStderr(), "No release needed: %s\n", result.Reason)
+	}
+	return nil
+}
+
+// reportCutResult renders the outcome of a successful cut.
+func reportCutResult(cmd *cobra.Command, result *release.CutResult, outputFormat string) error {
+	switch outputFormat {
+	case "json":
+		data, err := result.ToJSON()
+		if err != nil {
+			return fmt.Errorf("failed to serialize result: %w", err)
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Release %s created successfully (%s)\n", result.TagName, action)
-		if result.CommitSHA != "" {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Commit: %s\n", result.CommitSHA)
-		}
-		if result.ReleaseURL != "" {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Release: %s\n", result.ReleaseURL)
-		}
-		if len(result.FilesModified) > 0 {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Files modified: %d\n", len(result.FilesModified))
-			for _, f := range result.FilesModified {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    - %s\n", f)
-			}
-		}
-		if len(result.UploadedAssets) > 0 {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Assets uploaded: %d\n", len(result.UploadedAssets))
-			for _, a := range result.UploadedAssets {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    - %s\n", a)
-			}
-		}
-		if result.DryRun {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  (dry-run: no changes were made)")
+		_, _ = fmt.Fprintln(os.Stdout, string(data))
+	default:
+		printCutResultText(cmd, result)
+	}
+	return nil
+}
+
+// printCutResultText writes the human-readable summary of a successful cut.
+func printCutResultText(cmd *cobra.Command, result *release.CutResult) {
+	action := "draft"
+	if result.Published {
+		action = "published"
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Release %s created successfully (%s)\n", result.TagName, action)
+	if result.CommitSHA != "" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Commit: %s\n", result.CommitSHA)
+	}
+	if result.ReleaseURL != "" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Release: %s\n", result.ReleaseURL)
+	}
+	if len(result.FilesModified) > 0 {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Files modified: %d\n", len(result.FilesModified))
+		for _, f := range result.FilesModified {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    - %s\n", f)
 		}
 	}
-
-	return nil
+	if len(result.UploadedAssets) > 0 {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Assets uploaded: %d\n", len(result.UploadedAssets))
+		for _, a := range result.UploadedAssets {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    - %s\n", a)
+		}
+	}
+	if result.DryRun {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "  (dry-run: no changes were made)")
+	}
 }
