@@ -1543,3 +1543,101 @@ func TestVerifyBundleDigestParsing(t *testing.T) {
 		t.Logf("VerifyArtifactDigest(%s): %v", digest, err)
 	}
 }
+
+// publicGoodBundlePath is the real, validly-signed public-good Sigstore bundle in
+// testdata. Its attested subject digest is publicGoodSubjectDigest. It verifies
+// Verified==true against that digest and Verified==false against a mismatch, so it
+// drives a genuine before->after flip for the directory-binding fix (not a vacuous
+// parse-failure that is Verified==false in both states).
+const (
+	publicGoodBundlePath  = "testdata/bundle-public-good.jsonl"
+	publicGoodSubjectName = "ghcr.io/liatrio/autogov-workflows"
+	// the in-allowlist signer SAN for the public-good bundle (rw-attest workflow).
+	publicGoodSignerSAN = "https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-image.yaml@refs/heads/main"
+)
+
+// newRealBundleVerifier loads the real public-good bundle with per-bundle trusted
+// root auto-selection (so the embedded public-good root anchors it) and the given
+// options.
+func newRealBundleVerifier(t *testing.T, opts VerifyOptions) *OfflineVerifier {
+	t.Helper()
+	if opts.TrustedRootSource == "" {
+		opts.TrustedRootSource = "auto"
+	}
+	v, err := NewOfflineVerifier("", opts)
+	if err != nil {
+		t.Fatalf("NewOfflineVerifier: %v", err)
+	}
+	if err := v.LoadBundlesFromFile(publicGoodBundlePath); err != nil {
+		t.Fatalf("LoadBundlesFromFile: %v", err)
+	}
+	return v
+}
+
+// TestVerifyDirectoryBindsDigest_Mismatch is the core fail-open regression: a
+// directory whose file bytes do NOT hash to any attested subject digest must fail.
+// BEFORE the fix verifyDirectory called verifyWithDigest("") (WithoutArtifactUnsafe),
+// which accepts the validly-signed bundle regardless of the on-disk bytes -> the
+// directory verified Verified==true. AFTER the fix each file is bound via
+// WithArtifactDigest, so the unrelated bytes no longer match -> Verified==false.
+func TestVerifyDirectoryBindsDigest_Mismatch(t *testing.T) {
+	v := newRealBundleVerifier(t, VerifyOptions{Quiet: true})
+
+	dir := t.TempDir()
+	// bytes that do not hash to the attested image digest.
+	if err := os.WriteFile(filepath.Join(dir, "artifact.bin"), []byte("unrelated bytes not matching the attested subject"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := v.VerifyArtifact(dir)
+	if err != nil {
+		t.Fatalf("VerifyArtifact(dir): %v", err)
+	}
+	if res.Verified {
+		t.Fatal("expected directory verification to FAIL: on-disk bytes do not match any attested subject digest (fail-open regression)")
+	}
+}
+
+// TestVerifyDirectoryBindsDigest_MultiFileMismatch exercises the genuine multi-file
+// directory path: more than one file, none matching an attested subject, must fail
+// closed via the per-file binding (no fall-through to WithoutArtifactUnsafe).
+func TestVerifyDirectoryBindsDigest_MultiFileMismatch(t *testing.T) {
+	v := newRealBundleVerifier(t, VerifyOptions{Quiet: true})
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.bin"), []byte("file a bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.bin"), []byte("file b bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := v.VerifyArtifact(dir)
+	if err != nil {
+		t.Fatalf("VerifyArtifact(dir): %v", err)
+	}
+	if res.Verified {
+		t.Fatal("expected multi-file directory verification to FAIL: no file matches any attested subject digest")
+	}
+}
+
+// TestVerifyDirectoryBindsDigest_Match is the AC7 positive path: when a file's
+// digest matches the attested subject, signed by an in-allowlist identity, the
+// directory still verifies Verified==true. The only real bundle attests an image
+// digest (no file-byte preimage is feasible), so the matching-digest binding is
+// asserted directly via VerifyArtifactDigest — the same WithArtifactDigest path the
+// fixed verifyDirectory now uses for each on-disk file.
+func TestVerifyDirectoryBindsDigest_Match(t *testing.T) {
+	v := newRealBundleVerifier(t, VerifyOptions{
+		Quiet:              true,
+		AcceptedIdentities: []string{publicGoodSignerSAN},
+	})
+
+	res, err := v.VerifyArtifactDigest("sha256:5442baf67b76de2703ed55bd96d40d383ec5bcd2adbb8b9dd134ca37bfb61e62")
+	if err != nil {
+		t.Fatalf("VerifyArtifactDigest(match): %v", err)
+	}
+	if !res.Verified {
+		t.Fatalf("expected matching digest + in-allowlist signer to verify; attestations: %+v", res.Attestations)
+	}
+}

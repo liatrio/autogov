@@ -141,6 +141,13 @@ func runSource(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("unsupported format %q: use text or json", format)
 	}
 
+	// fail closed regardless of format: the not-verified decision lives here (after
+	// output is written), not in a formatter, so --format json exits nonzero on a
+	// failed verification instead of printing verified:false and returning nil.
+	if !result.Verified && result.ErrorMsg != "" {
+		return fmt.Errorf("verify source: %s", result.ErrorMsg)
+	}
+
 	// VSA generation.
 	generateVSA, _ := cmd.Flags().GetBool(flagGenerateVSA)
 	if generateVSA && result.Verified {
@@ -321,9 +328,7 @@ func outputSourceText(cmd *cobra.Command, result *source.VerificationResult, qui
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Warning:    %s\n", w)
 	}
 
-	if !result.Verified && result.ErrorMsg != "" {
-		return fmt.Errorf("verify source: %s", result.ErrorMsg)
-	}
-
+	// write-only: the not-verified decision is made in runSource so it is
+	// format-independent (json fails closed too).
 	return nil
 }

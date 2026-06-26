@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,6 +118,53 @@ func TestVerifyPolicy_JSONOutput(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &result))
 	assert.Contains(t, result, "verified")
 	assert.Contains(t, result, "ref")
+}
+
+func TestVerifyPolicy_JSONFailsClosed(t *testing.T) {
+	repoDir, _ := createPolicyTestRepo(t)
+
+	// a malformed --policy-path makes VerifyPolicy return Verified==false with a
+	// non-empty ErrorMsg ("failed to load policy from ..."). under --format json the
+	// body must be printed AND the command must exit nonzero.
+	badPolicy := filepath.Join(t.TempDir(), "bad-policy.json")
+	require.NoError(t, os.WriteFile(badPolicy, []byte("{ not valid json"), 0o600))
+
+	out, err := executeVerifyPolicyCmd(t, []string{
+		"--repo-path", repoDir,
+		"--ref", "refs/heads/master",
+		"--policy-path", badPolicy,
+		"--format", "json",
+	})
+	require.Error(t, err)
+
+	var result map[string]interface{}
+	require.NoError(t, json.NewDecoder(strings.NewReader(out)).Decode(&result))
+	assert.Equal(t, false, result["verified"])
+}
+
+func TestVerifyPolicy_PartialVerifiedExitUnchanged(t *testing.T) {
+	repoDir, policyFile := createPolicyTestRepo(t)
+
+	// a valid policy whose rules are not fully satisfied (unsigned commits) is the
+	// "Partially Verified" case: Verified==false with an empty ErrorMsg. AC5 — this
+	// must keep its prior exit status (success) under both formats, because the new
+	// fail-closed check keys on the same !Verified && ErrorMsg != "" predicate.
+	outText, errText := executeVerifyPolicyCmd(t, []string{
+		"--repo-path", repoDir,
+		"--ref", "refs/heads/master",
+		"--policy-path", policyFile,
+		"--format", "text",
+	})
+	require.NoError(t, errText)
+	assert.Contains(t, outText, "Partially Verified")
+
+	_, errJSON := executeVerifyPolicyCmd(t, []string{
+		"--repo-path", repoDir,
+		"--ref", "refs/heads/master",
+		"--policy-path", policyFile,
+		"--format", "json",
+	})
+	require.NoError(t, errJSON)
 }
 
 func TestVerifyPolicy_HelpOutput(t *testing.T) {

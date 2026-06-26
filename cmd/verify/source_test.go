@@ -2,6 +2,10 @@ package verify_test
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/liatrio/autogov/cmd/verify"
@@ -9,6 +13,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// nonVerifyingSourceBundle copies the real public-good Sigstore bundle into a
+// temp file. It is a real, parseable, validly-signed bundle, so pointing
+// VerifySourceProvenance at it with a cert-identity that does not match the
+// signer yields Verified==false && ErrorMsg!="" (signature/identity failure) —
+// the failed-verification case the fail-closed check must catch.
+func nonVerifyingSourceBundle(t *testing.T) string {
+	t.Helper()
+	src := filepath.Join("..", "..", "pkg", "source", "testdata", "bundle-public-good.jsonl")
+	data, err := os.ReadFile(src)
+	require.NoError(t, err)
+	dst := filepath.Join(t.TempDir(), "bundle.json")
+	require.NoError(t, os.WriteFile(dst, data, 0o600))
+	return dst
+}
 
 func newVerifySourceCmd() *cobra.Command {
 	root := &cobra.Command{Use: "autogov"}
@@ -87,6 +106,43 @@ func TestVerifySource_GenerateVSARequiresIdentity(t *testing.T) {
 	// load failures surface via err, so assert on err (not the output buffer):
 	// it must fail before touching the bundle (i.e. not a load error).
 	assert.NotContains(t, err.Error(), "load bundle")
+}
+
+func TestVerifySource_JSONFailsClosed(t *testing.T) {
+	// a real bundle verified against a signer identity that does not match yields
+	// Verified==false && ErrorMsg!="". under --format json the body must still be
+	// printed AND the command must exit nonzero (no silent advisory pass).
+	bundle := nonVerifyingSourceBundle(t)
+
+	out, err := executeVerifySourceCmd(t, []string{
+		"--attestation-path", bundle,
+		"--repo-uri", "https://github.com/org/repo",
+		"--commit", "abc123",
+		"--cert-identity", "https://github.com/org/repo/.github/workflows/never-matches.yml@refs/heads/main",
+		"--format", "json",
+	})
+	require.Error(t, err)
+
+	// the json result body is emitted before the nonzero return; decode the first
+	// json value (the buffer also carries cobra's error line).
+	var result map[string]interface{}
+	require.NoError(t, json.NewDecoder(strings.NewReader(out)).Decode(&result))
+	assert.Equal(t, false, result["verified"])
+}
+
+func TestVerifySource_TextStillFailsClosed(t *testing.T) {
+	// the same input under --format text keeps its existing nonzero exit.
+	bundle := nonVerifyingSourceBundle(t)
+
+	_, err := executeVerifySourceCmd(t, []string{
+		"--attestation-path", bundle,
+		"--repo-uri", "https://github.com/org/repo",
+		"--commit", "abc123",
+		"--cert-identity", "https://github.com/org/repo/.github/workflows/never-matches.yml@refs/heads/main",
+		"--format", "text",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "verify source")
 }
 
 func TestVerifySource_HelpOutput(t *testing.T) {
