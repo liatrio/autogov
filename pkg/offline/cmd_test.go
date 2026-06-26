@@ -557,6 +557,64 @@ func TestApplyFailOnPolicyError_NeitherSet(t *testing.T) {
 	}
 }
 
+// TestApplyQuiet_EnvHonored locks the regression at cmd.go: with QUIET=true and
+// no -q/--quiet flag, the env-bound viper value must survive (not be clobbered
+// by the flag default false).
+func TestApplyQuiet_EnvHonored(t *testing.T) {
+	defer viper.Reset()
+	viper.Reset()
+	if err := viper.BindEnv("quiet", "QUIET"); err != nil {
+		t.Fatalf("BindEnv: %v", err)
+	}
+	t.Setenv("QUIET", "true")
+
+	cmd := createTestCmd()
+	// do NOT pass -q/--quiet; the env value must survive
+	applyBoolFlagToViper(cmd, "quiet")
+
+	if !viper.GetBool("quiet") {
+		t.Error("QUIET=true was clobbered to false when the flag was absent")
+	}
+}
+
+// TestApplyQuiet_FlagOverridesEnv: an explicit --quiet=false wins over
+// QUIET=true.
+func TestApplyQuiet_FlagOverridesEnv(t *testing.T) {
+	defer viper.Reset()
+	viper.Reset()
+	if err := viper.BindEnv("quiet", "QUIET"); err != nil {
+		t.Fatalf("BindEnv: %v", err)
+	}
+	t.Setenv("QUIET", "true")
+
+	cmd := createTestCmd()
+	if err := cmd.Flags().Set("quiet", "false"); err != nil {
+		t.Fatalf("set flag: %v", err)
+	}
+	applyBoolFlagToViper(cmd, "quiet")
+
+	if viper.GetBool("quiet") {
+		t.Error("explicit --quiet=false should override QUIET=true")
+	}
+}
+
+// TestApplyQuiet_NeitherSet: no flag and no env → false (default, backwards
+// compatible).
+func TestApplyQuiet_NeitherSet(t *testing.T) {
+	defer viper.Reset()
+	viper.Reset()
+	if err := viper.BindEnv("quiet", "QUIET"); err != nil {
+		t.Fatalf("BindEnv: %v", err)
+	}
+
+	cmd := createTestCmd()
+	applyBoolFlagToViper(cmd, "quiet")
+
+	if viper.GetBool("quiet") {
+		t.Error("with neither flag nor env set, quiet should be false")
+	}
+}
+
 func TestRunCommandNoArtifactVerbose(t *testing.T) {
 	// Create temp directory with valid attestation file
 	tmpDir, err := os.MkdirTemp("", "cmd_test_*")

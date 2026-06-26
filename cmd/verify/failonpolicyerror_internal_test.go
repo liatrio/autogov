@@ -16,6 +16,72 @@ func newFailOnPolicyErrorCmd() *cobra.Command {
 	return cmd
 }
 
+// newQuietCmd builds a minimal command with just the quiet flag registered,
+// mirroring how the real attestation command registers it.
+func newQuietCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "test"}
+	cmd.Flags().BoolP(flagQuiet, "q", false, "")
+	return cmd
+}
+
+// TestApplyQuiet_EnvHonored locks the regression at attestation.go: with
+// QUIET=true and no -q/--quiet flag, the env-bound viper value must survive
+// (not be clobbered by the flag default false).
+func TestApplyQuiet_EnvHonored(t *testing.T) {
+	defer viper.Reset()
+	viper.Reset()
+	if err := viper.BindEnv(flagQuiet, "QUIET"); err != nil {
+		t.Fatalf("BindEnv: %v", err)
+	}
+	t.Setenv("QUIET", "true")
+
+	cmd := newQuietCmd()
+	// do NOT pass -q/--quiet; the env value must survive
+	applyBoolFlagToViper(cmd, flagQuiet)
+
+	if !viper.GetBool(flagQuiet) {
+		t.Error("QUIET=true was clobbered to false when the flag was absent")
+	}
+}
+
+// TestApplyQuiet_FlagOverridesEnv: an explicit --quiet=false wins over
+// QUIET=true.
+func TestApplyQuiet_FlagOverridesEnv(t *testing.T) {
+	defer viper.Reset()
+	viper.Reset()
+	if err := viper.BindEnv(flagQuiet, "QUIET"); err != nil {
+		t.Fatalf("BindEnv: %v", err)
+	}
+	t.Setenv("QUIET", "true")
+
+	cmd := newQuietCmd()
+	if err := cmd.Flags().Set(flagQuiet, "false"); err != nil {
+		t.Fatalf("set flag: %v", err)
+	}
+	applyBoolFlagToViper(cmd, flagQuiet)
+
+	if viper.GetBool(flagQuiet) {
+		t.Error("explicit --quiet=false should override QUIET=true")
+	}
+}
+
+// TestApplyQuiet_NeitherSet: no flag and no env → false (default, backwards
+// compatible).
+func TestApplyQuiet_NeitherSet(t *testing.T) {
+	defer viper.Reset()
+	viper.Reset()
+	if err := viper.BindEnv(flagQuiet, "QUIET"); err != nil {
+		t.Fatalf("BindEnv: %v", err)
+	}
+
+	cmd := newQuietCmd()
+	applyBoolFlagToViper(cmd, flagQuiet)
+
+	if viper.GetBool(flagQuiet) {
+		t.Error("with neither flag nor env set, quiet should be false")
+	}
+}
+
 // TestApplyFailOnPolicyError_EnvHonored locks the regression at
 // attestation.go: with FAIL_ON_POLICY_ERROR=true and no --fail-on-policy-error
 // flag, the env-bound viper value must survive (not be clobbered by the flag
