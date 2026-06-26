@@ -25,7 +25,7 @@ jobs:
       actions: read
       pull-requests: read
       artifact-metadata: write
-    uses: liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@d22e76e51373fb7adda39a47752bbda5c80c2ec4 # v0.26.0
+    uses: liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@fcc19b17d1453b2172ca012719da4c8663652514 # v0.27.0
     secrets: inherit
     with:
       subject-path: autogov
@@ -39,12 +39,16 @@ jobs:
       contents: read
       actions: read
       artifact-metadata: write
-    uses: liatrio/autogov-workflows/.github/workflows/rw-verify.yaml@d22e76e51373fb7adda39a47752bbda5c80c2ec4 # v0.26.0
+    uses: liatrio/autogov-workflows/.github/workflows/rw-verify.yaml@fcc19b17d1453b2172ca012719da4c8663652514 # v0.27.0
     secrets: inherit
     with:
       build-type: blob
       blob-artifact-id: ${{ needs.attest-blob.outputs.blob-artifact-id }}
-      cert-identity: https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@d22e76e51373fb7adda39a47752bbda5c80c2ec4 # v0.26.0
+      cert-identity: https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@fcc19b17d1453b2172ca012719da4c8663652514 # v0.27.0
+      # gate the self-release on policy: a FAILED self-verify fails verify-blob,
+      # so the release job (needs: [verify-blob]) is skipped. the FAILED VSA is
+      # still attested and uploaded before the gate.
+      allow-failed-vsa: false
       vuln-threshold-critical: '0'
       vuln-threshold-high: '0'
       vuln-threshold-medium: '-1'
