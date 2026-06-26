@@ -23,8 +23,18 @@ func newGitCmd() *cobra.Command {
 		Short: "Verify gitsign commit signatures",
 		Long: `Verify gitsign commit signatures using Sigstore.
 
-This command verifies that commits are signed with gitsign and that the
-signing identity matches the expected certificate identity and issuer.
+This command verifies that commits are signed with gitsign, that the signing
+identity matches the expected certificate identity and issuer, and that the
+signature is anchored to a trusted timestamp: the cert chain is validated at the
+trusted time (never the attacker-supplied CMS signingTime, never wall-clock now).
+
+Transparency anchoring is per Sigstore backend:
+  - GitHub-internal signing (fulcio.githubapp.com): verified against the RFC3161
+    timestamp token from timestamp.githubapp.com. Fully supported.
+  - public-good signing (sigstore.dev): anchored on Rekor transparency-log
+    inclusion. Rekor inclusion verification is not yet wired into this path, so
+    public-good gitsign signatures currently fail closed (Not Verified) rather
+    than being trusted without a transparency proof.
 
 The revision argument specifies a single commit (hash, tag, or ref).
 Use --from and --to for a range of commits.
@@ -75,7 +85,6 @@ func runVerifyGit(cmd *cobra.Command, args []string) error {
 	opts := gitsign.VerifyOptions{
 		CertIdentity: certIdentity,
 		CertIssuer:   certIssuer,
-		SkipRekor:    true,
 	}
 
 	var results []*gitsign.VerificationResult
