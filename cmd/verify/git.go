@@ -23,8 +23,18 @@ func newGitCmd() *cobra.Command {
 		Short: "Verify gitsign commit signatures",
 		Long: `Verify gitsign commit signatures using Sigstore.
 
-This command verifies that commits are signed with gitsign and that the
-signing identity matches the expected certificate identity and issuer.
+This command verifies that commits are signed with gitsign, that the signing
+identity matches the expected certificate identity and issuer, and that the
+signature is anchored to a trusted timestamp: the cert chain is validated at the
+trusted time (never the attacker-supplied CMS signingTime, never wall-clock now).
+
+Transparency anchoring is per Sigstore backend:
+  - GitHub-internal signing (fulcio.githubapp.com): verified against the RFC3161
+    timestamp token from timestamp.githubapp.com. Fully supported.
+  - public-good signing (sigstore.dev): anchored on Rekor transparency-log
+    inclusion. Rekor inclusion verification is not yet wired into this path
+    (tracked in issue #306), so public-good gitsign signatures currently fail
+    closed (Not Verified) rather than being trusted without a transparency proof.
 
 The revision argument specifies a single commit (hash, tag, or ref).
 Use --from and --to for a range of commits.
@@ -43,13 +53,7 @@ Examples:
   autogov verify git --cert-identity user@example.com --cert-issuer https://accounts.google.com
 
 Unsigned commits fail verification by default ("no signature" is the easiest
-forgery). Pass --allow-unsigned to treat unsigned commits as success.
-
-Transparency note (interim posture): this command validates the gitsign CMS
-signature and signer identity but does not yet verify Rekor transparency-log
-inclusion. It is therefore an identity/CMS check, NOT a transparency-log-backed
-gate — a signature with no verifiable Rekor entry is reported as not verified.
-This caveat is removed once transparency verification ships.`,
+forgery). Pass --allow-unsigned to treat unsigned commits as success.`,
 		RunE: runVerifyGit,
 	}
 

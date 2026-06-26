@@ -5,6 +5,7 @@ go 1.26.4
 require (
 	github.com/cli/go-gh/v2 v2.13.0
 	github.com/digitorus/pkcs7 v0.0.0-20250730155240-ffadbf3f398c
+	github.com/digitorus/timestamp v0.0.0-20231217203849-220c5c2851b7
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/google/go-github/v88 v88.0.0
 	github.com/open-policy-agent/opa v1.17.1
@@ -40,7 +41,6 @@ require (
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
-	github.com/digitorus/timestamp v0.0.0-20231217203849-220c5c2851b7 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect

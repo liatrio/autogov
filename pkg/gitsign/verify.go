@@ -27,32 +27,25 @@ type VerifyOptions struct {
 }
 
 // VerificationResult holds the outcome of verifying a single commit.
+//
+// Verified is true only when the gitsign signature is both cryptographically
+// valid (cert chain pinned to a trusted timestamp) AND transparency-bound: a
+// verified RFC3161 TSA timestamp on the GitHub-internal path, or a verified
+// Rekor inclusion proof on the public-good path. TransparencyVerified records
+// the transparency dimension on its own so callers can tell "cms ok but not
+// transparency-bound" apart from "cms failed"; Verified is never true while
+// TransparencyVerified is false.
 type VerificationResult struct {
-	CommitHash string `json:"commit"`
-	// Verified is true only when the cms signature is valid AND the signature is
-	// bound to the transparency log. in the interim posture (no rekor verification
-	// yet) this stays false for any signature, even a structurally valid one — see
-	// TransparencyVerified for the distinction between "cms ok but unbound" and
-	// "cms failed".
-	Verified        bool      `json:"verified"`
-	Signer          string    `json:"signer,omitempty"`
-	Issuer          string    `json:"issuer,omitempty"`
-	CertFingerprint string    `json:"cert_fingerprint,omitempty"`
-	Timestamp       time.Time `json:"timestamp,omitempty"`
-	// RekorLogIndex is populated from the verified rekor entry once transparency
-	// verification lands. it is 0/absent for any result that was not transparency-
-	// verified.
-	RekorLogIndex int64 `json:"rekor_log_index,omitempty"`
-	// CMSVerified is true when the cms signature validates against a trusted fulcio
-	// chain pinned to "now" and the signer identity matches. it does NOT imply the
-	// signature was logged to a transparency log; callers that gate on signing
-	// trust must use Verified, not CMSVerified.
-	CMSVerified bool `json:"cms_verified,omitempty"`
-	// TransparencyVerified is true only when the signature was matched to a verified
-	// rekor inclusion proof. in the interim posture it is always false.
-	TransparencyVerified bool   `json:"transparency_verified,omitempty"`
-	ErrorMsg             string `json:"error,omitempty"`
-	Unsigned             bool   `json:"unsigned,omitempty"`
+	CommitHash           string    `json:"commit"`
+	Verified             bool      `json:"verified"`
+	TransparencyVerified bool      `json:"transparency_verified"`
+	Signer               string    `json:"signer,omitempty"`
+	Issuer               string    `json:"issuer,omitempty"`
+	CertFingerprint      string    `json:"cert_fingerprint,omitempty"`
+	Timestamp            time.Time `json:"timestamp,omitempty"`
+	RekorLogIndex        int64     `json:"rekor_log_index,omitempty"`
+	ErrorMsg             string    `json:"error,omitempty"`
+	Unsigned             bool      `json:"unsigned,omitempty"`
 }
 
 // OpenRepository opens a git repository at the given path.
@@ -174,19 +167,40 @@ func verifyCommitObject(commit *object.Commit, opts VerifyOptions) (*Verificatio
 	}
 
 	// build Fulcio cert pool from embedded trusted root
-	certPool, err := fulcioPoolFn()
+	certPool, err := buildFulcioPool()
 	if err != nil {
 		result.ErrorMsg = fmt.Sprintf("failed to build Fulcio cert pool: %v", err)
 		return result, nil
 	}
 
-	// verify the CMS signature against the commit data, pinning the cert-chain
-	// check to "now" rather than the signer-supplied cms signingTime attribute. a
-	// fulcio leaf is valid for ~10 minutes; trusting the unauthenticated signingTime
-	// would let a stale-but-once-valid (or forged) cert with a backdated attribute
-	// pass indefinitely. once transparency verification lands, this time source
-	// becomes the verified rekor integrated timestamp.
-	if err := p7.VerifyWithChainAtTime(certPool, time.Now().UTC()); err != nil {
+	// establish the trusted time the cert chain must be validated at. a Fulcio
+	// signer cert is valid for ~10 minutes, so the entire keyless-signing trust
+	// model hinges on pinning chain validation to a timestamp proven to fall
+	// inside that window by an independent, tamper-evident anchor — NOT the
+	// attacker-asserted CMS signingTime attribute and NOT wall-clock now.
+	//
+	// the anchor is per backend (see transparency.go):
+	//   - GitHub-internal (fulcio.githubapp.com): a verified RFC3161 TSA token.
+	//   - public-good (sigstore.dev): a verified Rekor inclusion proof.
+	ts, err := establishTrustedTimestamp(block.Bytes, signerCert)
+	if err != nil {
+		// transparency-unbound: cms may be structurally fine, but we cannot
+		// anchor when it was produced, so it does not count as Verified. record
+		// a machine-readable marker (TransparencyVerified stays false) so callers
+		// distinguish this from a cms failure.
+		result.ErrorMsg = fmt.Sprintf("not transparency-verified: %v", err)
+		return result, nil
+	}
+
+	// the trusted timestamp (TSA genTime / Rekor integrated time) is the
+	// authoritative signing time — replace the attacker-controlled commit author
+	// time so downstream consumers report the anchored time, not the claimed one.
+	result.Timestamp = ts.Time
+
+	// verify the CMS signature with the cert chain pinned to the trusted time.
+	// VerifyWithChainAtTime ignores the CMS signingTime attribute and validates
+	// the chain at the supplied time.
+	if err := p7.VerifyWithChainAtTime(certPool, ts.Time); err != nil {
 		result.ErrorMsg = fmt.Sprintf("CMS signature verification failed: %v", err)
 		return result, nil
 	}
@@ -209,14 +223,50 @@ func verifyCommitObject(commit *object.Commit, opts VerifyOptions) (*Verificatio
 		return result, nil
 	}
 
-	// the cms signature is valid against a trusted chain at "now" and the identity
-	// matches. record that, but do NOT mark the result Verified: transparency-log
-	// inclusion has not been proven, so there is no tamper-evident anchor for when
-	// the signature was produced. callers gate signing trust on Verified, which
-	// stays false until a verified rekor entry is matched.
-	result.CMSVerified = true
-	result.ErrorMsg = "not transparency-verified: cms signature is valid but no rekor inclusion proof was checked (interim posture)"
+	// both cms-at-trusted-time and transparency succeeded.
+	result.TransparencyVerified = true
+	result.RekorLogIndex = ts.RekorLogIndex
+	result.Verified = true
 	return result, nil
+}
+
+// establishTrustedTimestamp resolves a trusted time for the signature by its
+// sigstore backend. The signer cert's issuing Fulcio CA selects the path:
+//   - GitHub-internal certs anchor on an RFC3161 TSA token embedded in the CMS.
+//   - public-good (sigstore.dev) certs anchor on a Rekor inclusion proof.
+//
+// Returns an error (leaving the result transparency-unbound) when no trusted
+// anchor can be established.
+func establishTrustedTimestamp(cmsDER []byte, signerCert *x509.Certificate) (*trustedTimestamp, error) {
+	// the signer cert's issuing Fulcio CA must be unambiguously identifiable;
+	// fail closed if it is not, rather than guessing a path. guessing GitHub
+	// could otherwise route a public-good cert onto the TSA path and bypass the
+	// public-good fail-closed stance.
+	src, err := root.DetectTrustedRootFromCert(encodeCertPEM(signerCert))
+	if err != nil {
+		return nil, fmt.Errorf("cannot determine sigstore backend from signer cert: %w", err)
+	}
+
+	switch src {
+	case root.TrustedRootSourceGitHub:
+		// GitHub-internal path: extract and verify the RFC3161 TSA token, bound
+		// to the signature value of the same SignerInfo that carried it.
+		token, sigValue, ok := extractTimestampTokenAndSig(cmsDER)
+		if !ok {
+			return nil, fmt.Errorf("no RFC3161 timestamp token present in signature")
+		}
+		genTime, err := verifyTSATimestamp(token, sigValue)
+		if err != nil {
+			return nil, fmt.Errorf("TSA timestamp verification failed: %w", err)
+		}
+		return &trustedTimestamp{Time: genTime, Source: "tsa"}, nil
+	default:
+		// public-good path (sigstore.dev): a Rekor inclusion proof is the
+		// transparency anchor. live-log lookup / recorded-fixture verification is
+		// not yet wired into the gitsign path (tracked in issue #306), so fail
+		// closed rather than trust an unverified signature.
+		return nil, fmt.Errorf("public-good Rekor inclusion verification not yet supported on the gitsign path")
+	}
 }
 
 // encodeCommitWithoutSignature returns the raw bytes of the commit object without the signature.
@@ -293,27 +343,11 @@ func collectCommitRange(repo *git.Repository, from, to plumbing.Hash) ([]*object
 	return commits, nil
 }
 
-// fulcioPoolFn resolves the trusted Fulcio cert pool. it defaults to
-// buildFulcioPool (the embedded trusted roots) and is a seam so tests can inject a
-// self-signed root and exercise the CMS-at-now verification path with a
-// controllable trust anchor.
-var fulcioPoolFn = buildFulcioPool
-
-// SetFulcioPoolForTesting overrides the trusted Fulcio cert pool used by
-// VerifyCommit and returns a restore func. it exists so tests in this and sibling
-// packages can install a self-signed leaf as the trust anchor; production code
-// never calls it. mirrors the SetBuildInfo / NewVerifyCmdForTesting test-seam
-// convention used elsewhere in the repo.
-func SetFulcioPoolForTesting(pool *x509.CertPool) (restore func()) {
-	prev := fulcioPoolFn
-	fulcioPoolFn = func() (*x509.CertPool, error) { return pool, nil }
-	return func() { fulcioPoolFn = prev }
-}
-
 // buildFulcioPool extracts Fulcio CA certificates from the embedded trusted roots
 // and returns an x509.CertPool for chain verification.
 // Returns an error if no certificates could be loaded from any trusted root.
-func buildFulcioPool() (*x509.CertPool, error) {
+// It is a package var so tests can inject a self-signed test CA pool.
+var buildFulcioPool = func() (*x509.CertPool, error) {
 	pool := x509.NewCertPool()
 	added := 0
 
@@ -404,6 +438,11 @@ func extractIdentity(cert *x509.Certificate) (signer, issuer string) {
 func certFingerprint(cert *x509.Certificate) string {
 	h := sha256.Sum256(cert.Raw)
 	return fmt.Sprintf("%x", h)
+}
+
+// encodeCertPEM PEM-encodes a certificate's DER for trusted-root detection.
+func encodeCertPEM(cert *x509.Certificate) []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
 }
 
 // matchIdentity checks whether the signer identity matches the expected value.

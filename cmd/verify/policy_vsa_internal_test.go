@@ -11,52 +11,58 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGeneratePolicyVSA_RecordsFalseForUnboundSigner asserts that the policy VSA
-// records false for the signer/verification dimensions when a signer dimension is
-// not satisfied (ac8). generatePolicyVSA is unexported, so this test lives in the
-// in-package (package verify) test file rather than the external verify_test
-// package, which cannot reach it.
+// TestGeneratePolicyVSA_RecordsFalseForUnsignedSignerDimensions proves the VSA
+// records false for the signer/verification keys when a signer dimension fails
+// (ac8). generatePolicyVSA is unexported, so this test lives in-package
+// (package verify) — the external cmd/verify/policy_test.go cannot reach it.
 //
-// the result mirrors the interim-posture case the story calls out: commit
-// signatures are CMS-valid but transparency-unbound, so they are excluded from
-// SignedCommitCount and AllSigned. the VSA must not paint over that with a passing
-// signer dimension.
-func TestGeneratePolicyVSA_RecordsFalseForUnboundSigner(t *testing.T) {
+// This is the vsa-records-false case the story calls out: the overall policy
+// result is still true (no RequireSignedCommits ref to flip BranchProtection),
+// yet a signer dimension is false. The VSA's verificationResults must reflect
+// that — i.e. transparency-unbound signatures cannot mint a "passing" signer
+// dimension into a signed VSA.
+func TestGeneratePolicyVSA_RecordsFalseForUnsignedSignerDimensions(t *testing.T) {
 	dir := t.TempDir()
-	vsaOut := filepath.Join(dir, "vsa.json")
+	out := filepath.Join(dir, "vsa.json")
 
 	result := &gitpolicy.VerificationResult{
 		Ref:      "refs/heads/main",
-		Verified: false, // overall fails because a signer dimension is false
+		Verified: true, // overall policy still true (no RequireSignedCommits)
 		BranchProtection: &gitpolicy.BranchProtectionStatus{
-			RequireSignedCommits: true,
-			TotalCommitCount:     3,
-			SignedCommitCount:    0, // none counted: all signatures transparency-unbound
-			Verified:             false,
+			Verified:          true,
+			SignedCommitCount: 0,
+			TotalCommitCount:  3, // none of the 3 commits transparency-bound
 		},
 		SignerPolicy: &gitpolicy.SignerPolicyStatus{
-			RequiredSigners: []string{"https://github.com/liatrio/autogov/.github/workflows/release.yml@refs/heads/main"},
-			MissingSigners:  []string{"https://github.com/liatrio/autogov/.github/workflows/release.yml@refs/heads/main"},
-			AllSigned:       false,
+			RequiredSigners: []string{"required@example.com"},
+			AllSigned:       false, // signer dimension fails
+			MissingSigners:  []string{"required@example.com"},
 		},
 	}
 
-	err := generatePolicyVSA(result, dir, vsaOut, "https://example.com/policy")
+	err := generatePolicyVSA(result, dir, out, "https://example.com/policy")
 	require.NoError(t, err)
 
-	raw, err := os.ReadFile(vsaOut)
+	data, err := os.ReadFile(out)
 	require.NoError(t, err)
 
-	var parsed struct {
+	var vsa struct {
+		Predicate struct {
+			VerificationResult string `json:"verificationResult"`
+		} `json:"predicate"`
 		Metadata struct {
 			Details map[string]bool `json:"autogov.verification.details"`
 		} `json:"metadata"`
 	}
-	require.NoError(t, json.Unmarshal(raw, &parsed))
+	require.NoError(t, json.Unmarshal(data, &vsa))
 
-	details := parsed.Metadata.Details
+	details := vsa.Metadata.Details
 	require.NotNil(t, details)
-	assert.False(t, details["policy.verification"], "policy.verification must record false")
-	assert.False(t, details["policy.signer_policy"], "policy.signer_policy must record false for an unbound signer")
-	assert.False(t, details["policy.branch_protection"], "policy.branch_protection must record false")
+	// require the key is present so a dropped detail can't pass as a false read.
+	signerOK, ok := details["policy.signer_policy"]
+	require.True(t, ok, "policy.signer_policy must be present")
+	assert.False(t, signerOK, "signer policy must record false when AllSigned is false")
+	// overall verificationResult must be FAILED because a sub-key is false.
+	assert.Equal(t, "FAILED", vsa.Predicate.VerificationResult,
+		"a false signer dimension must flip the overall VSA result to FAILED")
 }
