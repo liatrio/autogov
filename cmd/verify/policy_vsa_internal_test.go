@@ -58,8 +58,10 @@ func TestGeneratePolicyVSA_RecordsFalseForUnsignedSignerDimensions(t *testing.T)
 
 	details := vsa.Metadata.Details
 	require.NotNil(t, details)
-	assert.False(t, details["policy.signer_policy"],
-		"signer policy must record false when AllSigned is false")
+	// require the key is present so a dropped detail can't pass as a false read.
+	signerOK, ok := details["policy.signer_policy"]
+	require.True(t, ok, "policy.signer_policy must be present")
+	assert.False(t, signerOK, "signer policy must record false when AllSigned is false")
 	// overall verificationResult must be FAILED because a sub-key is false.
 	assert.Equal(t, "FAILED", vsa.Predicate.VerificationResult,
 		"a false signer dimension must flip the overall VSA result to FAILED")

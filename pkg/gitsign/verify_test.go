@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -236,4 +237,9 @@ func TestNewVerifyOptions_Defaults(t *testing.T) {
 	opts := gitsign.VerifyOptions{}
 	assert.Empty(t, opts.CertIdentity)
 	assert.Empty(t, opts.CertIssuer)
+
+	// the dead SkipRekor field must stay removed: no caller may set a flag that
+	// silently disables transparency verification.
+	_, hasSkipRekor := reflect.TypeOf(gitsign.VerifyOptions{}).FieldByName("SkipRekor")
+	assert.False(t, hasSkipRekor, "SkipRekor must stay removed so callers cannot disable transparency verification")
 }
