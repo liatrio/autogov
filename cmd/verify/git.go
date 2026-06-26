@@ -32,9 +32,9 @@ Transparency anchoring is per Sigstore backend:
   - GitHub-internal signing (fulcio.githubapp.com): verified against the RFC3161
     timestamp token from timestamp.githubapp.com. Fully supported.
   - public-good signing (sigstore.dev): anchored on Rekor transparency-log
-    inclusion. Rekor inclusion verification is not yet wired into this path, so
-    public-good gitsign signatures currently fail closed (Not Verified) rather
-    than being trusted without a transparency proof.
+    inclusion. Rekor inclusion verification is not yet wired into this path
+    (tracked in issue #306), so public-good gitsign signatures currently fail
+    closed (Not Verified) rather than being trusted without a transparency proof.
 
 The revision argument specifies a single commit (hash, tag, or ref).
 Use --from and --to for a range of commits.

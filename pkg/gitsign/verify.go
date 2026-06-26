@@ -263,8 +263,8 @@ func establishTrustedTimestamp(cmsDER []byte, signerCert *x509.Certificate) (*tr
 	default:
 		// public-good path (sigstore.dev): a Rekor inclusion proof is the
 		// transparency anchor. live-log lookup / recorded-fixture verification is
-		// not yet wired into the gitsign path (tracked as phase-a follow-up), so
-		// fail closed rather than trust an unverified signature.
+		// not yet wired into the gitsign path (tracked in issue #306), so fail
+		// closed rather than trust an unverified signature.
 		return nil, fmt.Errorf("public-good Rekor inclusion verification not yet supported on the gitsign path")
 	}
 }
