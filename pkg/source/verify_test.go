@@ -1,9 +1,11 @@
 package source
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNormalizeRepoURI(t *testing.T) {
@@ -80,90 +82,40 @@ func TestIsAcceptedPredicateType(t *testing.T) {
 	assert.False(t, isAcceptedPredicateType("https://example.com/unknown"))
 }
 
-func TestComputeSLSASourceLevel(t *testing.T) {
-	tests := []struct {
-		name     string
-		verified bool
-		pred     SourceProvenancePredicate
-		expected string
-	}{
-		{
-			name:     "unverified signature returns L1",
-			verified: false,
-			pred:     SourceProvenancePredicate{},
-			expected: "SLSA_SOURCE_LEVEL_1",
-		},
-		{
-			name:     "verified signature without controlled builder returns L2",
-			verified: true,
-			pred:     SourceProvenancePredicate{},
-			expected: "SLSA_SOURCE_LEVEL_2",
-		},
-		{
-			name:     "verified with SLSA framework builder and build type returns L3",
-			verified: true,
-			pred: func() SourceProvenancePredicate {
-				var p SourceProvenancePredicate
-				p.RunDetails.Builder.ID = "https://github.com/slsa-framework/slsa-github-generator"
-				p.BuildDefinition.BuildType = "https://slsa.dev/source/v0.1"
-				return p
-			}(),
-			expected: "SLSA_SOURCE_LEVEL_3",
-		},
-		{
-			name:     "verified with GitHub Actions builder returns L3",
-			verified: true,
-			pred: func() SourceProvenancePredicate {
-				var p SourceProvenancePredicate
-				p.RunDetails.Builder.ID = "https://github.com/actions/runner"
-				p.BuildDefinition.BuildType = "https://github.com/actions/buildtype/v1"
-				return p
-			}(),
-			expected: "SLSA_SOURCE_LEVEL_3",
-		},
-		{
-			name:     "spoofed builder ID does not achieve L3",
-			verified: true,
-			pred: func() SourceProvenancePredicate {
-				var p SourceProvenancePredicate
-				p.RunDetails.Builder.ID = "https://evil.com/github.com/slsa-framework/fake"
-				p.BuildDefinition.BuildType = "https://slsa.dev/source/v0.1"
-				return p
-			}(),
-			expected: "SLSA_SOURCE_LEVEL_2",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, ComputeSLSASourceLevel(tt.verified, tt.pred))
-		})
-	}
-}
-
 func TestMapToCanonicalSourceLevel(t *testing.T) {
-	// review/provenance evidence is mapped conservatively: a verified signature
+	// evidence is mapped conservatively: a verified source-provenance signature
 	// proves L1 (version control + provenance), nothing higher; unverified is L0.
+	// The level is never inferred from the builder identity, and there is no
+	// numbered L4 — honest L2/L3 require recorded + enforced branch controls.
 	assert.Equal(t, "SLSA_SOURCE_LEVEL_0", MapToCanonicalSourceLevel(false))
 	assert.Equal(t, "SLSA_SOURCE_LEVEL_1", MapToCanonicalSourceLevel(true))
 }
 
-func TestIsComputedSourceLevel3(t *testing.T) {
-	// accepts both the canonical and legacy L3 tokens; rejects lower levels.
-	assert.True(t, IsComputedSourceLevel3("SLSA_SOURCE_LEVEL_3"))
-	assert.True(t, IsComputedSourceLevel3("SLSA_SOURCE_L3")) // legacy form
-	assert.False(t, IsComputedSourceLevel3("SLSA_SOURCE_LEVEL_2"))
-	assert.False(t, IsComputedSourceLevel3("SLSA_SOURCE_L2"))
-	assert.False(t, IsComputedSourceLevel3("SLSA_SOURCE_LEVEL_1"))
-	assert.False(t, IsComputedSourceLevel3(""))
+func TestVerifySourceProvenance_VerifiedBundleReportsLevel1(t *testing.T) {
+	// End-to-end honesty lock: a genuinely-verified public-good source bundle
+	// reports the honest floor SLSA_SOURCE_LEVEL_1 — never a higher level
+	// inferred from the builder identity. The fixture verifies offline against
+	// the embedded public-good trusted root (see
+	// TestSelectTrustedRootPublicGoodVerifies); empty VerifyOptions skip the
+	// repo/commit/identity constraints so the signature alone drives the result.
+	result, err := VerifySourceProvenance(filepath.Join("testdata", "bundle-public-good.jsonl"), VerifyOptions{})
+	require.NoError(t, err)
+	require.True(t, result.Verified, "public-good source bundle should verify: %s", result.ErrorMsg)
+	assert.Equal(t, "SLSA_SOURCE_LEVEL_1", result.SLSASourceLevel)
+}
 
-	// regression: ComputeSLSASourceLevel's actual L3 output must be recognized so
-	// the controlled-builder annotation fires whichever token form the
-	// canonical-token fix happens to emit.
-	var pred SourceProvenancePredicate
-	pred.RunDetails.Builder.ID = "https://github.com/actions/runner"
-	pred.BuildDefinition.BuildType = "https://slsa.dev/foo"
-	assert.True(t, IsComputedSourceLevel3(ComputeSLSASourceLevel(true, pred)))
+func TestVerifySourceProvenance_UnverifiedReportsLevel0(t *testing.T) {
+	// The honest floor on a failed verification: pointing the verifier at the
+	// real bundle with a non-matching expected commit yields Verified==false and
+	// the level present as SLSA_SOURCE_LEVEL_0 (not empty) so callers can
+	// distinguish an honest L0 from missing data.
+	result, err := VerifySourceProvenance(
+		filepath.Join("testdata", "bundle-public-good.jsonl"),
+		VerifyOptions{Commit: "0000000000000000000000000000000000000000"},
+	)
+	require.NoError(t, err)
+	assert.False(t, result.Verified)
+	assert.Equal(t, "SLSA_SOURCE_LEVEL_0", result.SLSASourceLevel)
 }
 
 func TestExtractRepoURI(t *testing.T) {
