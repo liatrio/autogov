@@ -25,7 +25,7 @@ jobs:
       actions: read
       pull-requests: read
       artifact-metadata: write
-    uses: liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@fcc19b17d1453b2172ca012719da4c8663652514 # v0.27.0
+    uses: liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@b6c847fb50b581fcd3a3e282696f0c1bb4cbc3ab # v0.27.4
     secrets: inherit
     with:
       subject-path: autogov
@@ -39,12 +39,18 @@ jobs:
       contents: read
       actions: read
       artifact-metadata: write
-    uses: liatrio/autogov-workflows/.github/workflows/rw-verify.yaml@fcc19b17d1453b2172ca012719da4c8663652514 # v0.27.0
+    uses: liatrio/autogov-workflows/.github/workflows/rw-verify.yaml@b6c847fb50b581fcd3a3e282696f0c1bb4cbc3ab # v0.27.4
     secrets: inherit
     with:
       build-type: blob
       blob-artifact-id: ${{ needs.attest-blob.outputs.blob-artifact-id }}
-      cert-identity: https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@fcc19b17d1453b2172ca012719da4c8663652514 # v0.27.0
+      cert-identity: https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@b6c847fb50b581fcd3a3e282696f0c1bb4cbc3ab # v0.27.4
+      # autogov claims SLSA Source L3 (continuously enforced branch-protection
+      # controls), NOT L4 (two-party review), so its OWN release self-verify must
+      # not require approvals. override source-review to min_approvals 0 for this
+      # repo only; the published consumer policy bundle stays strict (min 1) for
+      # consumers who choose to assert two-party review.
+      policy-data-overlay: '{"source_review_thresholds":{"min_approvals":0}}'
       # gate the self-release on policy: a FAILED self-verify fails verify-blob,
       # so the release job (needs: [verify-blob]) is skipped. the FAILED VSA is
       # still attested and uploaded before the gate.
