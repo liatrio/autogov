@@ -23,6 +23,10 @@ type SourceReviewControls struct {
 	BypassActors            []string
 	BypassActorsComplete    bool
 	ContinuityStartRevision string
+	// ContinuityComplete mirrors the producer's fail-closed continuity signal: L3
+	// continuity is satisfied ONLY when this is true AND ContinuityStartRevision is
+	// non-empty. A bundle missing this field decodes it to false -> dormant.
+	ContinuityComplete bool
 	// TwoPartyReviewed is derived from the source-review summary (>= 2 distinct
 	// approvers). It feeds the ORG_SOURCE_TWO_PARTY_REVIEWED annotation only —
 	// review is the v1.2 "L4" tier, never folded into the numeric L3.
@@ -49,6 +53,10 @@ type sourceReviewPredicate struct {
 		RequiredStatusChecks  []string `json:"requiredStatusChecks"`
 		BypassActors          []string `json:"bypassActors"`
 		BypassActorsComplete  bool     `json:"bypassActorsComplete"`
+		// ContinuityComplete is the v0.2 fail-closed continuity signal. When the
+		// field is absent it decodes to false (continuity undetermined -> dormant),
+		// so a bundle that does not assert it can never over-claim L3 continuity.
+		ContinuityComplete bool `json:"continuityComplete"`
 	} `json:"technicalControls"`
 	ContinuityStartRevision string `json:"continuityStartRevision"`
 }
@@ -129,6 +137,7 @@ func VerifySourceReviewControls(bundlePath string, opts VerifyOptions) (*SourceR
 		BypassActors:            tc.BypassActors,
 		BypassActorsComplete:    tc.BypassActorsComplete,
 		ContinuityStartRevision: pred.ContinuityStartRevision,
+		ContinuityComplete:      tc.ContinuityComplete,
 		TwoPartyReviewed:        pred.Summary.DistinctApprovers >= 2,
 	}, nil
 }
@@ -193,7 +202,15 @@ func ComputeSourceLevelFromControls(tc *SourceReviewControls, allowedBypass []st
 		(tc.RequiredLinearHistory || tc.DeletionBlocked) &&
 		tc.BypassActorsComplete &&
 		bypassActorsAllNarrow(tc.BypassActors, allowedBypass)
-	continuityMet := strings.TrimSpace(tc.ContinuityStartRevision) != ""
+	// FAIL-CLOSED continuity: a non-empty ContinuityStartRevision is NOT enough.
+	// The producer must also assert ContinuityComplete (the ruleset-history walk
+	// proved an unbroken window). A bundle that omits ContinuityComplete decodes it
+	// to false and the source level stays dormant — it cannot over-claim L3 even if
+	// a start revision is present.
+	continuityMet := tc.ContinuityComplete && strings.TrimSpace(tc.ContinuityStartRevision) != ""
+	if continuityMet {
+		annotations = append(annotations, "ORG_SOURCE_CONTINUOUS_ENFORCEMENT")
+	}
 
 	if controlsMet && continuityMet {
 		return SLSASourceLevel3, annotations

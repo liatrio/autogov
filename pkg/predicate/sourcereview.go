@@ -17,9 +17,17 @@ import (
 // revision that produced an artifact (SLSA source-track / two-person review).
 // No in-toto or SLSA standard predicate exists for source review — SLSA's
 // source track leaves it vendor-specific and gittuf/liatr.io both namespace
-// their own — so this mirrors the metadata/code-scan precedent. Kept at v0.1
-// until the GitHub review mapping soaks; the URI is permanent once published.
-const SourceReviewPredicateTypeURI = "https://autogov.dev/attestation/source-review/v0.1"
+// their own — so this mirrors the metadata/code-scan precedent.
+//
+// v0.2 (current, only recognized version): adds fail-closed continuity evidence
+// (continuityComplete + continuityEvidence) so continuityStartRevision becomes a
+// genuine no-gap CLAIM rather than a placeholder. The bump to a NEW URI was
+// deliberate: it stops an OLD (v0.1) verifier — which has no notion of
+// continuityComplete — from misreading a v0.2 bundle's now-populated
+// continuityStartRevision as a satisfied L3 continuity leg (an over-claim). v0.1
+// is no longer recognized; a missing continuityComplete still decodes false
+// (dormant), so a v0.2 verifier can never over-claim L3 from an older bundle.
+const SourceReviewPredicateTypeURI = "https://autogov.dev/attestation/source-review/v0.2"
 
 // GitHub pull request review states (REST Reviews endpoint). The real enum is
 // CHANGES_REQUESTED (not the docs' "REQUEST_CHANGES"). COMMENTED and PENDING are
@@ -83,7 +91,7 @@ type SourceReviewSummary struct {
 	SelfApprovalExcluded bool `json:"selfApprovalExcluded"`
 	// CodeownerReviewMet is tri-state: a nil pointer (JSON null) means "not
 	// authoritatively determinable" — REST-only cannot reliably evaluate
-	// CODEOWNERS, so v0.1 always leaves it null. The gate treats null as
+	// CODEOWNERS, so the producer always leaves it null. The gate treats null as
 	// undetermined and fails closed when codeowner review is required.
 	CodeownerReviewMet *bool `json:"codeownerReviewMet"`
 }
@@ -97,10 +105,10 @@ type SourceReviewBranchProtection struct {
 	DismissStaleReviews          bool `json:"dismissStaleReviews"`
 	RequireCodeownerReview       bool `json:"requireCodeownerReview"`
 	// RequireLastPushApproval records GitHub's "last push must be approved by
-	// someone other than the pusher" control. v0.1 enforces the on-head-commit
-	// half via staleness (an approval not on the PR head does not count); the
-	// "approver != last pusher" nuance requires push authorship not fetched here,
-	// so it is recorded as evidence and left for a future version.
+	// someone other than the pusher" control. The producer enforces the
+	// on-head-commit half via staleness (an approval not on the PR head does not
+	// count); the "approver != last pusher" nuance requires push authorship not
+	// fetched here, so it is recorded as evidence and left for a future version.
 	RequireLastPushApproval bool `json:"requireLastPushApproval"`
 }
 
@@ -128,10 +136,52 @@ type SourceReviewTechnicalControls struct {
 	// empty BypassActors means "unknown", NOT "none" — the verifier MUST fail
 	// closed rather than read the absence as no-bypass.
 	BypassActorsComplete bool `json:"bypassActorsComplete"`
+	// ContinuityComplete is true ONLY when the ruleset version-history walk proved
+	// the L3-relevant controls were never disabled/weakened from a start revision
+	// through the attested revision (an unbroken enforcement window). It is the
+	// continuity sibling of BypassActorsComplete: when false (the default, and the
+	// outcome of any unreadable/ambiguous history), the verifier MUST treat
+	// continuity as UNDETERMINED and keep the source level dormant — an empty or
+	// even populated ContinuityStartRevision is meaningless without it.
+	ContinuityComplete bool `json:"continuityComplete"`
+}
+
+// SourceReviewContinuityEvidence records HOW continuity was established (or why it
+// could not be), as audit evidence. It never relaxes a gate: the verifier keys on
+// TechnicalControls.ContinuityComplete + a non-empty ContinuityStartRevision, not
+// on this block. Method is "ruleset-history" on a proven window, else "none".
+type SourceReviewContinuityEvidence struct {
+	// Method is "ruleset-history" when continuity was proven by walking ruleset
+	// version history, or "none" when it could not be established (the fail-closed
+	// default). Any other meaning is reserved.
+	Method string `json:"method"`
+	// RulesetIDs are the distinct backing ruleset ids whose histories were walked.
+	RulesetIDs []int64 `json:"rulesetIds,omitempty"`
+	// VersionsWalked is the total number of historical ruleset versions inspected.
+	VersionsWalked int `json:"versionsWalked"`
+	// EarliestHistoryAt is the UpdatedAt of the oldest retained version observed
+	// across the walked rulesets (RFC3339, UTC). Used to detect retention capping.
+	EarliestHistoryAt string `json:"earliestHistoryAt,omitempty"`
+	// WindowStartAt is the latest per-ruleset clean-run start across all legs
+	// (RFC3339, UTC) — continuity holds only since ALL legs were simultaneously
+	// enforced. Empty when continuity was not established.
+	WindowStartAt string `json:"windowStartAt,omitempty"`
+	// WeakenedAt is the UpdatedAt (RFC3339, UTC) of the version that broke
+	// continuity (disabled/weakened/excluded/wide-bypass). Empty ("") on a clean
+	// window.
+	WeakenedAt string `json:"weakenedAt,omitempty"`
+	// HistoryComplete is true only when every walked ruleset's history was read in
+	// full (no 403/404, no pagination/truncation). False forces ContinuityComplete
+	// false (unknown history is not "no changes").
+	HistoryComplete bool `json:"historyComplete"`
+	// RetentionCapped is true when the earliest retained version is NEWER than the
+	// computed window start — the start cannot be corroborated by retained history,
+	// so continuity fails closed.
+	RetentionCapped bool `json:"retentionCapped"`
 }
 
 // SourceReview is the predicate portion of an autogov source-review attestation
-// (https://autogov.dev/attestation/source-review/v0.1).
+// (https://autogov.dev/attestation/source-review/v0.2).
 type SourceReview struct {
 	// subject-binding fields, not part of the predicate body
 	Type        ArtifactType `json:"-"`
@@ -160,15 +210,22 @@ type SourceReview struct {
 	// required status checks, bypass actors). Best-effort, evidence only.
 	TechnicalControls *SourceReviewTechnicalControls `json:"technicalControls,omitempty"`
 
-	// ContinuityStartRevision is the revision from which the enforced controls
-	// have been continuously applied (SLSA L3 continuity). v0.1 has no continuity
-	// tracking, so it is always empty; the verifier MUST NOT infer L3 continuity
-	// from an empty value (absence is undetermined, not satisfied).
+	// ContinuityStartRevision is set ONLY when ContinuityEvidence proves an
+	// unbroken enforcement window from this revision through the attested revision
+	// (SLSA L3 continuity); it is empty otherwise. The verifier MUST NOT infer L3
+	// continuity from this value alone — it gates on TechnicalControls.
+	// ContinuityComplete AND a non-empty value together (absence or an
+	// incomplete-proof value is undetermined, not satisfied).
 	ContinuityStartRevision string `json:"continuityStartRevision,omitempty"`
+
+	// ContinuityEvidence records how the continuity window was established (or why
+	// it could not be). Audit evidence only — the gate keys on ContinuityComplete +
+	// ContinuityStartRevision. Omitted when continuity was not even attempted.
+	ContinuityEvidence *SourceReviewContinuityEvidence `json:"continuityEvidence,omitempty"`
 
 	// ReviewDecision is reserved for an optional best-effort GraphQL enrichment
 	// (pullRequest.reviewDecision). It is INFORMATIONAL ONLY and never a basis for
-	// PASS. v0.1 adds no GraphQL client, so it is always empty here.
+	// PASS. The producer adds no GraphQL client, so it is always empty here.
 	ReviewDecision string `json:"reviewDecision,omitempty"`
 
 	Configuration []ResourceDescriptor `json:"configuration"`
@@ -284,11 +341,21 @@ func NewSourceReview(ctx context.Context, svc ReviewService, opts SourceReviewOp
 	// step 8b: enforced SLSA-L3 technical controls (force-push/linear/deletion/
 	// signatures/status-checks + bypass actors). Best-effort, evidence only; the
 	// verifier (not the producer) judges whether they earn L3.
-	if tc := fetchTechnicalControls(ctx, svc, opts.Owner, opts.Repo, prBaseRef); tc != nil {
+	tc, idSet := fetchTechnicalControls(ctx, svc, opts.Owner, opts.Repo, prBaseRef)
+	if tc != nil {
 		c.TechnicalControls = tc
+
+		// step 8c (v0.2): prove the L3-relevant controls were never disabled or
+		// weakened from a start revision through the attested revision by walking
+		// the ruleset VERSION HISTORY. FAIL-CLOSED on any unreadable history,
+		// non-active version, branch-exclusion, wide bypass, truncation, retention
+		// cap, or commit-walk truncation: ContinuityComplete stays false and
+		// ContinuityStartRevision stays empty so the verifier keeps L3 dormant.
+		startRev, complete, ev := computeContinuity(ctx, svc, opts.Owner, opts.Repo, normalizeRef(prBaseRef), idSet, queriedSHA)
+		tc.ContinuityComplete = complete
+		c.ContinuityStartRevision = truncateRunes(startRev, srMaxSHALen)
+		c.ContinuityEvidence = &ev
 	}
-	// ContinuityStartRevision is intentionally empty in v0.1 (no continuity
-	// tracking); the verifier must not infer L3 continuity from an empty value.
 
 	// step 2: reviews -> latest opinionated review per user.id.
 	reviews, err := listReviews(ctx, svc, opts.Owner, opts.Repo, selected.GetNumber())
@@ -374,7 +441,7 @@ func NewSourceReview(ctx context.Context, svc ReviewService, opts SourceReviewOp
 		RequiredApprovals:    requiredApprovals,
 		RequirementMet:       distinct >= requiredApprovals,
 		SelfApprovalExcluded: selfApproved,
-		CodeownerReviewMet:   nil, // tri-state null in v0.1 (REST-only; no CODEOWNERS authority)
+		CodeownerReviewMet:   nil, // tri-state null (REST-only; no CODEOWNERS authority)
 	}
 	if opts.IncludeApprovers {
 		if approvers == nil {
@@ -544,9 +611,13 @@ func listPullRequestRules(ctx context.Context, svc ReviewService, owner, repo, b
 // more locked than it is (an over-claim). BypassActorsComplete records whether
 // the bypass list is authoritative: it is false when pagination was truncated OR
 // any GetRuleset failed, so the verifier can fail closed on "unknown".
-func fetchTechnicalControls(ctx context.Context, svc ReviewService, owner, repo, branch string) *SourceReviewTechnicalControls {
+//
+// It also returns the distinct backing ruleset idSet so computeContinuity can
+// walk each ruleset's version history. The idSet is nil/empty when no controls
+// were discovered (tc==nil), which makes continuity fail closed.
+func fetchTechnicalControls(ctx context.Context, svc ReviewService, owner, repo, branch string) (*SourceReviewTechnicalControls, map[int64]struct{}) {
 	if branch == "" {
-		return nil
+		return nil, nil
 	}
 
 	const maxPages = 10
@@ -569,7 +640,7 @@ func fetchTechnicalControls(ctx context.Context, svc ReviewService, owner, repo,
 		}
 		if err != nil || rules == nil {
 			if !sawRules {
-				return nil // read nothing at all -> no controls visible.
+				return nil, nil // read nothing at all -> no controls visible.
 			}
 			rulesComplete = false // partial read -> bypass list is not authoritative.
 			break
@@ -645,7 +716,7 @@ func fetchTechnicalControls(ctx context.Context, svc ReviewService, owner, repo,
 	}
 
 	if !sawRules {
-		return nil
+		return nil, nil
 	}
 	sort.Strings(tc.RequiredStatusChecks)
 	if len(tc.RequiredStatusChecks) > srMaxControlItems {
@@ -689,9 +760,509 @@ func fetchTechnicalControls(ctx context.Context, svc ReviewService, owner, repo,
 	// keep omitempty honest: emit only when a control was actually discovered.
 	if !tc.ForcePushBlocked && !tc.RequiredLinearHistory && !tc.DeletionBlocked &&
 		!tc.RequiredSignatures && len(tc.RequiredStatusChecks) == 0 && len(tc.BypassActors) == 0 {
-		return nil
+		return nil, nil
 	}
-	return tc
+	return tc, idSet
+}
+
+// continuityMaxVersions caps the per-ruleset history pages/versions walked, a DoS
+// backstop. Hitting it makes HistoryComplete false (fail closed) — we will not
+// claim continuity over a history we could not read in full.
+const (
+	continuityMaxHistoryPages = 20
+	continuityMaxVersions     = 2000
+)
+
+// computeContinuity proves, FAIL-CLOSED, that the L3-relevant controls were never
+// disabled or weakened from a start revision through the attested revision, by
+// walking each backing ruleset's VERSION HISTORY (newest->oldest). It returns the
+// start revision + complete=true ONLY when an unbroken clean window is proven and
+// corroborated; on ANY ambiguity it returns ("", false, ev{Method:"none"}).
+//
+// created_at is NOT load-bearing: each version's full STATE is inspected. The
+// verifier never calls GitHub — all GitHub/time->commit work happens here.
+//
+// Fail-closed conditions (each yields ("", false, ...)):
+//   - history 403/404/unreadable (incl. the org/parent fallback) -> HistoryComplete false
+//   - pagination/version cap hit (history truncation)            -> HistoryComplete false
+//   - the current bypass list is not authoritative               -> can't bound "narrow"
+//   - any version: enforcement != "active"                       -> WeakenedAt set
+//   - any version: a required L3 rule type absent                -> WeakenedAt set
+//   - any version: conditions.ref_name does not target branch    -> WeakenedAt set
+//     (incl. an explicit branch EXCLUSION window)
+//   - any version: a bypass actor NOT in the current narrow set  -> WeakenedAt set
+//   - earliest retained version newer than the window start      -> RetentionCapped
+//   - the time->commit walk truncates / errors                  -> fail closed
+func computeContinuity(ctx context.Context, svc ReviewService, owner, repo, branch string, idSet map[int64]struct{}, queriedSHA string) (string, bool, SourceReviewContinuityEvidence) {
+	none := SourceReviewContinuityEvidence{Method: continuityMethodNone}
+
+	if len(idSet) == 0 || branch == "" {
+		return "", false, none // no backing rulesets -> undetermined.
+	}
+
+	// The "narrow" bound for history is the CURRENT attested bypass set: a clean
+	// version may not have had ANY bypass actor wider than what is enforced now. We
+	// also capture each ruleset's CreatedAt to corroborate that the oldest retained
+	// version is the ruleset's creation (retention-cap detection). If the current
+	// set is not authoritative we cannot bound narrowness -> fail closed.
+	current, createdAt, currentComplete := currentRulesetFacts(ctx, svc, owner, repo, idSet)
+	if !currentComplete {
+		return "", false, none
+	}
+
+	// The repo default branch: needed to safely judge a version that targets only
+	// "~DEFAULT_BRANCH". Unreadable -> defaultBranch == "" -> a "~DEFAULT_BRANCH"-only
+	// version fails closed (cannot prove it covered this branch).
+	defaultBranch := repoDefaultBranch(ctx, svc, owner, repo)
+
+	ev := SourceReviewContinuityEvidence{
+		Method:          continuityMethodHistory,
+		HistoryComplete: true,
+	}
+	ids := make([]int64, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	ev.RulesetIDs = ids
+
+	var latestStart time.Time // max over legs: continuity holds only since ALL enforced.
+	var earliestRetained time.Time
+	for _, id := range ids {
+		versions, ok := walkRulesetHistory(ctx, svc, owner, repo, id, &ev)
+		if !ok {
+			return "", false, none // unreadable/truncated history -> fail closed.
+		}
+		if len(versions) == 0 {
+			return "", false, none // no version state -> undetermined.
+		}
+
+		// versions are newest->oldest; the oldest retained sets earliest history.
+		oldest := versions[len(versions)-1]
+		if oldest.updatedAt.IsZero() {
+			// a retained version with no effective time cannot anchor a window or be
+			// corroborated against creation -> fail closed.
+			return "", false, none
+		}
+		if earliestRetained.IsZero() || oldest.updatedAt.Before(earliestRetained) {
+			earliestRetained = oldest.updatedAt
+		}
+
+		legStart, weakenedAt, brokeObserved, run, clean := legCleanStart(versions, branch, defaultBranch, current)
+		if !clean {
+			ev.WeakenedAt = formatContinuityTime(weakenedAt)
+			return "", false, ev
+		}
+		if legStart.IsZero() {
+			// a clean run whose start time is zero (a clean version with a null
+			// effective time) cannot anchor the window -> fail closed.
+			return "", false, none
+		}
+
+		// RETENTION CORROBORATION (per leg). When the clean run reaches the OLDEST
+		// retained version WITHOUT observing a break, we cannot, from history alone,
+		// rule out that older WEAKENED versions aged out of retention. Require positive
+		// proof that the oldest retained version is the ruleset's CREATION: its
+		// effective time must be at-or-before the ruleset's CreatedAt (the creation
+		// version is still retained). Otherwise older versions were pruned and the
+		// window cannot be corroborated -> RetentionCapped, fail closed.
+		if !brokeObserved {
+			created, haveCreated := createdAt[id]
+			if !haveCreated || created.IsZero() || legStart.After(created) {
+				ev.RetentionCapped = true
+				return "", false, ev
+			}
+		}
+		// version-id gap check: a hole in the monotonic version_id sequence WITHIN the
+		// clean run means an intermediate version was pruned and we cannot prove it was
+		// clean -> fail closed (defense-in-depth against mid-history retention).
+		if hasVersionIDGap(run) {
+			ev.RetentionCapped = true
+			return "", false, ev
+		}
+
+		if legStart.After(latestStart) {
+			latestStart = legStart
+		}
+	}
+
+	if latestStart.IsZero() {
+		return "", false, none // no clean start computed -> undetermined.
+	}
+	// round the window start to whole seconds so the recorded WindowStartAt and the
+	// since= query that anchors R0 are reproducible (RFC3339 has no sub-second here).
+	latestStart = latestStart.UTC().Truncate(time.Second)
+	ev.WindowStartAt = formatContinuityTime(latestStart)
+	ev.EarliestHistoryAt = formatContinuityTime(earliestRetained)
+
+	// global retention guard (redundant with the per-leg creation check, kept as a
+	// belt-and-braces): the earliest readable version must not be newer than the
+	// window start.
+	if earliestRetained.After(latestStart) {
+		ev.RetentionCapped = true
+		return "", false, ev
+	}
+
+	// map the start TIME to a start COMMIT on the protected branch: the OLDEST commit
+	// at-or-after the window start. R0 is approximate (the start time is the ruleset
+	// effective time, not a commit time).
+	startRev, ok := startCommitAtOrAfter(ctx, svc, owner, repo, branch, latestStart, queriedSHA)
+	if !ok || startRev == "" {
+		return "", false, ev // commit-walk truncation/error -> fail closed.
+	}
+
+	ev.WeakenedAt = "" // explicit: clean window.
+	return startRev, true, ev
+}
+
+const (
+	continuityMethodNone    = "none"
+	continuityMethodHistory = "ruleset-history"
+)
+
+// currentRulesetFacts returns, for the head rulesets: the set of bypass actors
+// (the narrowness bound — a historical version is narrow only if its bypass actors
+// are a SUBSET of this set), and each ruleset's CreatedAt (creation-corroboration
+// for the retention check). complete is false if ANY ruleset is unreadable —
+// without the authoritative current state we cannot bound narrowness or corroborate
+// retention, so continuity fails closed.
+func currentRulesetFacts(ctx context.Context, svc ReviewService, owner, repo string, idSet map[int64]struct{}) (map[string]struct{}, map[int64]time.Time, bool) {
+	set := map[string]struct{}{}
+	created := map[int64]time.Time{}
+	for id := range idSet {
+		rs, resp, err := svc.GetRuleset(ctx, owner, repo, id, true)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		if err != nil || rs == nil {
+			return nil, nil, false // current state unknown -> cannot bound narrow.
+		}
+		for _, a := range rs.GetBypassActors() {
+			if a == nil {
+				continue
+			}
+			set[formatBypassActor(a)] = struct{}{}
+		}
+		created[id] = rs.GetCreatedAt().UTC()
+	}
+	return set, created, true
+}
+
+// repoDefaultBranch returns the repo's default branch, or "" when unreadable. A ""
+// result makes a "~DEFAULT_BRANCH"-only ruleset version fail closed (we cannot
+// prove it covered the artifact's protected branch).
+func repoDefaultBranch(ctx context.Context, svc ReviewService, owner, repo string) string {
+	r, resp, err := svc.GetRepository(ctx, owner, repo)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil || r == nil {
+		return ""
+	}
+	return r.GetDefaultBranch()
+}
+
+// hasVersionIDGap reports whether the clean run (newest->oldest) has a hole in its
+// monotonic version_id sequence — i.e. some adjacent pair differs by more than 1,
+// which means an intermediate version was pruned/aged out and cannot be proven
+// clean. A zero/unknown version id (<=0) is treated as a gap (fail closed). The run
+// is sorted by version_id descending here so it does not depend on the timestamp
+// ordering.
+func hasVersionIDGap(run []historyVersion) bool {
+	if len(run) <= 1 {
+		// a single-version run has no intermediate gap, but a zero id is unprovable.
+		return len(run) == 1 && run[0].versionID <= 0
+	}
+	ids := make([]int64, len(run))
+	for i, v := range run {
+		if v.versionID <= 0 {
+			return true // an unknown version id cannot be proven contiguous.
+		}
+		ids[i] = v.versionID
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] > ids[j] }) // descending
+	for i := 1; i < len(ids); i++ {
+		if ids[i-1]-ids[i] != 1 {
+			return true // a hole in the sequence -> a version was pruned.
+		}
+	}
+	return false
+}
+
+// historyVersion is the per-version state plus its effective time and version id,
+// in the order returned by the API (newest first).
+type historyVersion struct {
+	versionID int64
+	updatedAt time.Time
+	state     *RulesetVersionState
+}
+
+// walkRulesetHistory fetches a ruleset's full version history (paginated) and the
+// STATE of each version, newest->oldest. ok is false (fail closed) on any 403/404/
+// unreadable history, an unreadable version state, or pagination/version-cap
+// truncation; HistoryComplete on ev is set false in those cases.
+func walkRulesetHistory(ctx context.Context, svc ReviewService, owner, repo string, id int64, ev *SourceReviewContinuityEvidence) ([]historyVersion, bool) {
+	opts := &gh.ListOptions{PerPage: 100}
+	var metas []*RulesetVersion
+	for attempt := 0; attempt < continuityMaxHistoryPages; attempt++ {
+		page, resp, err := svc.GetRulesetHistory(ctx, owner, repo, id, opts)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		if err != nil {
+			ev.HistoryComplete = false
+			return nil, false // 403/404/unreadable -> fail closed (never "no changes").
+		}
+		metas = append(metas, page...)
+		if len(metas) > continuityMaxVersions {
+			ev.HistoryComplete = false
+			return nil, false
+		}
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+		if attempt == continuityMaxHistoryPages-1 {
+			ev.HistoryComplete = false
+			return nil, false // more pages remain but we hit the cap.
+		}
+	}
+	if len(metas) == 0 {
+		ev.HistoryComplete = false
+		return nil, false
+	}
+
+	out := make([]historyVersion, 0, len(metas))
+	for _, m := range metas {
+		if m == nil {
+			ev.HistoryComplete = false
+			return nil, false
+		}
+		state, resp, err := svc.GetRulesetVersion(ctx, owner, repo, id, m.VersionID)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		if err != nil || state == nil {
+			ev.HistoryComplete = false
+			return nil, false // unreadable version state -> fail closed.
+		}
+		ev.VersionsWalked++
+		out = append(out, historyVersion{versionID: m.VersionID, updatedAt: m.UpdatedAt, state: state})
+	}
+
+	// guarantee a deterministic newest->oldest order independent of server order:
+	// primary key UpdatedAt descending, tie-broken by VersionID descending so that
+	// same-instant versions sort deterministically (reproducible signed evidence)
+	// and the contiguous-run boundary is stable.
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].updatedAt.Equal(out[j].updatedAt) {
+			return out[i].versionID > out[j].versionID
+		}
+		return out[i].updatedAt.After(out[j].updatedAt)
+	})
+	return out, true
+}
+
+// legCleanStart finds the longest CONTIGUOUS clean run from the current (newest)
+// version backward. It returns: the run's earliest version's effective time
+// (start); the time of the version that broke the run (weakenedAt, when !clean);
+// brokeObserved — whether a break was actually seen (vs the run reaching the oldest
+// retained version); the clean-run slice (for the version-id gap check); and clean.
+//
+// Because continuity must hold from the attested revision back to the start, the
+// run MUST begin at the newest version: if the newest version is not clean,
+// continuity is broken NOW and the whole leg fails. When the run reaches the oldest
+// retained version WITHOUT a break (brokeObserved=false), the caller must separately
+// corroborate the oldest retained version is the ruleset creation (retention cap).
+func legCleanStart(versions []historyVersion, branch, defaultBranch string, currentBypass map[string]struct{}) (start, weakenedAt time.Time, brokeObserved bool, run []historyVersion, clean bool) {
+	for i, v := range versions { // newest -> oldest
+		if !versionEnforcesL3(v.state, branch, defaultBranch, currentBypass) {
+			if i == 0 {
+				return time.Time{}, v.updatedAt, true, nil, false // broken at the head -> no window.
+			}
+			// a break older than the head ends the clean run; start was the previous
+			// (newer) version's time, already recorded in `start`.
+			return start, time.Time{}, true, run, true
+		}
+		start = v.updatedAt // extend the clean run to this (older) version.
+		run = append(run, v)
+	}
+	return start, time.Time{}, false, run, true // every retained version clean (no break seen).
+}
+
+// versionEnforcesL3 reports whether a single historical ruleset version enforces
+// the L3-relevant controls. DEFENSIVE: an unknown/missing enforcement is treated
+// as NON-active; a missing rule is NOT present; a missing/non-targeting ref_name
+// fails; a bypass actor outside the current narrow set fails. Never
+// default-to-satisfied.
+func versionEnforcesL3(state *RulesetVersionState, branch, defaultBranch string, currentBypass map[string]struct{}) bool {
+	if state == nil {
+		return false
+	}
+	// enforcement must be exactly "active" (evaluate/disabled/unknown -> not enforced).
+	if state.Enforcement != string(gh.RulesetEnforcementActive) {
+		return false
+	}
+	if !refTargetsBranch(state.Conditions, branch, defaultBranch) {
+		return false
+	}
+	r := state.Rules
+	if r == nil {
+		return false // no rules object -> nothing present.
+	}
+	// required L3 rule types: force-push blocked (NonFastForward), >=1 required
+	// status check, retained/linear-or-deletion history.
+	if r.NonFastForward == nil {
+		return false
+	}
+	if r.RequiredStatusChecks == nil || len(r.RequiredStatusChecks.RequiredStatusChecks) == 0 {
+		return false
+	}
+	if r.RequiredLinearHistory == nil && r.Deletion == nil {
+		return false
+	}
+	// bypass narrowness: every actor in this version must be in the current set.
+	for _, a := range state.BypassActors {
+		if a == nil {
+			continue
+		}
+		if _, ok := currentBypass[formatBypassActor(a)]; !ok {
+			return false // a bypass wider than current -> weakened.
+		}
+	}
+	return true
+}
+
+// refTargetsBranch reports whether a version's conditions target the branch and do
+// NOT exclude it. A nil conditions/ref_name is ambiguous -> not targeting (fail
+// closed). FAIL-CLOSED on the exclude side: any exclude pattern that matches OR
+// could plausibly match the branch (a glob) is treated as an exclusion. The include
+// side is STRICT: only a pattern we can prove targets the branch counts.
+func refTargetsBranch(cond *gh.RepositoryRulesetConditions, branch, defaultBranch string) bool {
+	if cond == nil || cond.RefName == nil {
+		return false
+	}
+	ref := cond.RefName
+	if refExcludesBranch(ref.Exclude, branch, defaultBranch) {
+		return false // explicitly (or possibly) excluded -> not protected in this window.
+	}
+	return refIncludesBranch(ref.Include, branch, defaultBranch)
+}
+
+// refIncludesBranch reports whether any include pattern PROVABLY targets branch:
+// "~ALL"; "~DEFAULT_BRANCH" only when branch is the repo default; the exact bare
+// branch; or the exact "refs/heads/<branch>". A glob/unrecognized include does NOT
+// count (fail closed — we will not claim a window we cannot prove covered branch).
+func refIncludesBranch(patterns []string, branch, defaultBranch string) bool {
+	full := "refs/heads/" + branch
+	for _, p := range patterns {
+		switch p {
+		case "~ALL":
+			return true
+		case "~DEFAULT_BRANCH":
+			if defaultBranch != "" && branch == defaultBranch {
+				return true
+			}
+		case branch, full:
+			return true
+		}
+	}
+	return false
+}
+
+// refExcludesBranch reports whether any exclude pattern matches OR could match
+// branch. Besides the exact/literal forms it treats ANY pattern containing a glob
+// metacharacter (* ? [ ]) as a POSSIBLE match (fail closed): we cannot cheaply and
+// safely evaluate GitHub's fnmatch here, and an exclude that carves the branch out
+// must never read as "still protected". "~DEFAULT_BRANCH" excludes only when branch
+// is the default; an unknown default branch is treated as a possible exclusion.
+func refExcludesBranch(patterns []string, branch, defaultBranch string) bool {
+	full := "refs/heads/" + branch
+	for _, p := range patterns {
+		switch {
+		case p == "~ALL":
+			return true
+		case p == "~DEFAULT_BRANCH":
+			if defaultBranch == "" || branch == defaultBranch {
+				return true // default unknown -> can't rule it out; or branch IS default.
+			}
+		case p == branch, p == full:
+			return true
+		case strings.ContainsAny(p, "*?[]"):
+			return true // a glob exclude could match branch -> fail closed.
+		}
+	}
+	return false
+}
+
+// continuityMaxCommitPages caps the commit pages walked when resolving the start
+// time to a commit. Hitting it means the at-or-after-start commit set could not be
+// fully enumerated -> fail closed (we will not anchor R0 on a truncated list).
+const continuityMaxCommitPages = 30
+
+// startCommitAtOrAfter maps the continuity start TIME to a start COMMIT R0: the
+// commit on the protected branch with the EARLIEST committer date that is still
+// at-or-after the start time. It lists branch commits with since=start (committer-
+// date inclusive). Rather than assume strict newest-first ordering (rebases /
+// cherry-picks make committer date non-monotonic vs graph order), it explicitly
+// picks the minimum committer-date commit whose date is >= start. R0 is documented
+// as APPROXIMATE. Fails closed (ok=false) on any read error, pagination cap (a
+// truncated list could omit the true earliest commit), no commit at-or-after start,
+// or a chosen commit whose committer date is unexpectedly before start.
+func startCommitAtOrAfter(ctx context.Context, svc ReviewService, owner, repo, branch string, start time.Time, _ string) (string, bool) {
+	if branch == "" || start.IsZero() {
+		return "", false
+	}
+	start = start.UTC()
+	opts := &gh.CommitsListOptions{
+		SHA:         branch,
+		Since:       start,
+		ListOptions: gh.ListOptions{PerPage: 100},
+	}
+	var bestSHA string
+	var bestWhen time.Time
+	for attempt := 0; attempt < continuityMaxCommitPages; attempt++ {
+		commits, resp, err := svc.ListCommits(ctx, owner, repo, opts)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		if err != nil {
+			return "", false // read error -> cannot anchor R0 -> fail closed.
+		}
+		for _, c := range commits {
+			if c == nil || c.GetSHA() == "" || c.GetCommit() == nil || c.GetCommit().GetCommitter() == nil {
+				continue // no committer date -> cannot place it on the timeline.
+			}
+			when := c.GetCommit().GetCommitter().GetDate().UTC()
+			if when.Before(start) {
+				continue // outside the window (defensive; since= should exclude these).
+			}
+			if bestSHA == "" || when.Before(bestWhen) {
+				bestSHA = c.GetSHA()
+				bestWhen = when
+			}
+		}
+		if resp == nil || resp.NextPage == 0 {
+			if bestSHA == "" {
+				return "", false // no commit at-or-after start -> cannot anchor R0.
+			}
+			return truncateRunes(bestSHA, srMaxSHALen), true
+		}
+		opts.Page = resp.NextPage
+		if attempt == continuityMaxCommitPages-1 {
+			return "", false // more pages remain but we hit the cap -> fail closed.
+		}
+	}
+	return "", false
+}
+
+// formatContinuityTime renders a continuity timestamp as bounded UTC RFC3339, or
+// "" for the zero time.
+func formatContinuityTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return truncateRunes(t.UTC().Format(time.RFC3339), srMaxTimestampLen)
 }
 
 // formatBypassActor renders a ruleset bypass actor as
@@ -805,7 +1376,7 @@ func normalizeRef(ref string) string {
 // normalizeAssociation constrains the untrusted author_association to the known
 // GitHub enum (mirrors code-scan's normalizeLevel). An unrecognized or absent
 // value yields "" so the field is omitted rather than failing schema validation
-// if GitHub ever returns a new value. Evidence only — never gated in v0.1.
+// if GitHub ever returns a new value. Evidence only — never gated.
 func normalizeAssociation(s string) string {
 	switch strings.ToUpper(s) {
 	case "OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR",
