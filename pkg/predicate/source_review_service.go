@@ -8,7 +8,7 @@ import (
 
 // ReviewService abstracts the GitHub REST calls the source-review predicate
 // needs, so NewSourceReview is unit-testable without a live API (mirrors
-// ReleaseService in pkg/release/cut.go). All four methods are REST-only; v0.1
+// ReleaseService in pkg/release/cut.go). All methods are REST-only; v0.1
 // adds no GraphQL/githubv4 dependency (see the source-review design).
 type ReviewService interface {
 	// ListPullRequestsWithCommit returns pull requests associated with a commit
@@ -27,6 +27,10 @@ type ReviewService interface {
 	// branch. Readable without admin — the no-admin path to the required-review
 	// threshold.
 	ListRulesForBranch(ctx context.Context, owner, repo, branch string, opts *gh.ListOptions) (*gh.BranchRules, *gh.Response, error)
+	// GetRuleset returns a repository ruleset (incl. org/enterprise parents when
+	// includesParents). Needs Administration:read; a 403/404 is best-effort — the
+	// producer omits bypass actors rather than failing the attestation.
+	GetRuleset(ctx context.Context, owner, repo string, rulesetID int64, includesParents bool) (*gh.RepositoryRuleset, *gh.Response, error)
 }
 
 // githubReviewService is the live ReviewService backed by a go-github client.
@@ -53,4 +57,8 @@ func (s *githubReviewService) GetBranchProtection(ctx context.Context, owner, re
 
 func (s *githubReviewService) ListRulesForBranch(ctx context.Context, owner, repo, branch string, opts *gh.ListOptions) (*gh.BranchRules, *gh.Response, error) {
 	return s.client.Repositories.ListRulesForBranch(ctx, owner, repo, branch, opts)
+}
+
+func (s *githubReviewService) GetRuleset(ctx context.Context, owner, repo string, rulesetID int64, includesParents bool) (*gh.RepositoryRuleset, *gh.Response, error) {
+	return s.client.Repositories.GetRuleset(ctx, owner, repo, rulesetID, includesParents)
 }
