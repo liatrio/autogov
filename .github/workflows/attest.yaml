@@ -68,6 +68,13 @@ jobs:
     env:
       KO_DOCKER_REPO: ghcr.io/liatrio/autogov
     steps:
+      - name: Fail if Runner is self-hosted
+        # ko-image attests build provenance; SLSA Build L3 requires an isolated
+        # github-hosted runner, so refuse to attest from a self-hosted one
+        if: ${{ runner.environment != 'github-hosted' }}
+        run: |
+          echo "Job is running on a self-hosted runner. Terminating job..."
+          exit 1
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:

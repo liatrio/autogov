@@ -280,6 +280,21 @@ func generateVSACore(imageRef string, subjects []VSASubject, policyURI string, v
 
 	dependencyLevels := make(map[string]uint64) // empty map for backward compatibility
 
+	// compute the build-track level from evidence rather than asserting it.
+	// SLSA Build L3 requires non-falsifiable provenance from an isolated,
+	// hosted builder; autogov's builds produce that via attest-build-provenance
+	// on GitHub-hosted runners. we may only claim L3 when a build-provenance
+	// attestation was verified AND the verification enforced the signer
+	// identity (cert-identity / signer allowlist) that binds it to that trusted
+	// builder — the resultKeyProvenanceIdentityBound signal. without that
+	// binding (e.g. an unsafe verify with no --cert-identity, or a source-only
+	// verify carrying no build provenance) the build track has no proven
+	// guarantee and we honestly report L0 rather than over-claim L3.
+	buildLevel := "SLSA_BUILD_LEVEL_0"
+	if verificationResults[resultKeyProvenanceIdentityBound] {
+		buildLevel = "SLSA_BUILD_LEVEL_3"
+	}
+
 	// use provided subjects if available, otherwise fall back to single subject
 	var vsaSubjects []VSASubject
 	if len(subjects) > 0 {
@@ -314,7 +329,7 @@ func generateVSACore(imageRef string, subjects []VSASubject, policyURI string, v
 			Policy:             VSAPolicy{URI: policyURI, Digest: opts.PolicyDigest},
 			InputAttestations:  opts.InputAttestations,
 			VerificationResult: result,
-			VerifiedLevels:     []string{"SLSA_BUILD_LEVEL_3"},
+			VerifiedLevels:     []string{buildLevel},
 			DependencyLevels:   dependencyLevels,
 			SlsaVersion:        "1.1",
 		},

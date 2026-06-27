@@ -523,3 +523,83 @@ func TestExtractSLSALevels(t *testing.T) {
 		})
 	}
 }
+
+// TestGenerateVSABuildLevelFromEvidence verifies the build-track level is
+// computed from evidence rather than hardcoded: SLSA_BUILD_LEVEL_3 only when
+// build provenance was verified UNDER an enforced signer identity
+// (resultKeyProvenanceIdentityBound), else SLSA_BUILD_LEVEL_0. Guards against
+// over-claiming L3 for verified-but-unbound provenance (unsafe verify with no
+// --cert-identity) or a flow carrying no build provenance at all.
+func TestGenerateVSABuildLevelFromEvidence(t *testing.T) {
+	tests := []struct {
+		name                string
+		verificationResults map[string]bool
+		wantLevel           string
+	}{
+		{
+			name: "identity-bound build-provenance -> L3",
+			verificationResults: map[string]bool{
+				resultKeySLSAProvenance:          true,
+				resultKeyProvenanceIdentityBound: true,
+			},
+			wantLevel: "SLSA_BUILD_LEVEL_3",
+		},
+		{
+			name:                "provenance verified but identity NOT enforced -> L0",
+			verificationResults: map[string]bool{resultKeySLSAProvenance: true},
+			wantLevel:           "SLSA_BUILD_LEVEL_0",
+		},
+		{
+			name:                "no build-provenance -> L0 (no over-claim)",
+			verificationResults: map[string]bool{"attestation.source_review": true},
+			wantLevel:           "SLSA_BUILD_LEVEL_0",
+		},
+		{
+			name:                "nil results -> L0",
+			verificationResults: nil,
+			wantLevel:           "SLSA_BUILD_LEVEL_0",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vsa, err := GenerateVSA(testImageRef, testPolicyURI, tt.verificationResults)
+			if err != nil {
+				t.Fatalf("GenerateVSA failed: %v", err)
+			}
+			got := vsa.Predicate.VerifiedLevels
+			if len(got) != 1 || got[0] != tt.wantLevel {
+				t.Errorf("VerifiedLevels = %v, want [%s]", got, tt.wantLevel)
+			}
+		})
+	}
+}
+
+// TestMarkIdentityBoundProvenance verifies the build-provenance -> L3 promotion
+// signal is only recorded when provenance was verified AND the signer identity
+// was enforced, and that it never writes a false value (which would flip the
+// VSA's overall PASS/FAIL result).
+func TestMarkIdentityBoundProvenance(t *testing.T) {
+	tests := []struct {
+		name             string
+		results          map[string]bool
+		identityEnforced bool
+		wantBound        bool
+	}{
+		{"enforced + provenance -> bound", map[string]bool{resultKeySLSAProvenance: true}, true, true},
+		{"enforced + no provenance -> not bound", map[string]bool{}, true, false},
+		{"not enforced + provenance -> not bound", map[string]bool{resultKeySLSAProvenance: true}, false, false},
+		{"not enforced + no provenance -> not bound", map[string]bool{}, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			markIdentityBoundProvenance(tt.results, tt.identityEnforced)
+			v, present := tt.results[resultKeyProvenanceIdentityBound]
+			if present != tt.wantBound {
+				t.Errorf("identity_bound present = %v, want %v", present, tt.wantBound)
+			}
+			if present && !v {
+				t.Errorf("identity_bound written as false; only true should ever be set")
+			}
+		})
+	}
+}
