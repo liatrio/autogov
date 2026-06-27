@@ -11,9 +11,7 @@ on:
       - docs/**
 
 concurrency:
-  # serialize per ref but never cancel an in-flight run: a rapid follow-up push to
-  # main must not cancel a release mid-publish (the cut + tag + asset upload must
-  # complete atomically).
+  # never cancel a release mid-publish; serialize per ref.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
@@ -63,12 +61,8 @@ jobs:
       vuln-threshold-medium: '-1'
       vuln-threshold-low: '-1'
 
-  # additive image publish: builds the CLI into a signed multi-arch OCI image with
-  # ko. it does NOT gate the blob attest/verify/release jobs above (no `needs`).
-  # ko builds on every push to validate the config + ldflags, but only PUSHES on
-  # main (`should-push`) so feature branches don't pollute ghcr. the
-  # pushed digest is attested with push-to-registry, same pattern as
-  # rw-attest-image.yaml.
+  # additive signed multi-arch OCI image (ko). does NOT gate the blob jobs (no
+  # `needs`); builds on every push to validate, but pushes + attests only on main.
   ko-image:
     runs-on: ubuntu-latest
     permissions:
@@ -87,9 +81,8 @@ jobs:
         with:
           version: v0.18.1
       - name: Derive build metadata
-        # mirror Taskfile.yml: same version/commit/date/opa so the ko image and
-        # `task build` embed byte-identical ldflags. SOURCE_DATE_EPOCH pins the
-        # image timestamp to the commit time for reproducibility.
+        # mirror Taskfile.yml ldflags so the ko image matches `task build`;
+        # SOURCE_DATE_EPOCH pins the image timestamp to the commit (reproducible).
         run: |
           {
             echo "VERSION=$(git describe --tags --always --dirty)"
@@ -144,22 +137,12 @@ jobs:
       actions: read
       id-token: write # federate the octo-sts release token
     steps:
-      # downloaded artifacts go under $RUNNER_TEMP (outside the repo tree) so release
-      # cut's clean-tree check (go-git Status().IsClean(), which counts untracked
-      # files) passes — plan.json, the attested binary, and the VSA must not dirty
-      # the worktree. runner.temp is NOT available in job-level env, so the path is
-      # referenced per step: ${{ runner.temp }} in `with:`, $RUNNER_TEMP in `run:`.
-      # Full history is required: the released `autogov release plan` CLI command
-      # discovers the latest tag and walks commits with local go-git (its GitHub
-      # API path is not wired into the standalone `plan` command), so a shallow
-      # clone would not see prior tags. `release cut` itself can use the API, but
-      # the `plan` step that computes the next version cannot.
-      # The released asset is the attested blob-build-artifact-high-perms binary
-      # (not a rebuild), so its digest carries the attestations. That SAME attested
-      # binary is also the cutter (plan + cut run it), so no Go toolchain and no
-      # frozen pinned CLI are needed — the tool governing the release IS the code
-      # being released (true self-release), and the cutter carries the current
-      # resume/rollback logic the old v0.23.0 binary lacked.
+      # self-release: the cutter is the just-attested binary (it IS the code being
+      # released + carries the current resume/rollback logic; no pinned CLI). It is
+      # also the published asset, so its digest still matches the attestations.
+      # fetch-depth:0 — `release plan` walks tags/commits with local go-git.
+      # Artifacts stay under $RUNNER_TEMP (off the worktree) so `release cut`'s
+      # go-git clean-tree check isn't tripped by untracked files.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
@@ -198,9 +181,8 @@ jobs:
           name: blob-build-provenance-attestation-high-perms
           path: ${{ runner.temp }}/provenance
       - name: Resolve provenance asset path
-        # attach the SLSA build-provenance bundle as *.intoto.jsonl so release
-        # consumers (and OpenSSF Scorecard's Signed-Releases check) find detached
-        # provenance on the release, not only in the registry/transparency log.
+        # attach build-provenance as *.intoto.jsonl for OpenSSF Scorecard's
+        # Signed-Releases check + offline consumers (not only the registry/tlog).
         id: provenance
         run: |
           prov="$(find "$RUNNER_TEMP/provenance" -maxdepth 1 -name '*.jsonl' | head -1)"
@@ -210,12 +192,9 @@ jobs:
           fi
           cp "$prov" "$RUNNER_TEMP/autogov.intoto.jsonl"
           echo "path=$RUNNER_TEMP/autogov.intoto.jsonl" >> "$GITHUB_OUTPUT"
-      # release cut --publish creates a chore(release) commit (with [skip ci], so it
-      # does not re-trigger this workflow) and fast-forwards refs/heads/main. main is
-      # governed by the "main protection" ruleset; the octo-sts release-ops token
-      # below is a bypass actor (governance in place: autogov is in
-      # release-ops.sts.yaml and octo-sts is on the ruleset bypass), so the push is
-      # accepted.
+      # the release-cut push to main needs a ruleset-bypass actor: octo-sts
+      # release-ops (autogov is in release-ops.sts.yaml). the chore(release) commit
+      # carries [skip ci] so it doesn't re-trigger this workflow.
       - uses: octo-sts/action@f603d3be9d8dd9871a265776e625a27b00effe05 # v1.1.1
         id: octo-sts-release
         with:
