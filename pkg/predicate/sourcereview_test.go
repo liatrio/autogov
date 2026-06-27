@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"reflect"
@@ -41,6 +42,20 @@ type mockReviewService struct {
 	rulesCall        int
 	rulesets         map[int64]*gh.RepositoryRuleset // keyed by rulesetID, returned by GetRuleset
 	rulesetErr       error
+
+	// continuity fixtures.
+	history       map[int64][]*RulesetVersion              // ruleset id -> version metas (newest first)
+	historyErr    map[int64]error                          // per-ruleset history error (403/404/unreadable)
+	historyPages  map[int64][][]*RulesetVersion            // ruleset id -> paginated metas (forces NextPage)
+	historyCall   map[int64]int                            // per-ruleset page cursor
+	versions      map[int64]map[int64]*RulesetVersionState // ruleset id -> version id -> state
+	versionErr    map[int64]error                          // per-ruleset version-state error
+	commits       []*gh.RepositoryCommit                   // ListCommits result (newest first)
+	commitsPages  [][]*gh.RepositoryCommit                 // paginated ListCommits (forces NextPage)
+	commitsCall   int
+	commitsErr    error
+	defaultBranch string // GetRepository default branch ("" => "main" via helper)
+	repoErr       error  // GetRepository error
 }
 
 func srResp() *gh.Response {
@@ -95,6 +110,76 @@ func (m *mockReviewService) GetRuleset(_ context.Context, _, _ string, id int64,
 		return nil, srResp(), m.rulesetErr
 	}
 	return m.rulesets[id], srResp(), nil
+}
+
+func (m *mockReviewService) GetRulesetHistory(_ context.Context, _, _ string, id int64, opts *gh.ListOptions) ([]*RulesetVersion, *gh.Response, error) {
+	if m.historyErr != nil {
+		if err, ok := m.historyErr[id]; ok && err != nil {
+			return nil, srResp(), err
+		}
+	}
+	if m.historyPages != nil {
+		if pages, ok := m.historyPages[id]; ok {
+			if m.historyCall == nil {
+				m.historyCall = map[int64]int{}
+			}
+			page := m.historyCall[id]
+			m.historyCall[id]++
+			if page >= len(pages) {
+				return nil, srResp(), nil
+			}
+			resp := srResp()
+			if page+1 < len(pages) {
+				resp.NextPage = page + 1
+			}
+			return pages[page], resp, nil
+		}
+	}
+	return m.history[id], srResp(), nil
+}
+
+func (m *mockReviewService) GetRulesetVersion(_ context.Context, _, _ string, id, versionID int64) (*RulesetVersionState, *gh.Response, error) {
+	if m.versionErr != nil {
+		if err, ok := m.versionErr[id]; ok && err != nil {
+			return nil, srResp(), err
+		}
+	}
+	if states, ok := m.versions[id]; ok {
+		if st, ok := states[versionID]; ok {
+			return st, srResp(), nil
+		}
+	}
+	return nil, srResp(), fmt.Errorf("no version state fixture for ruleset %d version %d", id, versionID)
+}
+
+func (m *mockReviewService) ListCommits(_ context.Context, _, _ string, _ *gh.CommitsListOptions) ([]*gh.RepositoryCommit, *gh.Response, error) {
+	if m.commitsErr != nil {
+		return nil, srResp(), m.commitsErr
+	}
+	if m.commitsPages != nil {
+		page := m.commitsCall
+		m.commitsCall++
+		if page >= len(m.commitsPages) {
+			return nil, srResp(), nil
+		}
+		resp := srResp()
+		if page+1 < len(m.commitsPages) {
+			resp.NextPage = page + 1
+		}
+		return m.commitsPages[page], resp, nil
+	}
+	return m.commits, srResp(), nil
+}
+
+func (m *mockReviewService) GetRepository(_ context.Context, _, _ string) (*gh.Repository, *gh.Response, error) {
+	if m.repoErr != nil {
+		return nil, srResp(), m.repoErr
+	}
+	db := m.defaultBranch
+	if db == "" {
+		db = "main"
+	}
+	return &gh.Repository{DefaultBranch: gh.Ptr(db)}, srResp(), nil
 }
 
 func srUser(login string, id int64, typ string) *gh.User {
@@ -194,7 +279,7 @@ func TestFetchTechnicalControls(t *testing.T) {
 
 	t.Run("all controls present, sorted + formatted", func(t *testing.T) {
 		m := &mockReviewService{rules: allRules, rulesets: rulesets}
-		tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
+		tc, _ := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
 		if tc == nil {
 			t.Fatal("expected non-nil technical controls")
 		}
@@ -214,7 +299,7 @@ func TestFetchTechnicalControls(t *testing.T) {
 
 	t.Run("partial controls; rulesetID 0 not fetched", func(t *testing.T) {
 		m := &mockReviewService{rules: &gh.BranchRules{NonFastForward: []*gh.BranchRuleMetadata{{RulesetID: 0}}}}
-		tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
+		tc, _ := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
 		if tc == nil || !tc.ForcePushBlocked {
 			t.Fatalf("expected ForcePushBlocked, got %+v", tc)
 		}
@@ -228,7 +313,7 @@ func TestFetchTechnicalControls(t *testing.T) {
 
 	t.Run("GetRuleset denied is fail-soft (keeps other controls)", func(t *testing.T) {
 		m := &mockReviewService{rules: allRules, rulesetErr: errors.New("403 Resource not accessible: Administration:read")}
-		tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
+		tc, _ := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
 		if tc == nil || !tc.ForcePushBlocked || !tc.RequiredSignatures {
 			t.Fatalf("controls should survive GetRuleset denial, got %+v", tc)
 		}
@@ -256,7 +341,7 @@ func TestFetchTechnicalControls(t *testing.T) {
 				6: {BypassActors: []*gh.BypassActor{srBypassActor("Team", 42, "always")}},
 			},
 		}
-		tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
+		tc, _ := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
 		if tc == nil || !tc.ForcePushBlocked || !tc.RequiredSignatures {
 			t.Fatalf("expected controls from BOTH pages, got %+v", tc)
 		}
@@ -278,7 +363,7 @@ func TestFetchTechnicalControls(t *testing.T) {
 			6: {BypassActors: []*gh.BypassActor{srBypassActor("Integration", 801323, "always")}},
 		}
 		m := &mockReviewService{rules: rules, rulesets: rs}
-		tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
+		tc, _ := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
 		if tc == nil || !reflect.DeepEqual(tc.BypassActors, []string{"Integration:801323:always"}) {
 			t.Errorf("bypass actors should de-dupe to one, got %v", tc.BypassActors)
 		}
@@ -286,21 +371,21 @@ func TestFetchTechnicalControls(t *testing.T) {
 
 	t.Run("no rules -> nil", func(t *testing.T) {
 		m := &mockReviewService{rules: &gh.BranchRules{}}
-		if tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main"); tc != nil {
+		if tc, _ := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main"); tc != nil {
 			t.Errorf("expected nil for empty rules, got %+v", tc)
 		}
 	})
 
 	t.Run("ListRulesForBranch error -> nil", func(t *testing.T) {
 		m := &mockReviewService{rulesErr: errors.New("boom")}
-		if tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main"); tc != nil {
+		if tc, _ := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main"); tc != nil {
 			t.Errorf("expected nil on list error, got %+v", tc)
 		}
 	})
 
 	t.Run("empty branch -> nil", func(t *testing.T) {
 		m := &mockReviewService{rules: allRules}
-		if tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", ""); tc != nil {
+		if tc, _ := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", ""); tc != nil {
 			t.Errorf("expected nil for empty branch, got %+v", tc)
 		}
 	})
@@ -331,10 +416,18 @@ func TestNewSourceReview_TechnicalControls(t *testing.T) {
 	if !c.TechnicalControls.BypassActorsComplete {
 		t.Error("expected BypassActorsComplete true (ruleset resolved)")
 	}
+	// no ruleset history fixtures -> continuity walk fails CLOSED: empty start,
+	// complete=false, Method="none". The no-continuity (dormant) outcome.
 	if c.ContinuityStartRevision != "" {
-		t.Errorf("continuity must be empty in v0.1, got %q", c.ContinuityStartRevision)
+		t.Errorf("continuity start must be empty without provable history, got %q", c.ContinuityStartRevision)
 	}
-	srValidate(t, c) // schema must accept the new technicalControls fields (incl. required bypassActorsComplete)
+	if c.TechnicalControls.ContinuityComplete {
+		t.Error("continuityComplete must be false without provable history")
+	}
+	if c.ContinuityEvidence == nil || c.ContinuityEvidence.Method != continuityMethodNone {
+		t.Errorf("expected continuity evidence Method=none, got %+v", c.ContinuityEvidence)
+	}
+	srValidate(t, c) // schema must accept the new technicalControls fields (incl. required continuityComplete on v0.2)
 }
 
 func TestNewSourceReview_NoTechnicalControls(t *testing.T) {
@@ -348,6 +441,476 @@ func TestNewSourceReview_NoTechnicalControls(t *testing.T) {
 		t.Errorf("expected nil TechnicalControls, got %+v", c.TechnicalControls)
 	}
 	srValidate(t, c)
+}
+
+// --- continuity (SLSA Source L3) producer test matrix ------------------------
+
+var continuityStart = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// cleanL3State builds a ruleset version STATE that enforces every L3-relevant
+// control and targets `main` with a bypass set that is a SUBSET of the current
+// (head) bypass set. updatedAt is the version's effective time.
+func cleanL3State() *RulesetVersionState {
+	include := []string{"refs/heads/main"}
+	return &RulesetVersionState{
+		Enforcement: string(gh.RulesetEnforcementActive),
+		Conditions: &gh.RepositoryRulesetConditions{
+			RefName: &gh.RepositoryRulesetRefConditionParameters{Include: include},
+		},
+		Rules: &gh.RepositoryRulesetRules{
+			NonFastForward:        &gh.EmptyRuleParameters{},
+			RequiredLinearHistory: &gh.EmptyRuleParameters{},
+			RequiredStatusChecks: &gh.RequiredStatusChecksRuleParameters{
+				RequiredStatusChecks: []*gh.RuleStatusCheck{{Context: "build"}},
+			},
+		},
+		BypassActors: nil, // subset of {} current set -> narrow.
+	}
+}
+
+// srVersion builds a history meta for version id at time t.
+func srVersion(id int64, t time.Time) *RulesetVersion {
+	return &RulesetVersion{VersionID: id, UpdatedAt: t.UTC(), Actor: RulesetActor{ID: 7, Type: "User"}}
+}
+
+// continuityCommitTime is the committer date of the R0 commit fixture: AFTER every
+// fixture window start, so startCommitAtOrAfter accepts it as at-or-after the start.
+var continuityCommitTime = continuityStart.Add(1000 * time.Hour)
+
+// srR0Commit is the single R0 commit returned by ListCommits in continuity tests.
+func srR0Commit() *gh.RepositoryCommit {
+	return &gh.RepositoryCommit{
+		SHA:    gh.Ptr("r0commit00000000000000000000000000000000"),
+		Commit: &gh.Commit{Committer: &gh.CommitAuthor{Date: &gh.Timestamp{Time: continuityCommitTime}}},
+	}
+}
+
+// createdAtOldest stamps the current-ruleset CreatedAt to the OLDEST version in
+// history, modeling "the creation version is the oldest retained version" so a
+// clean-and-no-break leg passes the retention-creation corroboration (no pruned
+// pre-creation gap). It preserves any bypass actors already on rs.
+func createdAtOldest(rs *gh.RepositoryRuleset, history []*RulesetVersion) *gh.RepositoryRuleset {
+	if rs == nil {
+		rs = &gh.RepositoryRuleset{}
+	}
+	if rs.CreatedAt != nil {
+		return rs // caller set an explicit CreatedAt (e.g. to model a pruned gap).
+	}
+	var oldest time.Time
+	for _, v := range history {
+		if v == nil {
+			continue
+		}
+		if oldest.IsZero() || v.UpdatedAt.Before(oldest) {
+			oldest = v.UpdatedAt
+		}
+	}
+	if !oldest.IsZero() {
+		rs.CreatedAt = &gh.Timestamp{Time: oldest}
+	}
+	return rs
+}
+
+// continuityMock wires a single-ruleset (id=5) continuity fixture: history metas,
+// per-version states, the current ruleset (for the narrow bound + CreatedAt), the
+// branch rules (so fetchTechnicalControls records controls + the id), and the commit
+// list (so the start time resolves to R0). The artifact is built with a clean
+// review path.
+func continuityMock(history []*RulesetVersion, states map[int64]*RulesetVersionState, current *gh.RepositoryRuleset) *mockReviewService {
+	return &mockReviewService{
+		prs:     []*gh.PullRequest{srMergedPR()},
+		reviews: []*gh.PullRequestReview{srReview(srUser("alice", 2, "User"), reviewStateApproved, srHeadSHA, srBaseTime.Add(time.Minute))},
+		rules: &gh.BranchRules{
+			NonFastForward:        []*gh.BranchRuleMetadata{{RulesetID: 5}},
+			RequiredLinearHistory: []*gh.BranchRuleMetadata{{RulesetID: 5}},
+			RequiredStatusChecks: []*gh.RequiredStatusChecksBranchRule{{
+				BranchRuleMetadata: gh.BranchRuleMetadata{RulesetID: 5},
+				Parameters: gh.RequiredStatusChecksRuleParameters{
+					RequiredStatusChecks: []*gh.RuleStatusCheck{{Context: "build"}},
+				},
+			}},
+		},
+		rulesets: map[int64]*gh.RepositoryRuleset{5: createdAtOldest(current, history)},
+		history:  map[int64][]*RulesetVersion{5: history},
+		versions: map[int64]map[int64]*RulesetVersionState{5: states},
+		commits:  []*gh.RepositoryCommit{srR0Commit()},
+	}
+}
+
+func srBuildContinuity(t *testing.T, m *mockReviewService) *SourceReview {
+	t.Helper()
+	c := srBuild(t, m, srOpts())
+	srValidate(t, c)
+	return c
+}
+
+func TestContinuity_P1_CleanWindow(t *testing.T) {
+	// P1: a single all-clean history -> start set + complete true, Method history.
+	hist := []*RulesetVersion{srVersion(3, continuityStart.Add(48*time.Hour)), srVersion(2, continuityStart.Add(24*time.Hour)), srVersion(1, continuityStart)}
+	states := map[int64]*RulesetVersionState{3: cleanL3State(), 2: cleanL3State(), 1: cleanL3State()}
+	c := srBuildContinuity(t, continuityMock(hist, states, &gh.RepositoryRuleset{}))
+	if !c.TechnicalControls.ContinuityComplete {
+		t.Fatal("P1: expected ContinuityComplete true")
+	}
+	if c.ContinuityStartRevision == "" {
+		t.Error("P1: expected a non-empty start revision")
+	}
+	if c.ContinuityEvidence == nil || c.ContinuityEvidence.Method != continuityMethodHistory {
+		t.Errorf("P1: Method = %+v, want ruleset-history", c.ContinuityEvidence)
+	}
+	if c.ContinuityEvidence.WeakenedAt != "" {
+		t.Errorf("P1: WeakenedAt = %q, want empty (clean)", c.ContinuityEvidence.WeakenedAt)
+	}
+	// continuity holds since the OLDEST clean version (earliest in the run).
+	if c.ContinuityEvidence.WindowStartAt != continuityStart.Format(time.RFC3339) {
+		t.Errorf("P1: WindowStartAt = %q, want %q", c.ContinuityEvidence.WindowStartAt, continuityStart.Format(time.RFC3339))
+	}
+}
+
+func TestContinuity_P2_DisabledVersion(t *testing.T) {
+	// P2: a disabled (enforcement!=active) version at the HEAD breaks continuity now.
+	disabled := cleanL3State()
+	disabled.Enforcement = string(gh.RulesetEnforcementDisabled)
+	hist := []*RulesetVersion{srVersion(2, continuityStart.Add(24*time.Hour)), srVersion(1, continuityStart)}
+	states := map[int64]*RulesetVersionState{2: disabled, 1: cleanL3State()}
+	c := srBuildContinuity(t, continuityMock(hist, states, &gh.RepositoryRuleset{}))
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P2: expected fail-closed; complete=%v start=%q", c.TechnicalControls.ContinuityComplete, c.ContinuityStartRevision)
+	}
+	if c.ContinuityEvidence.WeakenedAt == "" {
+		t.Error("P2: expected WeakenedAt to record the disabled version")
+	}
+}
+
+func TestContinuity_P3_EvaluateMode(t *testing.T) {
+	// P3: an evaluate-mode head version is NOT active -> fail closed.
+	eval := cleanL3State()
+	eval.Enforcement = string(gh.RulesetEnforcementEvaluate)
+	hist := []*RulesetVersion{srVersion(1, continuityStart)}
+	states := map[int64]*RulesetVersionState{1: eval}
+	c := srBuildContinuity(t, continuityMock(hist, states, &gh.RepositoryRuleset{}))
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P3: evaluate-mode must fail closed; complete=%v start=%q", c.TechnicalControls.ContinuityComplete, c.ContinuityStartRevision)
+	}
+}
+
+func TestContinuity_P4_BranchExcluded(t *testing.T) {
+	// P4: a version that excludes the target branch is not protecting it -> fail.
+	excluded := cleanL3State()
+	excluded.Conditions.RefName.Include = []string{"~ALL"}
+	excluded.Conditions.RefName.Exclude = []string{"refs/heads/main"}
+	hist := []*RulesetVersion{srVersion(1, continuityStart)}
+	states := map[int64]*RulesetVersionState{1: excluded}
+	c := srBuildContinuity(t, continuityMock(hist, states, &gh.RepositoryRuleset{}))
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P4: branch-excluded must fail closed; complete=%v start=%q", c.TechnicalControls.ContinuityComplete, c.ContinuityStartRevision)
+	}
+}
+
+func TestContinuity_P5_WideBypass(t *testing.T) {
+	// P5: a version with a bypass actor NOT in the current (narrow) set -> fail.
+	wide := cleanL3State()
+	wide.BypassActors = []*gh.BypassActor{srBypassActor("Team", 42, "always")}
+	hist := []*RulesetVersion{srVersion(1, continuityStart)}
+	states := map[int64]*RulesetVersionState{1: wide}
+	// current set has NO bypass actors, so Team:42 is wider than now -> weakened.
+	c := srBuildContinuity(t, continuityMock(hist, states, &gh.RepositoryRuleset{}))
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P5: wide-bypass version must fail closed; complete=%v start=%q", c.TechnicalControls.ContinuityComplete, c.ContinuityStartRevision)
+	}
+}
+
+func TestContinuity_P6_HistoryForbidden(t *testing.T) {
+	// P6: a 403 on history surfaces as UNREADABLE -> empty, Method none.
+	m := continuityMock(nil, nil, &gh.RepositoryRuleset{})
+	m.historyErr = map[int64]error{5: &gh.ErrorResponse{Response: &http.Response{StatusCode: 403}, Message: "forbidden"}}
+	c := srBuildContinuity(t, m)
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P6: 403 history must fail closed; complete=%v start=%q", c.TechnicalControls.ContinuityComplete, c.ContinuityStartRevision)
+	}
+	if c.ContinuityEvidence.Method != continuityMethodNone {
+		t.Errorf("P6: Method = %q, want none", c.ContinuityEvidence.Method)
+	}
+	if c.ContinuityEvidence.HistoryComplete {
+		t.Error("P6: HistoryComplete must be false on unreadable history")
+	}
+}
+
+func TestContinuity_P7_TruncatedHistory(t *testing.T) {
+	// P7: history that still advertises more pages at the cap -> HistoryComplete
+	// false -> fail closed. We force this with a per-ruleset paginated history whose
+	// pages exceed the page cap (each page advertises a NextPage).
+	pages := make([][]*RulesetVersion, continuityMaxHistoryPages+1)
+	for i := range pages {
+		pages[i] = []*RulesetVersion{srVersion(int64(i+1), continuityStart.Add(time.Duration(i)*time.Hour))}
+	}
+	m := continuityMock(nil, map[int64]*RulesetVersionState{}, &gh.RepositoryRuleset{})
+	m.historyPages = map[int64][][]*RulesetVersion{5: pages}
+	c := srBuildContinuity(t, m)
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P7: truncated history must fail closed; complete=%v start=%q", c.TechnicalControls.ContinuityComplete, c.ContinuityStartRevision)
+	}
+	if c.ContinuityEvidence.HistoryComplete {
+		t.Error("P7: HistoryComplete must be false on truncation")
+	}
+}
+
+func TestContinuity_P8_RetentionCapped(t *testing.T) {
+	// P8: retention cap — the clean run reaches the OLDEST RETAINED version with NO
+	// observed break, but the ruleset's CreatedAt is OLDER than that oldest retained
+	// version. That means version(s) between creation and the oldest retained were
+	// pruned/aged out and CANNOT be proven clean -> RetentionCapped, fail closed.
+	// This is the honesty-critical case: only-clean retained versions must NOT be
+	// read as "continuous since creation" when older versions were dropped.
+	hist := []*RulesetVersion{srVersion(2, continuityStart.Add(24*time.Hour))}
+	states := map[int64]*RulesetVersionState{2: cleanL3State()}
+	current := &gh.RepositoryRuleset{
+		// created BEFORE the oldest retained version -> a pruned pre-retention gap.
+		CreatedAt: &gh.Timestamp{Time: continuityStart.Add(-240 * time.Hour)},
+	}
+	c := srBuildContinuity(t, continuityMock(hist, states, current))
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P8: pruned pre-creation gap must fail closed; complete=%v start=%q", c.TechnicalControls.ContinuityComplete, c.ContinuityStartRevision)
+	}
+	if c.ContinuityEvidence == nil || !c.ContinuityEvidence.RetentionCapped {
+		t.Errorf("P8: expected RetentionCapped, got %+v", c.ContinuityEvidence)
+	}
+}
+
+func TestContinuity_P8b_CreationVersionRetained(t *testing.T) {
+	// P8b: the corroborated case — the oldest retained version IS the creation version
+	// (CreatedAt == oldest retained updatedAt), so there is no pruned gap and a clean
+	// no-break leg establishes continuity.
+	hist := []*RulesetVersion{srVersion(1, continuityStart)}
+	states := map[int64]*RulesetVersionState{1: cleanL3State()}
+	current := &gh.RepositoryRuleset{CreatedAt: &gh.Timestamp{Time: continuityStart}}
+	c := srBuildContinuity(t, continuityMock(hist, states, current))
+	if !c.TechnicalControls.ContinuityComplete {
+		t.Fatalf("P8b: creation version retained should establish continuity; ev=%+v", c.ContinuityEvidence)
+	}
+	if c.ContinuityEvidence.RetentionCapped {
+		t.Error("P8b: must NOT be retention-capped when the creation version is retained")
+	}
+}
+
+func TestContinuity_P9_CommitWalkNoAnchor(t *testing.T) {
+	// P9: the commit list returns NO commit at-or-after the start time (the
+	// time->commit mapping cannot anchor R0) -> fail closed.
+	hist := []*RulesetVersion{srVersion(1, continuityStart)}
+	states := map[int64]*RulesetVersionState{1: cleanL3State()}
+	m := continuityMock(hist, states, &gh.RepositoryRuleset{})
+	m.commits = nil // no commit at-or-after start.
+	c := srBuildContinuity(t, m)
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P9: unanchored commit walk must fail closed; complete=%v start=%q", c.TechnicalControls.ContinuityComplete, c.ContinuityStartRevision)
+	}
+}
+
+func TestContinuity_P9b_CommitWalkTruncated(t *testing.T) {
+	// P9b: the commit list keeps advertising more pages past the cap -> fail closed.
+	pages := make([][]*gh.RepositoryCommit, continuityMaxCommitPages+1)
+	for i := range pages {
+		pages[i] = []*gh.RepositoryCommit{{SHA: gh.Ptr(fmt.Sprintf("c%039d", i))}}
+	}
+	hist := []*RulesetVersion{srVersion(1, continuityStart)}
+	states := map[int64]*RulesetVersionState{1: cleanL3State()}
+	m := continuityMock(hist, states, &gh.RepositoryRuleset{})
+	m.commits = nil
+	m.commitsPages = pages
+	c := srBuildContinuity(t, m)
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P9b: truncated commit walk must fail closed; complete=%v start=%q", c.TechnicalControls.ContinuityComplete, c.ContinuityStartRevision)
+	}
+}
+
+func TestContinuity_P10_TwoRulesetsMaxStart(t *testing.T) {
+	// P10: two rulesets clean since T1 and T2 -> continuity holds since max(T1,T2).
+	t1 := continuityStart
+	t2 := continuityStart.Add(72 * time.Hour) // the LATER per-leg start.
+	m := &mockReviewService{
+		prs:     []*gh.PullRequest{srMergedPR()},
+		reviews: []*gh.PullRequestReview{srReview(srUser("alice", 2, "User"), reviewStateApproved, srHeadSHA, srBaseTime.Add(time.Minute))},
+		rules: &gh.BranchRules{
+			NonFastForward:        []*gh.BranchRuleMetadata{{RulesetID: 5}},
+			RequiredLinearHistory: []*gh.BranchRuleMetadata{{RulesetID: 6}},
+			RequiredStatusChecks: []*gh.RequiredStatusChecksBranchRule{{
+				BranchRuleMetadata: gh.BranchRuleMetadata{RulesetID: 5},
+				Parameters: gh.RequiredStatusChecksRuleParameters{
+					RequiredStatusChecks: []*gh.RuleStatusCheck{{Context: "build"}},
+				},
+			}},
+		},
+		rulesets: map[int64]*gh.RepositoryRuleset{
+			5: {CreatedAt: &gh.Timestamp{Time: t1}},
+			6: {CreatedAt: &gh.Timestamp{Time: t2}},
+		},
+		history: map[int64][]*RulesetVersion{
+			5: {srVersion(1, t1)},
+			6: {srVersion(1, t2)},
+		},
+		versions: map[int64]map[int64]*RulesetVersionState{
+			5: {1: cleanL3State()},
+			6: {1: cleanL3State()},
+		},
+		commits: []*gh.RepositoryCommit{srR0Commit()},
+	}
+	c := srBuildContinuity(t, m)
+	if !c.TechnicalControls.ContinuityComplete {
+		t.Fatal("P10: expected continuity across both legs")
+	}
+	if c.ContinuityEvidence.WindowStartAt != t2.Format(time.RFC3339) {
+		t.Errorf("P10: WindowStartAt = %q, want max(T1,T2) = %q", c.ContinuityEvidence.WindowStartAt, t2.Format(time.RFC3339))
+	}
+	if len(c.ContinuityEvidence.RulesetIDs) != 2 {
+		t.Errorf("P10: RulesetIDs = %v, want both legs", c.ContinuityEvidence.RulesetIDs)
+	}
+}
+
+func TestContinuity_P11_OrgParentHistoryUnreadable(t *testing.T) {
+	// P11: one (org/parent) ruleset's history is unreadable -> the whole walk fails
+	// closed. The repo->org fallback is in the live service; from the walk's POV an
+	// error on any leg's history is fatal.
+	m := continuityMock([]*RulesetVersion{srVersion(1, continuityStart)},
+		map[int64]*RulesetVersionState{1: cleanL3State()}, &gh.RepositoryRuleset{})
+	// add a second backing ruleset (id 6) whose history 404s (org parent not found).
+	m.rules.RequiredLinearHistory = []*gh.BranchRuleMetadata{{RulesetID: 6}}
+	m.rulesets[6] = &gh.RepositoryRuleset{}
+	m.historyErr = map[int64]error{6: &gh.ErrorResponse{Response: &http.Response{StatusCode: 404}, Message: "not found"}}
+	c := srBuildContinuity(t, m)
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P11: unreadable parent history must fail closed; complete=%v start=%q", c.TechnicalControls.ContinuityComplete, c.ContinuityStartRevision)
+	}
+	if c.ContinuityEvidence.Method != continuityMethodNone {
+		t.Errorf("P11: Method = %q, want none", c.ContinuityEvidence.Method)
+	}
+}
+
+func TestContinuity_P12_DeleteRecreateFreshID(t *testing.T) {
+	// P12: a delete+recreate yields a FRESH ruleset id with a short clean history;
+	// the start is that recreate-era time only (continuity cannot reach before the
+	// new id existed). The window start is the oldest retained CLEAN version of the
+	// new id, which is the recreate era — not some earlier deleted-ruleset era.
+	recreateEra := continuityStart.Add(240 * time.Hour)
+	hist := []*RulesetVersion{srVersion(2, recreateEra.Add(time.Hour)), srVersion(1, recreateEra)}
+	states := map[int64]*RulesetVersionState{2: cleanL3State(), 1: cleanL3State()}
+	c := srBuildContinuity(t, continuityMock(hist, states, &gh.RepositoryRuleset{}))
+	if !c.TechnicalControls.ContinuityComplete {
+		t.Fatal("P12: a fresh-id clean history should establish continuity from the recreate era")
+	}
+	if c.ContinuityEvidence.WindowStartAt != recreateEra.Format(time.RFC3339) {
+		t.Errorf("P12: WindowStartAt = %q, want recreate era %q", c.ContinuityEvidence.WindowStartAt, recreateEra.Format(time.RFC3339))
+	}
+}
+
+func TestContinuity_P13_DefaultBranchSelectorNonDefault(t *testing.T) {
+	// P13: a version that targets ONLY "~DEFAULT_BRANCH" must NOT be credited when the
+	// artifact's protected branch is NOT the repo default -> fail closed (over-claim
+	// guard). The PR base ref here is "main" but the repo default is "trunk".
+	st := cleanL3State()
+	st.Conditions.RefName.Include = []string{"~DEFAULT_BRANCH"}
+	hist := []*RulesetVersion{srVersion(1, continuityStart)}
+	states := map[int64]*RulesetVersionState{1: st}
+	m := continuityMock(hist, states, &gh.RepositoryRuleset{})
+	m.defaultBranch = "trunk" // != the artifact base branch "main"
+	c := srBuildContinuity(t, m)
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P13: ~DEFAULT_BRANCH on a non-default branch must fail closed; complete=%v", c.TechnicalControls.ContinuityComplete)
+	}
+}
+
+func TestContinuity_P13b_DefaultBranchSelectorMatches(t *testing.T) {
+	// P13b: the same "~DEFAULT_BRANCH"-only version DOES count when the artifact base
+	// branch IS the repo default.
+	st := cleanL3State()
+	st.Conditions.RefName.Include = []string{"~DEFAULT_BRANCH"}
+	hist := []*RulesetVersion{srVersion(1, continuityStart)}
+	states := map[int64]*RulesetVersionState{1: st}
+	m := continuityMock(hist, states, &gh.RepositoryRuleset{})
+	m.defaultBranch = "main" // == the artifact base branch
+	c := srBuildContinuity(t, m)
+	if !c.TechnicalControls.ContinuityComplete {
+		t.Fatalf("P13b: ~DEFAULT_BRANCH on the default branch should count; ev=%+v", c.ContinuityEvidence)
+	}
+}
+
+func TestContinuity_P14_GlobExcludeFailsClosed(t *testing.T) {
+	// P14: an EXCLUDE with a glob that could match the branch must be treated as a
+	// possible exclusion -> the version is not protecting the branch -> fail closed.
+	st := cleanL3State()
+	st.Conditions.RefName.Include = []string{"~ALL"}
+	st.Conditions.RefName.Exclude = []string{"refs/heads/main*"} // glob could exclude main
+	hist := []*RulesetVersion{srVersion(1, continuityStart)}
+	states := map[int64]*RulesetVersionState{1: st}
+	c := srBuildContinuity(t, continuityMock(hist, states, &gh.RepositoryRuleset{}))
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P14: a glob exclude that could match the branch must fail closed; complete=%v", c.TechnicalControls.ContinuityComplete)
+	}
+}
+
+func TestContinuity_P15_VersionIDGapFailsClosed(t *testing.T) {
+	// P15: a hole in the version_id sequence within the clean run means an
+	// intermediate version was pruned and cannot be proven clean -> fail closed.
+	// ids 3 and 1 are clean but id 2 is missing from the retained run.
+	hist := []*RulesetVersion{srVersion(3, continuityStart.Add(48*time.Hour)), srVersion(1, continuityStart)}
+	states := map[int64]*RulesetVersionState{3: cleanL3State(), 1: cleanL3State()}
+	// CreatedAt == oldest so the creation-corroboration passes; the GAP is what must
+	// trip the cap.
+	current := &gh.RepositoryRuleset{CreatedAt: &gh.Timestamp{Time: continuityStart}}
+	c := srBuildContinuity(t, continuityMock(hist, states, current))
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P15: a version_id gap in the clean run must fail closed; complete=%v", c.TechnicalControls.ContinuityComplete)
+	}
+	if c.ContinuityEvidence == nil || !c.ContinuityEvidence.RetentionCapped {
+		t.Errorf("P15: expected RetentionCapped on a version_id gap, got %+v", c.ContinuityEvidence)
+	}
+}
+
+func TestContinuity_P16_NullVersionTimeFailsClosed(t *testing.T) {
+	// P16: a clean version with a null effective time (zero updatedAt) cannot anchor
+	// the window -> fail closed (even in a multi-version-looking history).
+	hist := []*RulesetVersion{srVersion(1, time.Time{})} // zero UpdatedAt
+	states := map[int64]*RulesetVersionState{1: cleanL3State()}
+	c := srBuildContinuity(t, continuityMock(hist, states, &gh.RepositoryRuleset{}))
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P16: a null version time must fail closed; complete=%v", c.TechnicalControls.ContinuityComplete)
+	}
+}
+
+func TestContinuity_P17_CommitDateBeforeStartFailsClosed(t *testing.T) {
+	// P17: if the only commit ListCommits returns is BEFORE the window start, R0
+	// cannot be anchored -> fail closed (the new min-by-date guard rejects it).
+	hist := []*RulesetVersion{srVersion(1, continuityStart)}
+	states := map[int64]*RulesetVersionState{1: cleanL3State()}
+	m := continuityMock(hist, states, &gh.RepositoryRuleset{})
+	m.commits = []*gh.RepositoryCommit{{
+		SHA:    gh.Ptr("tooold00000000000000000000000000000000aa"),
+		Commit: &gh.Commit{Committer: &gh.CommitAuthor{Date: &gh.Timestamp{Time: continuityStart.Add(-time.Hour)}}},
+	}}
+	c := srBuildContinuity(t, m)
+	if c.TechnicalControls.ContinuityComplete || c.ContinuityStartRevision != "" {
+		t.Fatalf("P17: a pre-start commit must not anchor R0; complete=%v", c.TechnicalControls.ContinuityComplete)
+	}
+}
+
+func TestContinuity_DormantByDefault_403(t *testing.T) {
+	// DORMANT-by-default (producer half): a read-only token (history 403) yields
+	// continuityComplete=false + empty start. This is the production reality until
+	// the history scope is granted. The verifier half (these values keep the source
+	// level dormant, NOT L3) is proven in pkg/source/review_test.go's
+	// "continuityComplete=false + non-empty start -> not L3" + "empty continuity ->
+	// not L3" cases, which key on exactly ContinuityComplete + ContinuityStartRevision.
+	m := continuityMock(nil, nil, &gh.RepositoryRuleset{})
+	m.historyErr = map[int64]error{5: &gh.ErrorResponse{Response: &http.Response{StatusCode: 403}, Message: "forbidden"}}
+	c := srBuildContinuity(t, m)
+	if c.TechnicalControls.ContinuityComplete {
+		t.Error("dormant-by-default: continuityComplete must be false on a 403 history")
+	}
+	if c.ContinuityStartRevision != "" {
+		t.Errorf("dormant-by-default: start must be empty, got %q", c.ContinuityStartRevision)
+	}
+	if c.ContinuityEvidence.Method != continuityMethodNone {
+		t.Errorf("dormant-by-default: Method = %q, want none", c.ContinuityEvidence.Method)
+	}
 }
 
 func TestNewSourceReview_HappyPath(t *testing.T) {
@@ -670,14 +1233,14 @@ func TestNewSourceReview_ApproversExcludedSummaryStillComputed(t *testing.T) {
 	srValidate(t, c)
 }
 
-func TestNewSourceReview_CodeownerReviewMetNullInV01(t *testing.T) {
+func TestNewSourceReview_CodeownerReviewMetNull(t *testing.T) {
 	m := &mockReviewService{
 		prs:     []*gh.PullRequest{srMergedPR()},
 		reviews: []*gh.PullRequestReview{srReview(srUser("alice", 2, "User"), reviewStateApproved, srHeadSHA, srBaseTime.Add(time.Minute))},
 	}
 	c := srBuild(t, m, srOpts())
 	if c.Summary.CodeownerReviewMet != nil {
-		t.Errorf("codeownerReviewMet = %v, want nil (tri-state, REST-only v0.1)", *c.Summary.CodeownerReviewMet)
+		t.Errorf("codeownerReviewMet = %v, want nil (tri-state, REST-only)", *c.Summary.CodeownerReviewMet)
 	}
 	// must serialize as JSON null
 	out, _ := c.Generate()
@@ -858,10 +1421,11 @@ func TestNewSourceReview_PaginatesBranchRules(t *testing.T) {
 }
 
 // TestSourceReview_PredicateTypeConsistency locks the predicate type URI across
-// the Go const, the embedded schema const, the verify-side registry, and the
-// docs table. A drift in any one silently breaks gating, so it must fail the build.
+// the Go const, the embedded schema const, the verify-side registry, and the docs
+// table. A drift in any one silently breaks gating, so it must fail the build.
+// v0.2 is the only recognized version.
 func TestSourceReview_PredicateTypeConsistency(t *testing.T) {
-	const want = "https://autogov.dev/attestation/source-review/v0.1"
+	const want = "https://autogov.dev/attestation/source-review/v0.2"
 
 	if SourceReviewPredicateTypeURI != want {
 		t.Errorf("SourceReviewPredicateTypeURI = %q, want %q", SourceReviewPredicateTypeURI, want)
@@ -871,7 +1435,7 @@ func TestSourceReview_PredicateTypeConsistency(t *testing.T) {
 	}
 	info, ok := attestations.PredicateTypeRegistry[want]
 	if !ok || info.ShortName != "AutoGov Source Review" {
-		t.Errorf("registry entry = %+v (ok=%v), want ShortName 'AutoGov Source Review'", info, ok)
+		t.Errorf("registry entry for %q = %+v (ok=%v), want ShortName 'AutoGov Source Review'", want, info, ok)
 	}
 
 	var schema map[string]any
@@ -880,8 +1444,11 @@ func TestSourceReview_PredicateTypeConsistency(t *testing.T) {
 	}
 	props := schema["properties"].(map[string]any)
 	pt := props["predicateType"].(map[string]any)
-	if pt["const"] != want {
-		t.Errorf("schema predicateType const = %v, want %q", pt["const"], want)
+	if pt["enum"] != nil {
+		t.Errorf("schema predicateType must be a const of %q (v0.2-only), got enum %v", want, pt["enum"])
+	}
+	if got, _ := pt["const"].(string); got != want {
+		t.Errorf("schema predicateType const = %q, want %q", got, want)
 	}
 
 	doc, err := os.ReadFile("../../docs/predicate-types.md")

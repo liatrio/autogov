@@ -19,6 +19,7 @@ func fullL3Controls() *SourceReviewControls {
 		BypassActors:            nil, // no bypass = cleanest
 		BypassActorsComplete:    true,
 		ContinuityStartRevision: "abc123",
+		ContinuityComplete:      true, // v0.2 fail-closed continuity signal
 	}
 }
 
@@ -58,6 +59,24 @@ func TestComputeSourceLevelFromControls(t *testing.T) {
 		tc.ContinuityStartRevision = ""
 		lvl, _ := ComputeSourceLevelFromControls(tc, nil, base)
 		assert.Equal(t, base, lvl)
+	})
+
+	t.Run("continuityComplete=false + non-empty start -> not L3 (fail-closed)", func(t *testing.T) {
+		// fail-closed: a populated start revision is NOT enough — the producer must
+		// also assert ContinuityComplete. A bundle missing continuityComplete (it
+		// decodes to false) with a start but no complete flag must keep the level
+		// dormant.
+		tc := fullL3Controls()
+		tc.ContinuityComplete = false
+		lvl, ann := ComputeSourceLevelFromControls(tc, nil, base)
+		assert.Equal(t, base, lvl, "an incomplete continuity proof must not earn L3")
+		assert.NotContains(t, ann, "ORG_SOURCE_CONTINUOUS_ENFORCEMENT")
+	})
+
+	t.Run("continuityComplete=true + non-empty start -> L3 + continuity annotation", func(t *testing.T) {
+		lvl, ann := ComputeSourceLevelFromControls(fullL3Controls(), nil, base)
+		assert.Equal(t, SLSASourceLevel3, lvl)
+		assert.Contains(t, ann, "ORG_SOURCE_CONTINUOUS_ENFORCEMENT")
 	})
 
 	t.Run("force-push not blocked -> not L3", func(t *testing.T) {

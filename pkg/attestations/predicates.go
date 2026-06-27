@@ -104,8 +104,13 @@ const (
 	// requested) — the change-management/two-person-review evidence for SLSA's source
 	// track. No in-toto/SLSA standard exists for source review, so this mirrors the
 	// metadata/code-scan precedent.
+	//
+	// v0.2 is the only recognized version: it carries fail-closed continuity
+	// evidence (continuityComplete). A v0.1 attestation is not recognized — a
+	// missing continuityComplete still decodes false -> dormant, so a v0.2 verifier
+	// can never over-claim L3 from an older bundle.
 	// Spec: https://github.com/liatrio/autogov (custom predicate type)
-	PredicateTypeAutogovSourceReview = "https://autogov.dev/attestation/source-review/v0.1"
+	PredicateTypeAutogovSourceReview = "https://autogov.dev/attestation/source-review/v0.2"
 
 	// PredicateTypeSCAI represents SCAI (Software Supply Chain Attribute Integrity) report.
 	// This predicate type provides evidence-based assertions about software artifact and
@@ -238,7 +243,7 @@ var PredicateTypeRegistry = map[string]PredicateTypeInfo{
 	PredicateTypeAutogovSourceReview: {
 		URI:         PredicateTypeAutogovSourceReview,
 		ShortName:   "AutoGov Source Review",
-		Description: "AutoGov custom source-review attestation recording PR-approval evidence (approvers, distinct approvals, changes-requested) for the source revision",
+		Description: "AutoGov custom source-review attestation recording PR-approval evidence (approvers, distinct approvals, changes-requested) and fail-closed L3 continuity for the source revision",
 		Spec:        "https://github.com/liatrio/autogov",
 	},
 	PredicateTypeSCAI: {
