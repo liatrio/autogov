@@ -943,7 +943,7 @@ func currentRulesetFacts(ctx context.Context, svc ReviewService, owner, repo str
 			}
 			set[formatBypassActor(a)] = struct{}{}
 		}
-		created[id] = rs.GetCreatedAt().Time.UTC()
+		created[id] = rs.GetCreatedAt().UTC()
 	}
 	return set, created, true
 }
@@ -1156,14 +1156,14 @@ func refTargetsBranch(cond *gh.RepositoryRulesetConditions, branch, defaultBranc
 func refIncludesBranch(patterns []string, branch, defaultBranch string) bool {
 	full := "refs/heads/" + branch
 	for _, p := range patterns {
-		switch {
-		case p == "~ALL":
+		switch p {
+		case "~ALL":
 			return true
-		case p == "~DEFAULT_BRANCH":
+		case "~DEFAULT_BRANCH":
 			if defaultBranch != "" && branch == defaultBranch {
 				return true
 			}
-		case p == branch, p == full:
+		case branch, full:
 			return true
 		}
 	}
@@ -1233,7 +1233,7 @@ func startCommitAtOrAfter(ctx context.Context, svc ReviewService, owner, repo, b
 			if c == nil || c.GetSHA() == "" || c.GetCommit() == nil || c.GetCommit().GetCommitter() == nil {
 				continue // no committer date -> cannot place it on the timeline.
 			}
-			when := c.GetCommit().GetCommitter().GetDate().Time.UTC()
+			when := c.GetCommit().GetCommitter().GetDate().UTC()
 			if when.Before(start) {
 				continue // outside the window (defensive; since= should exclude these).
 			}
