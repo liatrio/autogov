@@ -14,11 +14,13 @@ A unified CLI for attestation verification and release management. Supports [cos
 
 - [Requirements](#requirements)
 - [Features](#features)
+- [SLSA Posture](#slsa-posture)
 - [Verification Process](#verification-process)
 - [Authentication](#authentication)
 - [Installation](#installation)
 - [Usage](#usage)
   - [Online Verification](#online-verification)
+  - [verify source](#verify-source)
   - [Offline Verification](#offline-verification)
   - [Optional Flags](#optional-flags)
   - [Environment Variables](#environment-variables)
@@ -55,6 +57,39 @@ A unified CLI for attestation verification and release management. Supports [cos
 - **Production Ready**: Comprehensive error handling, caching, and monitoring support
 
 This tool verifies GitHub Artifact Attestations using the sigstore-go v1.2.1 API and supports attestations in the Sigstore bundle format used by [GitHub Artifact Attestations, npm Provenance, Homebrew Provenance, etc](https://blog.sigstore.dev/cosign-verify-bundles/).
+
+## SLSA Posture
+
+autogov is honest about its own [SLSA v1.2](https://slsa.dev/spec/v1.2/levels) posture on both the build and source tracks: levels are reported from verified evidence, never asserted, and the tool deliberately avoids over-claiming.
+
+### Build track — SLSA Build L3
+
+autogov's own releases are built to **SLSA Build L3**:
+
+- Build and attest jobs run on GitHub-hosted, isolated, ephemeral runners; the build path is guarded so a self-hosted runner fails the job (this applies to the blob build/attest jobs and the ko OCI image alike).
+- Build steps cannot reach the signing keys — provenance is generated and signed by GitHub's [`attest-build-provenance`](https://github.com/actions/attest-build-provenance) outside the build step.
+- The released binary, the full attestation bundle, and the multi-arch OCI image each carry a signed build-provenance attestation.
+
+The **verifier reports the build level from verified evidence, not from the builder identity**: a VSA records `SLSA_BUILD_LEVEL_3` only when a build-provenance attestation was actually verified **and** the signer identity was enforced (via `--cert-identity` / a signer allowlist); otherwise it records `SLSA_BUILD_LEVEL_0`. The level is computed from what was proven, so it cannot be inflated by trusting an unverified signature.
+
+### Source track — controls enforced + recorded; Source L3 dormant
+
+The repository continuously enforces technical controls on its protected branch and records them in a signed source-review attestation:
+
+- required CI status checks,
+- branch protection with force-push blocked,
+- linear / retained history (history is not rewritable or deletable),
+- no admin or team bypass — bypass is narrowed to the release bot only, declared as a single allowlisted exception.
+
+On the basis of these enforced-and-recorded controls autogov claims **honest Source L3** (the SLSA v1.2 source track grants L3 for continuously enforced, recorded technical controls — no human review is required for L3).
+
+This Source L3 claim is **currently dormant.** The v0.1 producer emits an empty `continuityStartRevision`, so the verifier fail-closes the continuity leg and the level stays at the conservative floor — no attestation actually earns L3 yet. It lights up once continuity tracking lands; until then the controls are *enforced and recorded* but the numbered L3 is not yet awarded. The verifier never promotes the level from an unverified signer, and never blocks when the controls are absent.
+
+### Two-party review (the v1.2 "L4" tier) — deferred, unclaimed
+
+Two-party review is the separate, higher SLSA v1.2 source control (the "L4" tier). autogov **does not claim it.** It is deferred to a future external / FOSS-contributor review pool. There is no `SLSA_SOURCE_LEVEL_4` numeric token — L4 is a non-numbered annotation, so when two-party review is in place it is recorded only as the `ORG_SOURCE_TWO_PARTY_REVIEWED` annotation, never as a level. Nothing in autogov today implies two-party review is performed.
+
+See [`verify source`](#verify-source) for how source levels are surfaced from evidence, and [docs/vsa-metadata.md](docs/vsa-metadata.md) for the VSA level fields.
 
 ## Verification Process
 
@@ -184,6 +219,63 @@ autogov verify attestation \
 ```
 
 See [Certificate Identity Validation Flags](#certificate-identity-validation-flags) for the list format and allowlist semantics (revoked/expired entries are dropped and verification fails closed on zero valid identities). If you set **neither** flag, any valid Fulcio signature is accepted and an `unsafe` warning is printed.
+
+### verify source
+
+`verify source` verifies a **source provenance** attestation: it confirms the signed bundle matches the expected repository URI and commit SHA, then reports the SLSA source-track level **honestly, from the verified evidence** (see [SLSA Posture](#slsa-posture)). A verified source-provenance signature proves `SLSA_SOURCE_LEVEL_1` (version control plus provenance); the level is never inflated and never inferred from the builder identity.
+
+```bash
+autogov verify source \
+  --attestation-path source-provenance.json \
+  --repo-uri https://github.com/owner/repo \
+  --commit abc123 \
+  --source-ref refs/heads/main
+```
+
+#### Source VSA output
+
+With `--source-vsa-output` the command also emits a standards-shaped SLSA Source VSA (`slsa.dev/verification_summary/v1`) whose subject is the verified source revision. Because that signed VSA asserts `verificationResult: PASSED`, it must not be minted from an unauthenticated signature, so `--source-vsa-output` **requires `--cert-identity`** (the signer is verified rather than accepted via the unsafe fallback):
+
+```bash
+autogov verify source \
+  --attestation-path source-provenance.json \
+  --repo-uri https://github.com/owner/repo \
+  --commit abc123 \
+  --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@refs/heads/main" \
+  --source-vsa-output source-vsa.json \
+  --policy-uri "https://github.com/liatrio/autogov-policy-library"
+```
+
+#### Promoting the level from enforced controls
+
+Passing `--source-review-attestation-path` (also requiring `--cert-identity`) supplies a signed source-review attestation whose **enforced technical controls** can promote the source level to `SLSA_SOURCE_LEVEL_3` and surface the factual controls as non-numbered `ORG_SOURCE_*` annotations. The promotion is **fail-closed**: when the bundle is absent or unverifiable the level stays at the conservative floor, and the L3 continuity leg is currently dormant (the v0.1 producer emits an empty `continuityStartRevision`), so no attestation earns L3 yet — see [Source track](#source-track--controls-enforced--recorded-source-l3-dormant). Two-party review remains a separate, unclaimed control with no numbered token (there is no `SLSA_SOURCE_LEVEL_4`).
+
+```bash
+autogov verify source \
+  --attestation-path source-provenance.json \
+  --repo-uri https://github.com/owner/repo \
+  --commit abc123 \
+  --cert-identity "https://github.com/owner/repo/.github/workflows/build.yml@refs/heads/main" \
+  --source-review-attestation-path source-review.json \
+  --allowed-bypass-actor "Integration:801323" \
+  --source-vsa-output source-vsa.json \
+  --policy-uri "https://github.com/liatrio/autogov-policy-library"
+```
+
+#### verify source flags
+
+- `--attestation-path`: Sigstore bundle file containing the source provenance attestation (required)
+- `--repo-uri`: expected source repository URI (required)
+- `--commit`: expected source commit SHA (required)
+- `--source-ref`: expected source ref (e.g., `refs/heads/main`)
+- `--cert-identity, -i`: expected OIDC subject in the certificate SAN; required for `--source-vsa-output`, `--generate-vsa`, and `--source-review-attestation-path`
+- `--cert-issuer, -s`: expected OIDC issuer URL
+- `--source-vsa-output`: output path for the standards-shaped SLSA Source VSA describing the source revision
+- `--source-review-attestation-path`: source-review attestation bundle whose enforced technical controls can promote the source level to L3
+- `--allowed-bypass-actor`: a ruleset bypass actor allowed as a narrow declared exception when judging L3, as `Type:ID` (e.g. `Integration:801323`); repeatable
+- `--policy-uri`: policy URI recorded in the generated VSA
+- `--format`: output format: `text`, `json` (default: `text`)
+- `-q, --quiet`: only show errors and final status
 
 ### Offline Verification
 
