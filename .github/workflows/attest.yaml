@@ -189,6 +189,33 @@ jobs:
           fi
           cp "$prov" "$RUNNER_TEMP/autogov.intoto.jsonl"
           echo "path=$RUNNER_TEMP/autogov.intoto.jsonl" >> "$GITHUB_OUTPUT"
+      - name: Download all attestation bundles
+        # the full bundle (build-provenance + metadata + sbom + dep-scan +
+        # source-review) is what an offline verifier re-evaluates against policy
+        # (autogov offline --attestations); the single-statement provenance asset
+        # above stays for OpenSSF Scorecard's Signed-Releases check.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: blob-*-attestation-high-perms
+          path: ${{ runner.temp }}/attestations
+      - name: Assemble full attestation bundle asset
+        id: bundle
+        run: |
+          out="$RUNNER_TEMP/autogov.attestations.intoto.jsonl"
+          : > "$out"
+          count=0
+          while IFS= read -r f; do
+            cat "$f" >> "$out"
+            # keep bundles newline-delimited even if a file lacks a trailing LF
+            [ -n "$(tail -c1 "$f")" ] && echo >> "$out"
+            count=$((count + 1))
+          done < <(find "$RUNNER_TEMP/attestations" -type f -name '*.jsonl' | sort)
+          if [ "$count" -eq 0 ]; then
+            echo "no attestation .jsonl bundles found under $RUNNER_TEMP/attestations" >&2
+            exit 1
+          fi
+          echo "assembled $count attestation bundles into $out"
+          echo "path=$out" >> "$GITHUB_OUTPUT"
       # the release-cut push to main needs the octo-sts release-ops bypass actor
       # (github.token can't bypass the ruleset).
       - uses: octo-sts/action@f603d3be9d8dd9871a265776e625a27b00effe05 # v1.1.1
@@ -206,4 +233,5 @@ jobs:
             --asset "$RUNNER_TEMP/attested/autogov" \
             --asset "${{ steps.vsa.outputs.path }}" \
             --asset "${{ steps.provenance.outputs.path }}" \
+            --asset "${{ steps.bundle.outputs.path }}" \
             --publish
