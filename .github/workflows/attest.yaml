@@ -46,15 +46,10 @@ jobs:
       build-type: blob
       blob-artifact-id: ${{ needs.attest-blob.outputs.blob-artifact-id }}
       cert-identity: https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@b6c847fb50b581fcd3a3e282696f0c1bb4cbc3ab # v0.27.4
-      # autogov claims SLSA Source L3 (continuously enforced branch-protection
-      # controls), NOT L4 (two-party review), so its OWN release self-verify must
-      # not require approvals. override source-review to min_approvals 0 for this
-      # repo only; the published consumer policy bundle stays strict (min 1) for
-      # consumers who choose to assert two-party review.
+      # autogov's own release claims Source L3 (enforced controls), not L4 (review),
+      # so it self-verifies at min_approvals 0; the published bundle stays strict.
       policy-data-overlay: '{"source_review_thresholds":{"min_approvals":0}}'
-      # gate the self-release on policy: a FAILED self-verify fails verify-blob,
-      # so the release job (needs: [verify-blob]) is skipped. the FAILED VSA is
-      # still attested and uploaded before the gate.
+      # a FAILED self-verify fails verify-blob, skipping the release job.
       allow-failed-vsa: false
       vuln-threshold-critical: '0'
       vuln-threshold-high: '0'
@@ -108,8 +103,6 @@ jobs:
           password: ${{ github.token }}
       - name: ko build
         id: build
-        # --bare publishes exactly at KO_DOCKER_REPO; --push is gated so branches
-        # only validate the build. --image-refs captures the pushed ref@digest.
         run: |
           ko build . \
             --bare \
@@ -137,18 +130,14 @@ jobs:
       actions: read
       id-token: write # federate the octo-sts release token
     steps:
-      # self-release: the cutter is the just-attested binary (it IS the code being
-      # released + carries the current resume/rollback logic; no pinned CLI). It is
-      # also the published asset, so its digest still matches the attestations.
-      # fetch-depth:0 — `release plan` walks tags/commits with local go-git.
-      # Artifacts stay under $RUNNER_TEMP (off the worktree) so `release cut`'s
-      # go-git clean-tree check isn't tripped by untracked files.
+      # self-release: the just-attested binary is the cutter (+ the published asset).
+      # fetch-depth:0 for `release plan`'s local go-git; artifacts stay under
+      # $RUNNER_TEMP (off the worktree) so `release cut`'s clean-tree check holds.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-          persist-credentials: false # cut pushes with the explicit octo-sts token, not the persisted github.token
+          persist-credentials: false
       - name: Download attested binary (cutter + released asset)
-        # verify-blob gated this job, so the binary is verified before use.
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: blob-build-artifact-high-perms
@@ -193,9 +182,8 @@ jobs:
           fi
           cp "$prov" "$RUNNER_TEMP/autogov.intoto.jsonl"
           echo "path=$RUNNER_TEMP/autogov.intoto.jsonl" >> "$GITHUB_OUTPUT"
-      # the release-cut push to main needs a ruleset-bypass actor: octo-sts
-      # release-ops (autogov is in release-ops.sts.yaml). the chore(release) commit
-      # carries [skip ci] so it doesn't re-trigger this workflow.
+      # the release-cut push to main needs the octo-sts release-ops bypass actor
+      # (github.token can't bypass the ruleset).
       - uses: octo-sts/action@f603d3be9d8dd9871a265776e625a27b00effe05 # v1.1.1
         id: octo-sts-release
         with:
