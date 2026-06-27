@@ -11,8 +11,11 @@ on:
       - docs/**
 
 concurrency:
+  # serialize per ref but never cancel an in-flight run: a rapid follow-up push to
+  # main must not cancel a release mid-publish (the cut + tag + asset upload must
+  # complete atomically).
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions: {}
 
@@ -152,29 +155,29 @@ jobs:
       # clone would not see prior tags. `release cut` itself can use the API, but
       # the `plan` step that computes the next version cannot.
       # The released asset is the attested blob-build-artifact-high-perms binary
-      # (not a rebuild), so its digest carries the attestations. No Go toolchain is
-      # needed here: plan and cut run the downloaded autogov CLI.
+      # (not a rebuild), so its digest carries the attestations. That SAME attested
+      # binary is also the cutter (plan + cut run it), so no Go toolchain and no
+      # frozen pinned CLI are needed — the tool governing the release IS the code
+      # being released (true self-release), and the cutter carries the current
+      # resume/rollback logic the old v0.23.0 binary lacked.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-      - name: Install released autogov CLI
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Download attested binary (cutter + released asset)
+        # verify-blob gated this job, so the binary is verified before use.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: blob-build-artifact-high-perms
+          path: ${{ runner.temp }}/attested
+      - name: Use the attested binary as the cutter
         run: |
-          gh release download v0.23.0 --repo liatrio/autogov --pattern autogov --output autogov
-          chmod +x autogov
-          echo "$PWD" >> "$GITHUB_PATH"
+          chmod +x "$RUNNER_TEMP/attested/autogov"
+          echo "$RUNNER_TEMP/attested" >> "$GITHUB_PATH"
       - name: Plan release
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
         run: autogov release plan -o json > "$RUNNER_TEMP/plan.json"
-      - name: Download attested binary
-        # the attested + verified binary from attest-blob (not a rebuild)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: blob-build-artifact-high-perms
-          path: ${{ runner.temp }}/attested
       - name: Download VSA artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
