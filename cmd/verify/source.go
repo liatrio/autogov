@@ -196,6 +196,8 @@ func runSource(cmd *cobra.Command, _ []string) error {
 		if srPath != "" {
 			allowedBypass, _ := cmd.Flags().GetStringSlice(flagAllowedBypassActor)
 			controls, srErr := source.VerifySourceReviewControls(srPath, source.VerifyOptions{
+				RepoURI:      result.RepoURI,
+				Commit:       result.Commit,
 				CertIdentity: certIdentity,
 				CertIssuer:   certIssuer,
 			})

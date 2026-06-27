@@ -149,3 +149,30 @@ func TestVerifySourceReviewControls_IdentityMismatchFailsClosed(t *testing.T) {
 	require.Error(t, err, "a non-matching signer must not yield controls")
 	assert.NotContains(t, err.Error(), "cert-identity", "should fail at verification, not the pre-check")
 }
+
+func TestCheckSourceReviewBinding(t *testing.T) {
+	const commit = "abc1234567890def1234567890abcdef12345678"
+	const repo = "https://github.com/liatrio/autogov"
+
+	t.Run("matching commit, no repo opt -> ok", func(t *testing.T) {
+		require.NoError(t, checkSourceReviewBinding("", commit, VerifyOptions{Commit: commit}))
+	})
+	t.Run("matching commit + repo -> ok", func(t *testing.T) {
+		require.NoError(t, checkSourceReviewBinding(repo, commit, VerifyOptions{RepoURI: repo, Commit: commit}))
+	})
+	t.Run("mismatched commit -> error (replay blocked)", func(t *testing.T) {
+		err := checkSourceReviewBinding(repo, "0000000000000000000000000000000000000000", VerifyOptions{RepoURI: repo, Commit: commit})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not the verified commit")
+	})
+	t.Run("no expected commit -> error (cannot bind)", func(t *testing.T) {
+		err := checkSourceReviewBinding(repo, commit, VerifyOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no expected commit")
+	})
+	t.Run("matching commit, mismatched repo -> error", func(t *testing.T) {
+		err := checkSourceReviewBinding("https://github.com/evil/repo", commit, VerifyOptions{RepoURI: repo, Commit: commit})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "repository")
+	})
+}

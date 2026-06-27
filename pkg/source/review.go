@@ -32,7 +32,13 @@ type SourceReviewControls struct {
 // sourceReviewPredicate parses only the source-review fields the L3 determination
 // needs. Unknown fields are ignored.
 type sourceReviewPredicate struct {
-	Summary struct {
+	// SourceRepository + SourceRevision bind the attestation to a specific repo
+	// and commit; the verifier rejects a bundle whose revision is not the commit
+	// being verified, so a (validly-signed) source-review bundle for one commit
+	// cannot be replayed to promote a different one.
+	SourceRepository string `json:"sourceRepository"`
+	SourceRevision   string `json:"sourceRevision"`
+	Summary          struct {
 		DistinctApprovers int `json:"distinctApprovers"`
 	} `json:"summary"`
 	TechnicalControls *struct {
@@ -106,6 +112,12 @@ func VerifySourceReviewControls(bundlePath string, opts VerifyOptions) (*SourceR
 	if pred.TechnicalControls == nil {
 		return nil, fmt.Errorf("source-review predicate records no technicalControls")
 	}
+	// bind the attestation to the commit (and repo) being verified — a validly
+	// signed source-review bundle for a DIFFERENT revision must never promote
+	// this one (replay protection).
+	if err := checkSourceReviewBinding(pred.SourceRepository, pred.SourceRevision, opts); err != nil {
+		return nil, err
+	}
 
 	tc := pred.TechnicalControls
 	return &SourceReviewControls{
@@ -119,6 +131,22 @@ func VerifySourceReviewControls(bundlePath string, opts VerifyOptions) (*SourceR
 		ContinuityStartRevision: pred.ContinuityStartRevision,
 		TwoPartyReviewed:        pred.Summary.DistinctApprovers >= 2,
 	}, nil
+}
+
+// checkSourceReviewBinding fails closed unless the source-review attestation is
+// for the commit (and repo, when both are known) being verified — preventing a
+// validly-signed bundle for one revision from being replayed to promote another.
+func checkSourceReviewBinding(repo, revision string, opts VerifyOptions) error {
+	if opts.Commit == "" {
+		return fmt.Errorf("cannot bind source-review controls: no expected commit to verify against")
+	}
+	if !matchCommitSHA(revision, opts.Commit) {
+		return fmt.Errorf("source-review attestation is for revision %q, not the verified commit %q", revision, opts.Commit)
+	}
+	if opts.RepoURI != "" && repo != "" && !matchRepoURI(repo, opts.RepoURI) {
+		return fmt.Errorf("source-review attestation is for repository %q, not %q", repo, opts.RepoURI)
+	}
+	return nil
 }
 
 // ComputeSourceLevelFromControls promotes the source level to SLSA_SOURCE_LEVEL_3
@@ -165,7 +193,7 @@ func ComputeSourceLevelFromControls(tc *SourceReviewControls, allowedBypass []st
 		(tc.RequiredLinearHistory || tc.DeletionBlocked) &&
 		tc.BypassActorsComplete &&
 		bypassActorsAllNarrow(tc.BypassActors, allowedBypass)
-	continuityMet := tc.ContinuityStartRevision != ""
+	continuityMet := strings.TrimSpace(tc.ContinuityStartRevision) != ""
 
 	if controlsMet && continuityMet {
 		return SLSASourceLevel3, annotations
