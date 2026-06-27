@@ -974,13 +974,13 @@ func createReleaseCommitViaAPI(ctx context.Context, repo *git.Repository, opts *
 // buildCommitMessage creates a conventional commit message for the release
 func buildCommitMessage(plan *ReleasePlan) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("chore(release): %s\n\nRelease %s\n", plan.NextVersion, plan.NextVersion))
+	fmt.Fprintf(&sb, "chore(release): %s\n\nRelease %s\n", plan.NextVersion, plan.NextVersion)
 
 	if len(plan.FileMutations) > 0 {
 		sb.WriteString("\nFiles modified:\n")
 		for _, fm := range plan.FileMutations {
 			if fm.Type != "error" {
-				sb.WriteString(fmt.Sprintf("- %s: %s → %s\n", fm.Path, fm.OldValue, fm.NewValue))
+				fmt.Fprintf(&sb, "- %s: %s → %s\n", fm.Path, fm.OldValue, fm.NewValue)
 			}
 		}
 	}
