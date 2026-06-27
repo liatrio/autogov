@@ -28,18 +28,19 @@ var srBaseTime = time.Date(2026, 6, 22, 10, 0, 0, 0, time.UTC)
 
 // mockReviewService implements ReviewService for unit tests.
 type mockReviewService struct {
-	prs        []*gh.PullRequest
-	prsErr     error
-	reviews    []*gh.PullRequestReview
-	reviewsErr error
-	protection *gh.Protection
-	protErr    error
-	rules      *gh.BranchRules
-	rulesErr   error
-	rulesPages [][]*gh.PullRequestBranchRule // if set, ListRulesForBranch returns these page-by-page
-	rulesCall  int
-	rulesets   map[int64]*gh.RepositoryRuleset // keyed by rulesetID, returned by GetRuleset
-	rulesetErr error
+	prs              []*gh.PullRequest
+	prsErr           error
+	reviews          []*gh.PullRequestReview
+	reviewsErr       error
+	protection       *gh.Protection
+	protErr          error
+	rules            *gh.BranchRules
+	rulesErr         error
+	rulesPages       [][]*gh.PullRequestBranchRule // if set, ListRulesForBranch returns these page-by-page
+	rulesBranchPages []*gh.BranchRules             // if set, ListRulesForBranch returns full BranchRules page-by-page
+	rulesCall        int
+	rulesets         map[int64]*gh.RepositoryRuleset // keyed by rulesetID, returned by GetRuleset
+	rulesetErr       error
 }
 
 func srResp() *gh.Response {
@@ -61,6 +62,18 @@ func (m *mockReviewService) GetBranchProtection(_ context.Context, _, _, _ strin
 func (m *mockReviewService) ListRulesForBranch(_ context.Context, _, _, _ string, _ *gh.ListOptions) (*gh.BranchRules, *gh.Response, error) {
 	if m.rulesErr != nil {
 		return nil, srResp(), m.rulesErr
+	}
+	if m.rulesBranchPages != nil {
+		page := m.rulesCall
+		m.rulesCall++
+		if page >= len(m.rulesBranchPages) {
+			return &gh.BranchRules{}, srResp(), nil
+		}
+		resp := srResp()
+		if page+1 < len(m.rulesBranchPages) {
+			resp.NextPage = page + 1
+		}
+		return m.rulesBranchPages[page], resp, nil
 	}
 	if m.rulesPages != nil {
 		page := m.rulesCall
@@ -194,6 +207,9 @@ func TestFetchTechnicalControls(t *testing.T) {
 		if !reflect.DeepEqual(tc.BypassActors, []string{"Integration:801323:always", "RepositoryRole:5:always"}) {
 			t.Errorf("bypass actors = %v, want sorted+formatted", tc.BypassActors)
 		}
+		if !tc.BypassActorsComplete {
+			t.Error("expected BypassActorsComplete true (rules fully read + ruleset resolved)")
+		}
 	})
 
 	t.Run("partial controls; rulesetID 0 not fetched", func(t *testing.T) {
@@ -221,6 +237,34 @@ func TestFetchTechnicalControls(t *testing.T) {
 		}
 		if !reflect.DeepEqual(tc.RequiredStatusChecks, []string{"build", "test"}) {
 			t.Errorf("status checks should survive, got %v", tc.RequiredStatusChecks)
+		}
+		if tc.BypassActorsComplete {
+			t.Error("expected BypassActorsComplete false on GetRuleset denial (empty != none)")
+		}
+	})
+
+	t.Run("paginated rules aggregated across pages, bypass unioned", func(t *testing.T) {
+		// page 1 contributes ForcePushBlocked + ruleset 5; page 2 contributes
+		// RequiredSignatures + ruleset 6. Both must be captured + bypass unioned.
+		m := &mockReviewService{
+			rulesBranchPages: []*gh.BranchRules{
+				{NonFastForward: []*gh.BranchRuleMetadata{{RulesetID: 5}}},
+				{RequiredSignatures: []*gh.BranchRuleMetadata{{RulesetID: 6}}},
+			},
+			rulesets: map[int64]*gh.RepositoryRuleset{
+				5: {BypassActors: []*gh.BypassActor{srBypassActor("Integration", 801323, "always")}},
+				6: {BypassActors: []*gh.BypassActor{srBypassActor("Team", 42, "always")}},
+			},
+		}
+		tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
+		if tc == nil || !tc.ForcePushBlocked || !tc.RequiredSignatures {
+			t.Fatalf("expected controls from BOTH pages, got %+v", tc)
+		}
+		if !reflect.DeepEqual(tc.BypassActors, []string{"Integration:801323:always", "Team:42:always"}) {
+			t.Errorf("bypass actors should union both pages' rulesets, got %v", tc.BypassActors)
+		}
+		if !tc.BypassActorsComplete {
+			t.Error("expected complete (both pages read, both rulesets resolved)")
 		}
 	})
 
@@ -284,10 +328,13 @@ func TestNewSourceReview_TechnicalControls(t *testing.T) {
 	if !reflect.DeepEqual(c.TechnicalControls.BypassActors, []string{"Integration:801323:always"}) {
 		t.Errorf("bypass actors = %v", c.TechnicalControls.BypassActors)
 	}
+	if !c.TechnicalControls.BypassActorsComplete {
+		t.Error("expected BypassActorsComplete true (ruleset resolved)")
+	}
 	if c.ContinuityStartRevision != "" {
 		t.Errorf("continuity must be empty in v0.1, got %q", c.ContinuityStartRevision)
 	}
-	srValidate(t, c) // schema must accept the new technicalControls fields
+	srValidate(t, c) // schema must accept the new technicalControls fields (incl. required bypassActorsComplete)
 }
 
 func TestNewSourceReview_NoTechnicalControls(t *testing.T) {

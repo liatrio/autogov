@@ -131,13 +131,15 @@
               "type": "array",
               "maxItems": 1000,
               "items": { "type": "string", "maxLength": 512 }
-            }
+            },
+            "bypassActorsComplete": { "type": "boolean" }
           },
           "required": [
             "forcePushBlocked",
             "requiredLinearHistory",
             "deletionBlocked",
-            "requiredSignatures"
+            "requiredSignatures",
+            "bypassActorsComplete"
           ]
         },
         "continuityStartRevision": { "type": "string", "maxLength": 64 },
