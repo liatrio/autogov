@@ -47,7 +47,7 @@ type cmsSignerInfoRaw struct {
 	Version                   int `asn1:"default:1"`
 	IssuerAndSerialNumber     cmsIssuerAndSerial
 	DigestAlgorithm           asn1.RawValue
-	AuthenticatedAttributes   asn1.RawValue   `asn1:"optional,tag:0"`
+	AuthenticatedAttributes   asn1.RawValue `asn1:"optional,tag:0"`
 	DigestEncryptionAlgorithm asn1.RawValue
 	EncryptedDigest           []byte
 	UnauthenticatedAttributes []cmsAttribute `asn1:"optional,omitempty,tag:1"`
