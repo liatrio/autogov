@@ -11,7 +11,9 @@ import (
 )
 
 const (
-	flagAttestationPath = "attestation-path"
+	flagAttestationPath             = "attestation-path"
+	flagSourceReviewAttestationPath = "source-review-attestation-path"
+	flagAllowedBypassActor          = "allowed-bypass-actor"
 )
 
 // newSourceCmd creates the verify source subcommand.
@@ -67,6 +69,8 @@ Examples:
 	cmd.Flags().String(flagVSAOutput, "", "Output path for generated VSA (required if --generate-vsa is used)")
 	cmd.Flags().String(flagPolicyURI, "", "Policy URI for VSA generation (required if --generate-vsa is used)")
 	cmd.Flags().String(flagSourceVSAOutput, "", "Output path for a standards-shaped SLSA Source VSA (slsa.dev/verification_summary/v1) describing the source revision")
+	cmd.Flags().String(flagSourceReviewAttestationPath, "", "Path to a source-review attestation bundle; its enforced technical controls can promote the source level to L3 (requires --cert-identity)")
+	cmd.Flags().StringSlice(flagAllowedBypassActor, nil, "Ruleset bypass actor allowed as a narrow declared exception when judging L3, as \"Type:ID\" (e.g. Integration:801323); repeatable")
 
 	return cmd
 }
@@ -101,6 +105,13 @@ func preRunSource(cmd *cobra.Command, _ []string) error {
 	generateVSA, _ := cmd.Flags().GetBool(flagGenerateVSA)
 	if generateVSA && certIdentity == "" {
 		return fmt.Errorf("--%s requires --%s: refusing to mint a trust-bearing VSA from an unverified signer", flagGenerateVSA, flagCertIdentity)
+	}
+	// the source-review controls can RAISE the asserted source level (to L3), so
+	// they must come from a signature-verified signer — never promote from the
+	// WithoutIdentitiesUnsafe fallback.
+	srPath, _ := cmd.Flags().GetString(flagSourceReviewAttestationPath)
+	if srPath != "" && certIdentity == "" {
+		return fmt.Errorf("--%s requires --%s: a source-review attestation may only promote the source level when its signer is verified", flagSourceReviewAttestationPath, flagCertIdentity)
 	}
 	return nil
 }
@@ -174,7 +185,28 @@ func runSource(cmd *cobra.Command, _ []string) error {
 	sourceVSAOutput, _ := cmd.Flags().GetString(flagSourceVSAOutput)
 	if sourceVSAOutput != "" && result.Verified {
 		policyURI, _ := cmd.Flags().GetString(flagPolicyURI)
-		if err := generateStandardsSourceVSA(result, sourceVSAOutput, policyURI); err != nil {
+
+		// SLSA source-level promotion (PR-C): a signature-verified source-review
+		// attestation's enforced technical controls can raise the level to L3. When
+		// the bundle is absent or unverifiable, the level stays the conservative
+		// floor — the producer/verifier never over-claims and never blocks.
+		sourceLevel := result.SLSASourceLevel
+		var additionalLevels []string
+		srPath, _ := cmd.Flags().GetString(flagSourceReviewAttestationPath)
+		if srPath != "" {
+			allowedBypass, _ := cmd.Flags().GetStringSlice(flagAllowedBypassActor)
+			controls, srErr := source.VerifySourceReviewControls(srPath, source.VerifyOptions{
+				CertIdentity: certIdentity,
+				CertIssuer:   certIssuer,
+			})
+			if srErr != nil {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: source-review controls not applied (%v); source level stays %s\n", srErr, sourceLevel)
+			} else {
+				sourceLevel, additionalLevels = source.ComputeSourceLevelFromControls(controls, allowedBypass, result.SLSASourceLevel)
+			}
+		}
+
+		if err := generateStandardsSourceVSA(result, sourceVSAOutput, policyURI, sourceLevel, additionalLevels); err != nil {
 			return fmt.Errorf("failed to generate source VSA: %w", err)
 		}
 		if !quiet {
@@ -193,22 +225,25 @@ func runSource(cmd *cobra.Command, _ []string) error {
 // ORG_SOURCE_* annotations once that evidence is recorded — never by inflating
 // the numbered level, and never as a SLSA_SOURCE_LEVEL_4 (there is no such tier;
 // two-party review is recorded as a separate annotation).
-func generateStandardsSourceVSA(result *source.VerificationResult, vsaOutput, policyURI string) error {
-	// use the verifier's computed level as the single source of truth so the VSA
-	// SourceLevel always matches the metadata recorded below; the verifier sets
-	// this on every path (L0 default, L1 on a verified signature), so fall back
-	// to the conservative mapper only if it was somehow left unset.
-	sourceLevel := result.SLSASourceLevel
+func generateStandardsSourceVSA(result *source.VerificationResult, vsaOutput, policyURI, sourceLevel string, additionalLevels []string) error {
+	// sourceLevel is the (possibly controls-promoted) level the caller computed,
+	// and additionalLevels carries the ORG_SOURCE_* control annotations. Fall back
+	// to the verifier's level / conservative mapper only if the caller left it
+	// unset, so the VSA SourceLevel always matches the metadata recorded below.
 	if sourceLevel == "" {
-		sourceLevel = source.MapToCanonicalSourceLevel(result.Verified)
+		sourceLevel = result.SLSASourceLevel
+		if sourceLevel == "" {
+			sourceLevel = source.MapToCanonicalSourceLevel(result.Verified)
+		}
 	}
 
 	opts := vsa.SourceVSAOptions{
-		RepoURI:     result.RepoURI,
-		Commit:      result.Commit,
-		SourceLevel: sourceLevel,
-		Passed:      result.Verified,
-		PolicyURI:   policyURI,
+		RepoURI:          result.RepoURI,
+		Commit:           result.Commit,
+		SourceLevel:      sourceLevel,
+		AdditionalLevels: additionalLevels,
+		Passed:           result.Verified,
+		PolicyURI:        policyURI,
 		AdditionalVerifiers: map[string]string{
 			"autogov": version,
 		},
@@ -227,7 +262,7 @@ func generateStandardsSourceVSA(result *source.VerificationResult, vsaOutput, po
 		"commit":         result.Commit,
 		"source_ref":     result.SourceRef,
 		"builder_id":     result.BuilderID,
-		"computed_level": result.SLSASourceLevel,
+		"computed_level": sourceLevel,
 	}
 
 	return vsa.WriteToFile(generatedVSA, vsaOutput)
