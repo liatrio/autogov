@@ -1,7 +1,0 @@
-# Example air configuration
-[build]
-  cmd = 'CGO_ENABLED=0 go build -gcflags=all="-N -l" -o ./tmp/main .'
-  bin = "./tmp/main"
-  include_dir = ["pkg"]
-  include_file = ["main.go"]
-  # ... rest of the configuration
