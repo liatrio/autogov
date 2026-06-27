@@ -26,7 +26,20 @@ type GenerateOptions struct {
 	Quiet             bool
 	Version           string
 	OpaVersion        string
+	// IdentityEnforced is true when verification bound the build-provenance
+	// signer to a cert-identity / signer allowlist. it gates the SLSA Build L3
+	// claim: without an enforced identity the builder is unverified, so the
+	// build track stays at L0 even if the provenance signature checked out.
+	IdentityEnforced bool
 }
+
+// result-map keys shared between buildVerificationResults (producer) and
+// generateVSACore (consumer of the build-level signal); kept as consts so the
+// contract can't drift silently.
+const (
+	resultKeySLSAProvenance          = "attestation.slsa_provenance"
+	resultKeyProvenanceIdentityBound = "attestation.slsa_provenance.identity_bound"
+)
 
 // creates a VSA after successful attestation verification
 func Generate(ctx context.Context, opts GenerateOptions) error {
@@ -37,6 +50,8 @@ func Generate(ctx context.Context, opts GenerateOptions) error {
 
 	// verification results based on successful attestation verification
 	verificationResults := buildVerificationResults(opts.AttestationTypes)
+
+	markIdentityBoundProvenance(verificationResults, opts.IdentityEnforced)
 
 	// OPA policy evaluation
 	if !opts.Quiet {
@@ -145,7 +160,7 @@ func buildVerificationResults(attestationTypes []string) map[string]bool {
 	for _, attType := range attestationTypes {
 		switch attType {
 		case attestations.PredicateTypeSLSAProvenance:
-			verificationResults["attestation.slsa_provenance"] = true
+			verificationResults[resultKeySLSAProvenance] = true
 		case attestations.PredicateTypeCycloneDX:
 			verificationResults["attestation.sbom"] = true
 		case attestations.PredicateTypeVulnerability:
@@ -160,6 +175,18 @@ func buildVerificationResults(attestationTypes []string) map[string]bool {
 	}
 
 	return verificationResults
+}
+
+// markIdentityBoundProvenance records that build provenance was verified under
+// an enforced signer identity (cert-identity / signer allowlist) — the
+// precondition for an honest SLSA Build L3 claim. it only sets the key when
+// true so the overall PASS/FAIL computation (which fails on any false value) is
+// unaffected, and never promotes when provenance wasn't verified or identity
+// wasn't enforced.
+func markIdentityBoundProvenance(verificationResults map[string]bool, identityEnforced bool) {
+	if identityEnforced && verificationResults[resultKeySLSAProvenance] {
+		verificationResults[resultKeyProvenanceIdentityBound] = true
+	}
 }
 
 // prints the policy evaluation completion line and any violations.

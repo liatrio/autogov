@@ -350,6 +350,9 @@ func generateOfflineVSA(cmd *cobra.Command, f runCommandFlags, artifactPath stri
 	vsaOptions.VSASubjects = vsaSubjects
 	vsaOptions.AttestationTypes = attestationTypes
 	vsaOptions.Signatures = nil // no oci signatures in offline mode
+	// build L3 requires the build-provenance signer identity to have been
+	// enforced (cert-identity / signer allowlist); otherwise the VSA stays L0
+	vsaOptions.IdentityEnforced = f.certIdentity != "" || f.certIdentityList != ""
 
 	if err := vsa.Generate(ctx, vsaOptions); err != nil {
 		return fmt.Errorf("failed to generate VSA: %w", err)

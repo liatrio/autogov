@@ -480,20 +480,27 @@ func maybeGenerateVSA(cmd *cobra.Command, quiet bool, vsaArtifactRef string, vsa
 	policyBundlePath, _ := cmd.Flags().GetString(flagPolicyBundlePath)
 	policySchemasPath, _ := cmd.Flags().GetString(flagPolicySchemasPath)
 	policyDataPath, _ := cmd.Flags().GetString(flagPolicyDataPath)
-	if err := generateVSAWithOptions(context.Background(), vsaArtifactRef, vsaSubjects, inputAttestations, attestationTypes, sigs, quiet, vsaOutput, policyURI, policyBundlePath, policySchemasPath, policyDataPath); err != nil {
+
+	// the build-provenance signer identity is enforced when a cert-identity or
+	// signer allowlist was supplied; this gates the SLSA Build L3 claim in the VSA
+	certIdentity, _ := cmd.Flags().GetString(flagCertIdentity)
+	certIdentityList, _ := cmd.Flags().GetString(flagCertIdentityList)
+	identityEnforced := certIdentity != "" || certIdentityList != ""
+	if err := generateVSAWithOptions(context.Background(), vsaArtifactRef, vsaSubjects, inputAttestations, attestationTypes, sigs, quiet, vsaOutput, policyURI, policyBundlePath, policySchemasPath, policyDataPath, identityEnforced); err != nil {
 		return fmt.Errorf("failed to generate VSA: %w", err)
 	}
 
 	return nil
 }
 
-func generateVSAWithOptions(ctx context.Context, artifactDigest string, vsaSubjects []vsa.VSASubject, inputAttestations []vsa.ResourceDescriptor, attestationTypes []string, sigs []oci.Signature, quiet bool, vsaOutput, policyURI, policyBundlePath, policySchemasPath, policyDataPath string) error {
+func generateVSAWithOptions(ctx context.Context, artifactDigest string, vsaSubjects []vsa.VSASubject, inputAttestations []vsa.ResourceDescriptor, attestationTypes []string, sigs []oci.Signature, quiet bool, vsaOutput, policyURI, policyBundlePath, policySchemasPath, policyDataPath string, identityEnforced bool) error {
 	return vsa.Generate(ctx, vsa.GenerateOptions{
 		ArtifactDigest:    artifactDigest,
 		VSASubjects:       vsaSubjects,
 		InputAttestations: inputAttestations,
 		AttestationTypes:  attestationTypes,
 		Signatures:        sigs,
+		IdentityEnforced:  identityEnforced,
 		PolicyURI:         policyURI,
 		PolicyBundlePath:  policyBundlePath,
 		PolicySchemasPath: policySchemasPath,
