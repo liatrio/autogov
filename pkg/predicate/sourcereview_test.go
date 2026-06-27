@@ -3,8 +3,10 @@ package predicate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +38,8 @@ type mockReviewService struct {
 	rulesErr   error
 	rulesPages [][]*gh.PullRequestBranchRule // if set, ListRulesForBranch returns these page-by-page
 	rulesCall  int
+	rulesets   map[int64]*gh.RepositoryRuleset // keyed by rulesetID, returned by GetRuleset
+	rulesetErr error
 }
 
 func srResp() *gh.Response {
@@ -71,6 +75,13 @@ func (m *mockReviewService) ListRulesForBranch(_ context.Context, _, _, _ string
 		return &gh.BranchRules{PullRequest: m.rulesPages[page]}, resp, nil
 	}
 	return m.rules, srResp(), nil
+}
+
+func (m *mockReviewService) GetRuleset(_ context.Context, _, _ string, id int64, _ bool) (*gh.RepositoryRuleset, *gh.Response, error) {
+	if m.rulesetErr != nil {
+		return nil, srResp(), m.rulesetErr
+	}
+	return m.rulesets[id], srResp(), nil
 }
 
 func srUser(login string, id int64, typ string) *gh.User {
@@ -136,6 +147,161 @@ func srValidate(t *testing.T, c *SourceReview) {
 }
 
 // --- tests -------------------------------------------------------------------
+
+// srBypassActor builds a ruleset bypass actor for the technical-controls tests.
+func srBypassActor(actorType string, id int64, mode string) *gh.BypassActor {
+	at := gh.BypassActorType(actorType)
+	bm := gh.BypassMode(mode)
+	return &gh.BypassActor{ActorID: gh.Ptr(id), ActorType: &at, BypassMode: &bm}
+}
+
+func TestFetchTechnicalControls(t *testing.T) {
+	statusCheckRule := &gh.RequiredStatusChecksBranchRule{
+		BranchRuleMetadata: gh.BranchRuleMetadata{RulesetID: 5},
+		Parameters: gh.RequiredStatusChecksRuleParameters{
+			RequiredStatusChecks: []*gh.RuleStatusCheck{
+				{Context: "test"},
+				{Context: "build"},
+			},
+		},
+	}
+	allRules := &gh.BranchRules{
+		NonFastForward:        []*gh.BranchRuleMetadata{{RulesetID: 5}},
+		RequiredLinearHistory: []*gh.BranchRuleMetadata{{RulesetID: 5}},
+		Deletion:              []*gh.BranchRuleMetadata{{RulesetID: 5}},
+		RequiredSignatures:    []*gh.BranchRuleMetadata{{RulesetID: 5}},
+		RequiredStatusChecks:  []*gh.RequiredStatusChecksBranchRule{statusCheckRule},
+	}
+	rulesets := map[int64]*gh.RepositoryRuleset{
+		5: {BypassActors: []*gh.BypassActor{
+			srBypassActor("RepositoryRole", 5, "always"),
+			srBypassActor("Integration", 801323, "always"),
+		}},
+	}
+
+	t.Run("all controls present, sorted + formatted", func(t *testing.T) {
+		m := &mockReviewService{rules: allRules, rulesets: rulesets}
+		tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
+		if tc == nil {
+			t.Fatal("expected non-nil technical controls")
+		}
+		if !tc.ForcePushBlocked || !tc.RequiredLinearHistory || !tc.DeletionBlocked || !tc.RequiredSignatures {
+			t.Errorf("bools = %+v, want all true", tc)
+		}
+		if !reflect.DeepEqual(tc.RequiredStatusChecks, []string{"build", "test"}) {
+			t.Errorf("status checks = %v, want sorted [build test]", tc.RequiredStatusChecks)
+		}
+		if !reflect.DeepEqual(tc.BypassActors, []string{"Integration:801323:always", "RepositoryRole:5:always"}) {
+			t.Errorf("bypass actors = %v, want sorted+formatted", tc.BypassActors)
+		}
+	})
+
+	t.Run("partial controls; rulesetID 0 not fetched", func(t *testing.T) {
+		m := &mockReviewService{rules: &gh.BranchRules{NonFastForward: []*gh.BranchRuleMetadata{{RulesetID: 0}}}}
+		tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
+		if tc == nil || !tc.ForcePushBlocked {
+			t.Fatalf("expected ForcePushBlocked, got %+v", tc)
+		}
+		if tc.RequiredLinearHistory || tc.DeletionBlocked || tc.RequiredSignatures {
+			t.Errorf("other bools should be false, got %+v", tc)
+		}
+		if len(tc.BypassActors) != 0 {
+			t.Errorf("bypass actors should be empty, got %v", tc.BypassActors)
+		}
+	})
+
+	t.Run("GetRuleset denied is fail-soft (keeps other controls)", func(t *testing.T) {
+		m := &mockReviewService{rules: allRules, rulesetErr: errors.New("403 Resource not accessible: Administration:read")}
+		tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
+		if tc == nil || !tc.ForcePushBlocked || !tc.RequiredSignatures {
+			t.Fatalf("controls should survive GetRuleset denial, got %+v", tc)
+		}
+		if len(tc.BypassActors) != 0 {
+			t.Errorf("bypass actors should be empty on denial, got %v", tc.BypassActors)
+		}
+		if !reflect.DeepEqual(tc.RequiredStatusChecks, []string{"build", "test"}) {
+			t.Errorf("status checks should survive, got %v", tc.RequiredStatusChecks)
+		}
+	})
+
+	t.Run("bypass actors de-duped across distinct rulesets", func(t *testing.T) {
+		rules := &gh.BranchRules{
+			NonFastForward:        []*gh.BranchRuleMetadata{{RulesetID: 5}},
+			RequiredLinearHistory: []*gh.BranchRuleMetadata{{RulesetID: 6}},
+		}
+		rs := map[int64]*gh.RepositoryRuleset{
+			5: {BypassActors: []*gh.BypassActor{srBypassActor("Integration", 801323, "always")}},
+			6: {BypassActors: []*gh.BypassActor{srBypassActor("Integration", 801323, "always")}},
+		}
+		m := &mockReviewService{rules: rules, rulesets: rs}
+		tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main")
+		if tc == nil || !reflect.DeepEqual(tc.BypassActors, []string{"Integration:801323:always"}) {
+			t.Errorf("bypass actors should de-dupe to one, got %v", tc.BypassActors)
+		}
+	})
+
+	t.Run("no rules -> nil", func(t *testing.T) {
+		m := &mockReviewService{rules: &gh.BranchRules{}}
+		if tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main"); tc != nil {
+			t.Errorf("expected nil for empty rules, got %+v", tc)
+		}
+	})
+
+	t.Run("ListRulesForBranch error -> nil", func(t *testing.T) {
+		m := &mockReviewService{rulesErr: errors.New("boom")}
+		if tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", "main"); tc != nil {
+			t.Errorf("expected nil on list error, got %+v", tc)
+		}
+	})
+
+	t.Run("empty branch -> nil", func(t *testing.T) {
+		m := &mockReviewService{rules: allRules}
+		if tc := fetchTechnicalControls(context.Background(), m, "liatrio", "autogov", ""); tc != nil {
+			t.Errorf("expected nil for empty branch, got %+v", tc)
+		}
+	})
+}
+
+func TestNewSourceReview_TechnicalControls(t *testing.T) {
+	m := &mockReviewService{
+		prs:     []*gh.PullRequest{srMergedPR()},
+		reviews: []*gh.PullRequestReview{srReview(srUser("alice", 2, "User"), reviewStateApproved, srHeadSHA, srBaseTime.Add(time.Minute))},
+		rules: &gh.BranchRules{
+			NonFastForward:     []*gh.BranchRuleMetadata{{RulesetID: 5}},
+			RequiredSignatures: []*gh.BranchRuleMetadata{{RulesetID: 5}},
+		},
+		rulesets: map[int64]*gh.RepositoryRuleset{
+			5: {BypassActors: []*gh.BypassActor{srBypassActor("Integration", 801323, "always")}},
+		},
+	}
+	c := srBuild(t, m, srOpts())
+	if c.TechnicalControls == nil {
+		t.Fatal("expected TechnicalControls to be recorded")
+	}
+	if !c.TechnicalControls.ForcePushBlocked || !c.TechnicalControls.RequiredSignatures {
+		t.Errorf("controls = %+v", c.TechnicalControls)
+	}
+	if !reflect.DeepEqual(c.TechnicalControls.BypassActors, []string{"Integration:801323:always"}) {
+		t.Errorf("bypass actors = %v", c.TechnicalControls.BypassActors)
+	}
+	if c.ContinuityStartRevision != "" {
+		t.Errorf("continuity must be empty in v0.1, got %q", c.ContinuityStartRevision)
+	}
+	srValidate(t, c) // schema must accept the new technicalControls fields
+}
+
+func TestNewSourceReview_NoTechnicalControls(t *testing.T) {
+	// regression: no ruleset rules -> TechnicalControls nil, review fields intact.
+	m := &mockReviewService{
+		prs:     []*gh.PullRequest{srMergedPR()},
+		reviews: []*gh.PullRequestReview{srReview(srUser("alice", 2, "User"), reviewStateApproved, srHeadSHA, srBaseTime.Add(time.Minute))},
+	}
+	c := srBuild(t, m, srOpts())
+	if c.TechnicalControls != nil {
+		t.Errorf("expected nil TechnicalControls, got %+v", c.TechnicalControls)
+	}
+	srValidate(t, c)
+}
 
 func TestNewSourceReview_HappyPath(t *testing.T) {
 	m := &mockReviewService{

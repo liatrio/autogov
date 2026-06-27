@@ -103,6 +103,26 @@ type SourceReviewBranchProtection struct {
 	RequireLastPushApproval bool `json:"requireLastPushApproval"`
 }
 
+// SourceReviewTechnicalControls records the enforced branch-protection technical
+// controls (SLSA Source L3 evidence) discovered on the target branch via the
+// repository ruleset (best-effort; omitted when none is visible). It is EVIDENCE
+// ONLY: the producer records what is configured and never judges "disabled vs
+// declared" — that is the verifier's/policy's job. The bool controls + status
+// checks come from the no-admin ListRulesForBranch path; bypassActors require
+// Administration:read (GetRuleset) and are simply omitted when that is denied.
+type SourceReviewTechnicalControls struct {
+	ForcePushBlocked      bool     `json:"forcePushBlocked"`
+	RequiredLinearHistory bool     `json:"requiredLinearHistory"`
+	DeletionBlocked       bool     `json:"deletionBlocked"`
+	RequiredSignatures    bool     `json:"requiredSignatures"`
+	RequiredStatusChecks  []string `json:"requiredStatusChecks,omitempty"`
+	// BypassActors is the factual list of ruleset bypass actors, formatted
+	// "<ActorType>:<ActorID>:<BypassMode>" (e.g. "Integration:801323:always"),
+	// de-duped and sorted. Empty when no bypass actor exists OR when GetRuleset
+	// was denied (Administration:read). The verifier judges narrow-vs-open.
+	BypassActors []string `json:"bypassActors,omitempty"`
+}
+
 // SourceReview is the predicate portion of an autogov source-review attestation
 // (https://autogov.dev/attestation/source-review/v0.1).
 type SourceReview struct {
@@ -127,6 +147,17 @@ type SourceReview struct {
 	Approvers         []SourceReviewApprover `json:"approvers,omitempty"`
 
 	BranchProtection *SourceReviewBranchProtection `json:"branchProtection,omitempty"`
+
+	// TechnicalControls records the enforced SLSA-L3 branch-protection controls
+	// (force-push blocked, linear history, deletion blocked, required signatures,
+	// required status checks, bypass actors). Best-effort, evidence only.
+	TechnicalControls *SourceReviewTechnicalControls `json:"technicalControls,omitempty"`
+
+	// ContinuityStartRevision is the revision from which the enforced controls
+	// have been continuously applied (SLSA L3 continuity). v0.1 has no continuity
+	// tracking, so it is always empty; the verifier MUST NOT infer L3 continuity
+	// from an empty value (absence is undetermined, not satisfied).
+	ContinuityStartRevision string `json:"continuityStartRevision,omitempty"`
 
 	// ReviewDecision is reserved for an optional best-effort GraphQL enrichment
 	// (pullRequest.reviewDecision). It is INFORMATIONAL ONLY and never a basis for
@@ -242,6 +273,15 @@ func NewSourceReview(ctx context.Context, svc ReviewService, opts SourceReviewOp
 	if bp != nil {
 		c.BranchProtection = bp
 	}
+
+	// step 8b: enforced SLSA-L3 technical controls (force-push/linear/deletion/
+	// signatures/status-checks + bypass actors). Best-effort, evidence only; the
+	// verifier (not the producer) judges whether they earn L3.
+	if tc := fetchTechnicalControls(ctx, svc, opts.Owner, opts.Repo, prBaseRef); tc != nil {
+		c.TechnicalControls = tc
+	}
+	// ContinuityStartRevision is intentionally empty in v0.1 (no continuity
+	// tracking); the verifier must not infer L3 continuity from an empty value.
 
 	// step 2: reviews -> latest opinionated review per user.id.
 	reviews, err := listReviews(ctx, svc, opts.Owner, opts.Repo, selected.GetNumber())
@@ -479,6 +519,143 @@ func listPullRequestRules(ctx context.Context, svc ReviewService, owner, repo, b
 		opts.Page = resp.NextPage
 	}
 	return all
+}
+
+// fetchTechnicalControls reads the enforced SLSA-L3 branch-protection technical
+// controls on the target branch from the repository ruleset. Best-effort and
+// evidence-only (matching fetchReviewControls): the rule-type presence + status
+// checks come from the no-admin ListRulesForBranch path; bypass actors require
+// Administration:read via GetRuleset and are omitted (not fatal) when denied. A
+// producer error here never blocks the attestation — the gate fails closed, the
+// producer does not. Returns nil when no ruleset control is visible.
+func fetchTechnicalControls(ctx context.Context, svc ReviewService, owner, repo, branch string) *SourceReviewTechnicalControls {
+	if branch == "" {
+		return nil
+	}
+
+	rules, resp, err := svc.ListRulesForBranch(ctx, owner, repo, branch, &gh.ListOptions{PerPage: 100})
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil || rules == nil {
+		return nil
+	}
+
+	tc := &SourceReviewTechnicalControls{
+		ForcePushBlocked:      len(rules.NonFastForward) > 0,
+		RequiredLinearHistory: len(rules.RequiredLinearHistory) > 0,
+		DeletionBlocked:       len(rules.Deletion) > 0,
+		RequiredSignatures:    len(rules.RequiredSignatures) > 0,
+	}
+
+	// required status-check contexts (de-duped + sorted for deterministic output).
+	seenCtx := map[string]struct{}{}
+	for _, rsc := range rules.RequiredStatusChecks {
+		if rsc == nil {
+			continue
+		}
+		for _, c := range rsc.Parameters.RequiredStatusChecks {
+			if c == nil {
+				continue
+			}
+			ctxStr := truncateRunes(c.GetContext(), srMaxStringLen)
+			if ctxStr == "" {
+				continue
+			}
+			if _, dup := seenCtx[ctxStr]; !dup {
+				seenCtx[ctxStr] = struct{}{}
+				tc.RequiredStatusChecks = append(tc.RequiredStatusChecks, ctxStr)
+			}
+		}
+	}
+	sort.Strings(tc.RequiredStatusChecks)
+
+	// bypass actors: union over the DISTINCT rulesets backing the observed rules
+	// (different rule types can come from different — incl. org-level — rulesets).
+	idSet := map[int64]struct{}{}
+	addID := func(id int64) {
+		if id > 0 {
+			idSet[id] = struct{}{}
+		}
+	}
+	for _, m := range rules.NonFastForward {
+		if m != nil {
+			addID(m.GetRulesetID())
+		}
+	}
+	for _, m := range rules.RequiredLinearHistory {
+		if m != nil {
+			addID(m.GetRulesetID())
+		}
+	}
+	for _, m := range rules.Deletion {
+		if m != nil {
+			addID(m.GetRulesetID())
+		}
+	}
+	for _, m := range rules.RequiredSignatures {
+		if m != nil {
+			addID(m.GetRulesetID())
+		}
+	}
+	for _, r := range rules.RequiredStatusChecks {
+		if r != nil {
+			addID(r.GetRulesetID())
+		}
+	}
+	for _, r := range rules.PullRequest {
+		if r != nil {
+			addID(r.GetRulesetID())
+		}
+	}
+
+	seenActor := map[string]struct{}{}
+	for id := range idSet {
+		// includesParents=true resolves org/enterprise parent rulesets through the
+		// repo-scoped endpoint. A denial (no Administration:read) is best-effort:
+		// skip bypass actors for this ruleset, keep every other control.
+		rs, rsResp, rsErr := svc.GetRuleset(ctx, owner, repo, id, true)
+		if rsResp != nil {
+			_ = rsResp.Body.Close()
+		}
+		if rsErr != nil || rs == nil {
+			continue
+		}
+		for _, a := range rs.GetBypassActors() {
+			if a == nil {
+				continue
+			}
+			s := formatBypassActor(a)
+			if _, dup := seenActor[s]; !dup {
+				seenActor[s] = struct{}{}
+				tc.BypassActors = append(tc.BypassActors, s)
+			}
+		}
+	}
+	sort.Strings(tc.BypassActors)
+
+	// keep omitempty honest: emit only when something was actually discovered.
+	if !tc.ForcePushBlocked && !tc.RequiredLinearHistory && !tc.DeletionBlocked &&
+		!tc.RequiredSignatures && len(tc.RequiredStatusChecks) == 0 && len(tc.BypassActors) == 0 {
+		return nil
+	}
+	return tc
+}
+
+// formatBypassActor renders a ruleset bypass actor as
+// "<ActorType>:<ActorID>:<BypassMode>". ActorType and BypassMode are
+// pointer-to-named-string enums with no String() method, so they are nil-guarded
+// and converted directly; an absent segment serializes empty rather than panics.
+func formatBypassActor(a *gh.BypassActor) string {
+	actorType := ""
+	if a.ActorType != nil {
+		actorType = string(*a.ActorType)
+	}
+	bypassMode := ""
+	if a.BypassMode != nil {
+		bypassMode = string(*a.BypassMode)
+	}
+	return truncateRunes(fmt.Sprintf("%s:%d:%s", actorType, a.GetActorID(), bypassMode), srMaxStringLen)
 }
 
 // listReviews paginates ListReviews for a pull request.

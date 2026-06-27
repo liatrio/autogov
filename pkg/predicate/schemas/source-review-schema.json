@@ -114,6 +114,33 @@
           },
           "required": ["requireReviews", "requiredApprovingReviewCount"]
         },
+        "technicalControls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "forcePushBlocked": { "type": "boolean" },
+            "requiredLinearHistory": { "type": "boolean" },
+            "deletionBlocked": { "type": "boolean" },
+            "requiredSignatures": { "type": "boolean" },
+            "requiredStatusChecks": {
+              "type": "array",
+              "maxItems": 1000,
+              "items": { "type": "string", "maxLength": 512 }
+            },
+            "bypassActors": {
+              "type": "array",
+              "maxItems": 1000,
+              "items": { "type": "string", "maxLength": 512 }
+            }
+          },
+          "required": [
+            "forcePushBlocked",
+            "requiredLinearHistory",
+            "deletionBlocked",
+            "requiredSignatures"
+          ]
+        },
+        "continuityStartRevision": { "type": "string", "maxLength": 64 },
         "reviewDecision": { "type": "string", "maxLength": 64 },
         "configuration": {
           "type": "array",
