@@ -11,8 +11,9 @@ on:
       - docs/**
 
 concurrency:
+  # never cancel a release mid-publish; serialize per ref.
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions: {}
 
@@ -45,27 +46,18 @@ jobs:
       build-type: blob
       blob-artifact-id: ${{ needs.attest-blob.outputs.blob-artifact-id }}
       cert-identity: https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@b6c847fb50b581fcd3a3e282696f0c1bb4cbc3ab # v0.27.4
-      # autogov claims SLSA Source L3 (continuously enforced branch-protection
-      # controls), NOT L4 (two-party review), so its OWN release self-verify must
-      # not require approvals. override source-review to min_approvals 0 for this
-      # repo only; the published consumer policy bundle stays strict (min 1) for
-      # consumers who choose to assert two-party review.
+      # autogov's own release claims Source L3 (enforced controls), not L4 (review),
+      # so it self-verifies at min_approvals 0; the published bundle stays strict.
       policy-data-overlay: '{"source_review_thresholds":{"min_approvals":0}}'
-      # gate the self-release on policy: a FAILED self-verify fails verify-blob,
-      # so the release job (needs: [verify-blob]) is skipped. the FAILED VSA is
-      # still attested and uploaded before the gate.
+      # a FAILED self-verify fails verify-blob, skipping the release job.
       allow-failed-vsa: false
       vuln-threshold-critical: '0'
       vuln-threshold-high: '0'
       vuln-threshold-medium: '-1'
       vuln-threshold-low: '-1'
 
-  # additive image publish: builds the CLI into a signed multi-arch OCI image with
-  # ko. it does NOT gate the blob attest/verify/release jobs above (no `needs`).
-  # ko builds on every push to validate the config + ldflags, but only PUSHES on
-  # main (`should-push`) so feature branches don't pollute ghcr. the
-  # pushed digest is attested with push-to-registry, same pattern as
-  # rw-attest-image.yaml.
+  # additive signed multi-arch OCI image (ko). does NOT gate the blob jobs (no
+  # `needs`); builds on every push to validate, but pushes + attests only on main.
   ko-image:
     runs-on: ubuntu-latest
     permissions:
@@ -84,9 +76,8 @@ jobs:
         with:
           version: v0.18.1
       - name: Derive build metadata
-        # mirror Taskfile.yml: same version/commit/date/opa so the ko image and
-        # `task build` embed byte-identical ldflags. SOURCE_DATE_EPOCH pins the
-        # image timestamp to the commit time for reproducibility.
+        # mirror Taskfile.yml ldflags so the ko image matches `task build`;
+        # SOURCE_DATE_EPOCH pins the image timestamp to the commit (reproducible).
         run: |
           {
             echo "VERSION=$(git describe --tags --always --dirty)"
@@ -112,8 +103,6 @@ jobs:
           password: ${{ github.token }}
       - name: ko build
         id: build
-        # --bare publishes exactly at KO_DOCKER_REPO; --push is gated so branches
-        # only validate the build. --image-refs captures the pushed ref@digest.
         run: |
           ko build . \
             --bare \
@@ -141,40 +130,27 @@ jobs:
       actions: read
       id-token: write # federate the octo-sts release token
     steps:
-      # downloaded artifacts go under $RUNNER_TEMP (outside the repo tree) so release
-      # cut's clean-tree check (go-git Status().IsClean(), which counts untracked
-      # files) passes — plan.json, the attested binary, and the VSA must not dirty
-      # the worktree. runner.temp is NOT available in job-level env, so the path is
-      # referenced per step: ${{ runner.temp }} in `with:`, $RUNNER_TEMP in `run:`.
-      # Full history is required: the released `autogov release plan` CLI command
-      # discovers the latest tag and walks commits with local go-git (its GitHub
-      # API path is not wired into the standalone `plan` command), so a shallow
-      # clone would not see prior tags. `release cut` itself can use the API, but
-      # the `plan` step that computes the next version cannot.
-      # The released asset is the attested blob-build-artifact-high-perms binary
-      # (not a rebuild), so its digest carries the attestations. No Go toolchain is
-      # needed here: plan and cut run the downloaded autogov CLI.
+      # self-release: the just-attested binary is the cutter (+ the published asset).
+      # fetch-depth:0 for `release plan`'s local go-git; artifacts stay under
+      # $RUNNER_TEMP (off the worktree) so `release cut`'s clean-tree check holds.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-      - name: Install released autogov CLI
-        env:
-          GH_TOKEN: ${{ github.token }}
+          persist-credentials: false
+      - name: Download attested binary (cutter + released asset)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: blob-build-artifact-high-perms
+          path: ${{ runner.temp }}/attested
+      - name: Use the attested binary as the cutter
         run: |
-          gh release download v0.23.0 --repo liatrio/autogov --pattern autogov --output autogov
-          chmod +x autogov
-          echo "$PWD" >> "$GITHUB_PATH"
+          chmod +x "$RUNNER_TEMP/attested/autogov"
+          echo "$RUNNER_TEMP/attested" >> "$GITHUB_PATH"
       - name: Plan release
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
         run: autogov release plan -o json > "$RUNNER_TEMP/plan.json"
-      - name: Download attested binary
-        # the attested + verified binary from attest-blob (not a rebuild)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: blob-build-artifact-high-perms
-          path: ${{ runner.temp }}/attested
       - name: Download VSA artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -195,9 +171,8 @@ jobs:
           name: blob-build-provenance-attestation-high-perms
           path: ${{ runner.temp }}/provenance
       - name: Resolve provenance asset path
-        # attach the SLSA build-provenance bundle as *.intoto.jsonl so release
-        # consumers (and OpenSSF Scorecard's Signed-Releases check) find detached
-        # provenance on the release, not only in the registry/transparency log.
+        # attach build-provenance as *.intoto.jsonl for OpenSSF Scorecard's
+        # Signed-Releases check + offline consumers (not only the registry/tlog).
         id: provenance
         run: |
           prov="$(find "$RUNNER_TEMP/provenance" -maxdepth 1 -name '*.jsonl' | head -1)"
@@ -207,12 +182,8 @@ jobs:
           fi
           cp "$prov" "$RUNNER_TEMP/autogov.intoto.jsonl"
           echo "path=$RUNNER_TEMP/autogov.intoto.jsonl" >> "$GITHUB_OUTPUT"
-      # release cut --publish creates a chore(release) commit (with [skip ci], so it
-      # does not re-trigger this workflow) and fast-forwards refs/heads/main. main is
-      # governed by the "main protection" ruleset; the octo-sts release-ops token
-      # below is a bypass actor (governance in place: autogov is in
-      # release-ops.sts.yaml and octo-sts is on the ruleset bypass), so the push is
-      # accepted.
+      # the release-cut push to main needs the octo-sts release-ops bypass actor
+      # (github.token can't bypass the ruleset).
       - uses: octo-sts/action@f603d3be9d8dd9871a265776e625a27b00effe05 # v1.1.1
         id: octo-sts-release
         with:
