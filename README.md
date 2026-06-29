@@ -34,6 +34,8 @@ A unified CLI for attestation verification and release management. Supports [cos
 - [Usage](#usage)
   - [Online Verification](#online-verification)
   - [verify source](#verify-source)
+  - [verify git](#verify-git)
+  - [verify policy](#verify-policy)
   - [Offline Verification](#offline-verification)
   - [Optional Flags](#optional-flags)
   - [Environment Variables](#environment-variables)
@@ -289,6 +291,14 @@ autogov verify source \
 - `--policy-uri`: policy URI recorded in the generated VSA
 - `--format`: output format: `text`, `json` (default: `text`)
 - `-q, --quiet`: only show errors and final status
+
+### verify git
+
+`autogov verify git [revision]` verifies [gitsign](https://github.com/sigstore/gitsign) commit signatures via Sigstore: GitHub-internal signatures are anchored to the RFC3161 timestamp, and public-good signatures are verified against the Rekor inclusion proof. Run `autogov verify git --help` for the full flag set.
+
+### verify policy
+
+`autogov verify policy` verifies gittuf-style repository policy enforcement (branch protection and related controls). Run `autogov verify policy --help` for the full flag set.
 
 ### Offline Verification
 
