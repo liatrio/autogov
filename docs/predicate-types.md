@@ -24,6 +24,8 @@ The tool recognizes all standard in-toto attestation framework predicate types:
 | `https://in-toto.io/attestation/link/v0.3` | in-toto Link | Legacy in-toto 0.9 format (migration support) |
 | `https://cosign.sigstore.dev/attestation/v1` | Cosign Custom | Cosign generic custom attestation |
 
+> **Note:** Predicate types are URIs that *identify* an attestation's schema (the in-toto `predicateType` value); they are not necessarily browsable web pages. The `https://autogov.dev/attestation/...` entries are autogov's own custom predicate-type identifiers.
+
 ## How It Works
 
 During verification, the tool:
