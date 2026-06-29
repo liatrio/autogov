@@ -46,6 +46,8 @@ func NewVerifyCmdForTesting() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "verify",
 		Short: "Verify attestations, commit signatures, source provenance, and policies",
+		Args:  cobra.NoArgs,
+		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
 	cmd.AddCommand(newAttestationCmd())
 	cmd.AddCommand(newGitCmd())
@@ -58,6 +60,13 @@ func NewVerifyCmdForTesting() *cobra.Command {
 var VerifyCmd = &cobra.Command{
 	Use:   "verify",
 	Short: "Verify attestations, commit signatures, source provenance, and policies",
+	// cobra skips arg validation for a non-runnable parent (it returns ErrHelp
+	// before ValidateArgs), so an unknown subcommand would print help and exit 0
+	// — letting a typo'd verify command silently "pass" in CI. a no-op RunE makes
+	// the command runnable so NoArgs rejects unknown subcommands with a non-zero
+	// exit, while bare `verify` still shows help.
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	Long: `Commands for verifying artifact attestations, commit signatures, source provenance, and repository policies.
 
 Examples:
