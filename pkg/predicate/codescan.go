@@ -178,7 +178,8 @@ type CodeScanOptions struct {
 // --- SARIF 2.1.0 parsing structs (only the fields autogov consumes) ---
 
 type sarifLog struct {
-	Runs []sarifRun `json:"runs"`
+	Version string     `json:"version"`
+	Runs    []sarifRun `json:"runs"`
 }
 
 type sarifRun struct {
@@ -371,6 +372,15 @@ func NewCodeScan(opts CodeScanOptions) (*CodeScan, error) {
 	var log sarifLog
 	if err := json.Unmarshal(data, &log); err != nil {
 		return nil, fmt.Errorf("failed to parse SARIF: %w", err)
+	}
+
+	// guard against non-SARIF JSON silently producing a clean, all-zero
+	// predicate: a SARIF 2.1.0 report must declare its version and a runs array.
+	if log.Version == "" {
+		return nil, fmt.Errorf("input is not a SARIF report: missing required %q field", "version")
+	}
+	if log.Runs == nil {
+		return nil, fmt.Errorf("input is not a valid SARIF report: missing %q array", "runs")
 	}
 
 	maxFindings := opts.MaxFindings

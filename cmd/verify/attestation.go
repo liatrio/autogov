@@ -110,6 +110,34 @@ func applyFailOnPolicyError(cmd *cobra.Command) {
 	applyBoolFlagToViper(cmd, flagFailOnPolicyError)
 }
 
+// validatePolicyFlagsRequireVSA fails closed when policy/gating flags are set
+// without --generate-vsa. policy (OPA) evaluation only runs during VSA
+// generation, so without this guard those flags are silently inert — a CI gate
+// built on --fail-on-policy-error would "pass" without ever evaluating policy.
+func validatePolicyFlagsRequireVSA(cmd *cobra.Command) error {
+	if generateVSA, _ := cmd.Flags().GetBool(flagGenerateVSA); generateVSA {
+		return nil
+	}
+	policyFlags := []string{
+		flagPolicyBundlePath,
+		flagPolicySchemasPath,
+		flagPolicyDataPath,
+		flagPolicyBundleDigest,
+		flagFailOnPolicyError,
+		flagPolicyURI,
+	}
+	var set []string
+	for _, f := range policyFlags {
+		if cmd.Flags().Changed(f) {
+			set = append(set, "--"+f)
+		}
+	}
+	if len(set) > 0 {
+		return fmt.Errorf("%s require --%s; policy evaluation only runs during VSA generation", strings.Join(set, ", "), flagGenerateVSA)
+	}
+	return nil
+}
+
 func runAttestation(cmd *cobra.Command, args []string) error {
 	// resolve quiet without clobbering QUIET env (same class as fail-on-policy-error):
 	// only write the flag value when it was explicitly passed, then read the effective
@@ -117,6 +145,13 @@ func runAttestation(cmd *cobra.Command, args []string) error {
 	applyBoolFlagToViper(cmd, flagQuiet)
 	applyFailOnPolicyError(cmd)
 	quiet := viper.GetBool(flagQuiet)
+
+	// fail closed before doing any verification work if policy flags were passed
+	// without --generate-vsa (they would otherwise be silently inert).
+	if err := validatePolicyFlagsRequireVSA(cmd); err != nil {
+		return err
+	}
+
 	policyBundleDigest, _ := cmd.Flags().GetString(flagPolicyBundleDigest)
 	viper.Set("policy-bundle-digest", policyBundleDigest)
 
