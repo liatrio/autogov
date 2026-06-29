@@ -1308,7 +1308,7 @@ func TestNormalizeAssociation(t *testing.T) {
 }
 
 func TestNewSourceReview_PRNumberDoesNotBypassMergeMatch(t *testing.T) {
-	// adversarial: a well-reviewed PR whose merge_commit_sha does NOT match the
+	// edge case: a well-reviewed PR whose merge_commit_sha does NOT match the
 	// queried source revision (and is not even merged) must NOT be bound to it via
 	// --pr-number. Otherwise an unreviewed commit could borrow another PR's approvals.
 	wellReviewedButUnrelated := &gh.PullRequest{
@@ -1370,7 +1370,7 @@ func TestNewSourceReview_RecordsRequireLastPushApproval(t *testing.T) {
 }
 
 func TestNewSourceReview_NilAuthorFailsClosed(t *testing.T) {
-	// adversarial (M1): a nil PR author makes prAuthorID 0, which would silently
+	// edge case (M1): a nil PR author makes prAuthorID 0, which would silently
 	// fail the self-approval exclusion (no real reviewer id is 0) — a solo author
 	// could then clear min_approvals. Must fail closed instead.
 	pr := srMergedPR()

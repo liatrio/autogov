@@ -29,9 +29,7 @@ The generated VSA includes comprehensive metadata about the verification and pol
         "policies_passed": 15
       }
     },
-    "autogov.policy.violation_summary": {
-      // Grouped violations by policy type (if any)
-    },
+    "autogov.policy.violation_summary": {...},
     "autogov.policy.metrics": {
       "total_violations": 0,
       "compliance_status": "PASSED",
@@ -75,4 +73,4 @@ The tool generates SLSA v1.2 compliant Verification Summary Attestations (VSAs) 
 - **Multi-Format Digest Support**: Validation for multiple hash algorithms beyond SHA256
 - **Policy Integration**: OPA policy evaluation results included in VSA metadata
 
-**SLSA v1.2 Compliance**: The tool validates against official SLSA Build track levels (L0-L3) as defined in the [SLSA v1.2 specification](https://slsa.dev/spec/v1.2/levels)
+**SLSA v1.2 Compliance**: The tool validates against official SLSA Build track levels (L0-L3) as defined in the [SLSA v1.2 specification](https://slsa.dev/spec/v1.2/about)

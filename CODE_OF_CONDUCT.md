@@ -25,9 +25,6 @@ confidentially to the project maintainers via
 or by contacting a maintainer directly. All reports will be reviewed and
 handled discreetly.
 
-> Maintainers: replace the reporting channel above with a dedicated conduct
-> contact (e.g. a team alias) if you have one.
-
 ## Attribution
 
 This Code of Conduct is adapted from the
