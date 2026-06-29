@@ -8,7 +8,7 @@
 
 You cannot trust a build artifact unless you can prove who built it and how. autogov closes that gap: it produces and verifies [SLSA](https://slsa.dev/spec/v1.2/about) [attestations](https://slsa.dev/attestation-model) (signed, machine-checkable statements about how an artifact was built), evaluates [OPA/Rego](https://www.openpolicyagent.org/docs/latest/policy-language/) policy against them, and emits a pass/fail Verification Summary Attestation (VSA) — a signed record of what was checked and whether it passed — that you can gate releases on.
 
-A unified CLI for attestation verification and release management. Supports [cosign](https://docs.sigstore.dev/cosign/overview/)-based verification with SLSA v1.2 VSA (Verification Summary Attestation) support, integrated OPA policy evaluation, and a full release engine with changelog generation.
+A unified CLI for attestation verification and release management. Supports [cosign](https://docs.sigstore.dev/cosign/signing/overview/)-based verification with SLSA v1.2 VSA (Verification Summary Attestation) support, integrated OPA policy evaluation, and a full release engine with changelog generation.
 
 > **Note**: This tool supports attestation verification for container images (ghcr.io) and blobs, VSA generation, policy evaluation, and release management (plan, cut, publish) with conventional commit-based changelog generation.
 
@@ -73,7 +73,7 @@ This tool verifies GitHub Artifact Attestations using the sigstore-go v1.2.1 API
 
 ## SLSA Posture
 
-autogov is honest about its own [SLSA v1.2](https://slsa.dev/spec/v1.2/levels) posture on both the build and source tracks: levels are reported from verified evidence, never asserted, and the tool deliberately avoids over-claiming.
+autogov is honest about its own [SLSA v1.2](https://slsa.dev/spec/v1.2/about) posture on both the build and source tracks: levels are reported from verified evidence, never asserted, and the tool deliberately avoids over-claiming.
 
 ### Build track — SLSA Build L3
 
