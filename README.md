@@ -6,7 +6,7 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/liatrio/autogov/badge)](https://scorecard.dev/viewer/?uri=github.com/liatrio/autogov)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-You cannot trust a build artifact unless you can prove who built it and how. autogov closes that gap: it produces and verifies [SLSA](https://slsa.dev/spec/v1.2/about) [attestations](https://slsa.dev/attestation-model) (signed, machine-checkable statements about how an artifact was built), evaluates [OPA/Rego](https://www.openpolicyagent.org/docs/latest/policy-language/) policy against them, and emits a pass/fail Verification Summary Attestation (VSA) — a signed record of what was checked and whether it passed — that you can gate releases on.
+You cannot trust a build artifact unless you can prove who built it and how. autogov closes that gap: it produces and verifies [SLSA](https://slsa.dev/spec/v1.2/about) [attestations](https://slsa.dev/attestation-model) (signed, machine-checkable statements about how an artifact was built), evaluates [OPA/Rego](https://www.openpolicyagent.org/docs/policy-language/) policy against them, and emits a pass/fail Verification Summary Attestation (VSA) — a signed record of what was checked and whether it passed — that you can gate releases on.
 
 A unified CLI for attestation verification and release management. Supports [cosign](https://docs.sigstore.dev/cosign/signing/overview/)-based verification with SLSA v1.2 VSA (Verification Summary Attestation) support, integrated OPA policy evaluation, and a full release engine with changelog generation.
 
