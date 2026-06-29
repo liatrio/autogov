@@ -1,4 +1,4 @@
-# AutoGov
+# autogov
 
 [![CI](https://github.com/liatrio/autogov/actions/workflows/build.yml/badge.svg)](https://github.com/liatrio/autogov/actions/workflows/build.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/liatrio/autogov.svg)](https://pkg.go.dev/github.com/liatrio/autogov)
@@ -6,9 +6,22 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/liatrio/autogov/badge)](https://scorecard.dev/viewer/?uri=github.com/liatrio/autogov)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
+You cannot trust a build artifact unless you can prove who built it and how. autogov closes that gap: it produces and verifies [SLSA](https://slsa.dev/spec/v1.2/about) [attestations](https://slsa.dev/attestation-model) (signed, machine-checkable statements about how an artifact was built), evaluates [OPA/Rego](https://www.openpolicyagent.org/docs/latest/policy-language/) policy against them, and emits a pass/fail Verification Summary Attestation (VSA) — a signed record of what was checked and whether it passed — that you can gate releases on.
+
 A unified CLI for attestation verification and release management. Supports [cosign](https://docs.sigstore.dev/cosign/overview/)-based verification with SLSA v1.2 VSA (Verification Summary Attestation) support, integrated OPA policy evaluation, and a full release engine with changelog generation.
 
 > **Note**: This tool supports attestation verification for container images (ghcr.io) and blobs, VSA generation, policy evaluation, and release management (plan, cut, publish) with conventional commit-based changelog generation.
+
+## The autogov ecosystem
+
+**Start here.** autogov is the flagship CLI and the entry point to a four-repo ecosystem for software supply-chain governance. The other repos wrap this CLI for use in CI, so if you are new, read this README first.
+
+| Repo | Role |
+| --- | --- |
+| **[autogov](https://github.com/liatrio/autogov)** (this repo) | The CLI. Produces and verifies SLSA attestations, evaluates OPA/Rego policy, and emits a pass/fail VSA that gates releases. Start here. |
+| **[autogov-workflows](https://github.com/liatrio/autogov-workflows)** | Reusable GitHub Actions workflows that build, attest (SLSA provenance, SBOM, vulnerability scan), and verify artifacts, driven by the autogov CLI. |
+| **[autogov-policy-library](https://github.com/liatrio/autogov-policy-library)** | The OPA/Rego policies the CLI evaluates during verification to gate releases. |
+| **[autogov-caller-workflows](https://github.com/liatrio/autogov-caller-workflows)** | A runnable example showing how to consume the reusable workflows end to end. |
 
 ## Table of Contents
 
