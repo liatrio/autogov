@@ -8,6 +8,10 @@ import (
 var ReleaseCmd = &cobra.Command{
 	Use:   "release",
 	Short: "Release management commands",
+	// a no-op RunE makes this parent runnable so NoArgs is enforced; otherwise
+	// cobra prints help and exits 0 for an unknown subcommand (see verify.go).
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	Long: `Commands for planning, cutting, and publishing releases.
 
 The release command group provides tools for managing software releases

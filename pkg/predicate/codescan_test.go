@@ -443,6 +443,39 @@ func TestNewCodeScan_InvalidJSON(t *testing.T) {
 	}
 }
 
+// TestNewCodeScan_RejectsNonSARIF locks the fail-open fix: well-formed JSON that
+// is not a SARIF report (no version, or no runs array) must error rather than
+// silently producing a clean, all-zero predicate that passes the code-scan gate.
+func TestNewCodeScan_RejectsNonSARIF(t *testing.T) {
+	cases := map[string]string{
+		"unrelated object":    `{"foo":1}`,
+		"empty object":        `{}`,
+		"version but no runs": `{"version":"2.1.0"}`,
+		"runs but no version": `{"runs":[]}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := writeSARIF(t, body)
+			if _, err := NewCodeScan(CodeScanOptions{ResultsPath: path}); err == nil {
+				t.Errorf("expected error for non-SARIF input %q, got nil (would silently pass the gate)", body)
+			}
+		})
+	}
+}
+
+// TestNewCodeScan_AcceptsValidEmptySARIF guards against the fix over-rejecting: a
+// conformant SARIF that ran but found nothing (version + empty runs) must parse.
+func TestNewCodeScan_AcceptsValidEmptySARIF(t *testing.T) {
+	path := writeSARIF(t, `{"version":"2.1.0","runs":[]}`)
+	c, err := NewCodeScan(CodeScanOptions{ResultsPath: path})
+	if err != nil {
+		t.Fatalf("valid empty SARIF must parse, got %v", err)
+	}
+	if c.ResultCount != 0 {
+		t.Errorf("resultCount = %d, want 0", c.ResultCount)
+	}
+}
+
 // TestCodeScan_PredicateTypeConsistency locks the predicate type URI across the
 // Go const, the embedded schema const, and the verify-side registry. A drift in
 // any one of these silently breaks gating, so it must fail the build.
