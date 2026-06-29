@@ -29,9 +29,7 @@ The generated VSA includes comprehensive metadata about the verification and pol
         "policies_passed": 15
       }
     },
-    "autogov.policy.violation_summary": {
-      // Grouped violations by policy type (if any)
-    },
+    "autogov.policy.violation_summary": {...},
     "autogov.policy.metrics": {
       "total_violations": 0,
       "compliance_status": "PASSED",
