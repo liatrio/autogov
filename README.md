@@ -79,7 +79,7 @@ autogov is honest about its own [SLSA v1.2](https://slsa.dev/spec/v1.2/about) po
 
 ### Build track — SLSA Build L3
 
-autogov's own releases are built to **SLSA Build L3**:
+autogov's own releases are built to **[SLSA Build L3](https://slsa.dev/spec/v1.2/build-track-basics#build-l3-hardened-builds)**:
 
 - Build and attest jobs run on GitHub-hosted, isolated, ephemeral runners; the build path is guarded so a self-hosted runner fails the job (this applies to the blob build/attest jobs and the ko OCI image alike).
 - Build steps cannot reach the signing keys — provenance is generated and signed by GitHub's [`attest-build-provenance`](https://github.com/actions/attest-build-provenance) outside the build step.
