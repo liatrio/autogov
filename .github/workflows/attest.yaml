@@ -26,7 +26,7 @@ jobs:
       actions: read
       pull-requests: read
       artifact-metadata: write
-    uses: liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@b6c847fb50b581fcd3a3e282696f0c1bb4cbc3ab # v0.27.4
+    uses: liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@b2aa95259a872fc00b0fb65890ce3dba2aedaecf # v0.31.2
     secrets: inherit
     with:
       subject-path: autogov
@@ -40,12 +40,12 @@ jobs:
       contents: read
       actions: read
       artifact-metadata: write
-    uses: liatrio/autogov-workflows/.github/workflows/rw-verify.yaml@b6c847fb50b581fcd3a3e282696f0c1bb4cbc3ab # v0.27.4
+    uses: liatrio/autogov-workflows/.github/workflows/rw-verify.yaml@b2aa95259a872fc00b0fb65890ce3dba2aedaecf # v0.31.2
     secrets: inherit
     with:
       build-type: blob
       blob-artifact-id: ${{ needs.attest-blob.outputs.blob-artifact-id }}
-      cert-identity: https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@b6c847fb50b581fcd3a3e282696f0c1bb4cbc3ab # v0.27.4
+      cert-identity: https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@b2aa95259a872fc00b0fb65890ce3dba2aedaecf # v0.31.2
       # autogov's own release claims Source L3 (enforced controls), not L4 (review),
       # so it self-verifies at min_approvals 0; the published bundle stays strict.
       policy-data-overlay: '{"source_review_thresholds":{"min_approvals":0}}'
