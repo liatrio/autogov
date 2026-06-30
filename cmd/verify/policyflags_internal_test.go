@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // newPolicyFlagsCmd registers the policy-related flags exactly as the
@@ -20,6 +21,17 @@ func newPolicyFlagsCmd() *cobra.Command {
 	cmd.Flags().String(flagPolicyURI, "", "")
 	cmd.Flags().Bool(flagGenerateVSA, false, "")
 	return cmd
+}
+
+// resetPolicyViper fully clears the global viper singleton so a subtest starts
+// from a clean state and leaves none behind. viper is process-global and the
+// guard reads it for env-backed options; viper.Set overrides outrank BindEnv, so
+// clearing individual keys with viper.Set("") would leave empty overrides that
+// shadow env-backed reads in later tests. viper.Reset() is the supported reset.
+func resetPolicyViper(t *testing.T) {
+	t.Helper()
+	viper.Reset()
+	t.Cleanup(viper.Reset)
 }
 
 // TestValidatePolicyFlagsRequireVSA locks the fail-open fix: policy/gating flags
@@ -40,6 +52,7 @@ func TestValidatePolicyFlagsRequireVSA(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			resetPolicyViper(t)
 			cmd := newPolicyFlagsCmd()
 			for k, v := range tc.set {
 				if err := cmd.Flags().Set(k, v); err != nil {
@@ -57,6 +70,58 @@ func TestValidatePolicyFlagsRequireVSA(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestValidatePolicyFlagsRequireVSA_EnvBacked locks the env-path half of the
+// fix: policy options set via their env vars must also fail closed without
+// --generate-vsa — Flags().Changed() alone misses them. These exercise the real
+// BindEnv + env flow (mirroring initConfig), not a viper.Set override, so they
+// cover the path validatePolicyFlagsRequireVSA actually relies on in production.
+func TestValidatePolicyFlagsRequireVSA_EnvBacked(t *testing.T) {
+	// env-bound string options (see initConfig BindEnv): set purely via env.
+	stringEnv := []struct{ flag, env, val string }{
+		{flagPolicyBundlePath, "POLICY_BUNDLE_PATH", "ghrel://o/r"},
+		{flagPolicySchemasPath, "POLICY_SCHEMAS_PATH", "ghrel://o/r?asset=schemas.tar.gz"},
+		{flagPolicyDataPath, "POLICY_DATA_PATH", "data.json"},
+	}
+	for _, tc := range stringEnv {
+		t.Run("env "+tc.env+" fails closed", func(t *testing.T) {
+			resetPolicyViper(t)
+			if err := viper.BindEnv(tc.flag, tc.env); err != nil {
+				t.Fatalf("BindEnv %s: %v", tc.env, err)
+			}
+			t.Setenv(tc.env, tc.val)
+			if err := validatePolicyFlagsRequireVSA(newPolicyFlagsCmd()); err == nil {
+				t.Fatalf("env %s must fail closed without --generate-vsa", tc.env)
+			}
+		})
+	}
+
+	t.Run("env FAIL_ON_POLICY_ERROR fails closed", func(t *testing.T) {
+		resetPolicyViper(t)
+		if err := viper.BindEnv(flagFailOnPolicyError, "FAIL_ON_POLICY_ERROR"); err != nil {
+			t.Fatalf("BindEnv: %v", err)
+		}
+		t.Setenv("FAIL_ON_POLICY_ERROR", "true")
+		if err := validatePolicyFlagsRequireVSA(newPolicyFlagsCmd()); err == nil {
+			t.Fatal("env FAIL_ON_POLICY_ERROR must fail closed without --generate-vsa")
+		}
+	})
+
+	t.Run("env-backed policy flag WITH --generate-vsa allowed", func(t *testing.T) {
+		resetPolicyViper(t)
+		if err := viper.BindEnv(flagPolicyBundlePath, "POLICY_BUNDLE_PATH"); err != nil {
+			t.Fatalf("BindEnv: %v", err)
+		}
+		t.Setenv("POLICY_BUNDLE_PATH", "ghrel://o/r")
+		cmd := newPolicyFlagsCmd()
+		if err := cmd.Flags().Set(flagGenerateVSA, "true"); err != nil {
+			t.Fatal(err)
+		}
+		if err := validatePolicyFlagsRequireVSA(cmd); err != nil {
+			t.Fatalf("env-backed policy flag WITH --generate-vsa should be allowed, got %v", err)
+		}
+	})
 }
 
 // TestVerifyUnknownSubcommandFailsClosed locks the fail-open fix: a typo'd verify
