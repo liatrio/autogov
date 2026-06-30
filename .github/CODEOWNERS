@@ -1,0 +1,16 @@
+# Code owners for autogov.
+#
+# Combined with the branch ruleset's "require code owner review" + 2 approving
+# reviews, this enforces SLSA Source Track L4 two-party review
+# (https://slsa.dev/spec/v1.2/source-requirements#source-l4): every change to a
+# protected branch is agreed to by two trusted persons before submission.
+#
+# A PR author who is also an owner still needs a DIFFERENT owner to approve
+# (you cannot approve your own PR) — that is what guarantees two distinct
+# parties. The auto-release bot's `chore(release)` commits are exempt via the
+# ruleset's trusted-robot bypass (the allowed SLSA robot exception).
+#
+# PROPOSED owner set = the maintainer admins. CONFIRM/ADJUST this before
+# enabling require_code_owner_review on the ruleset (e.g. swap to a dedicated
+# @liatrio/<team> if you'd rather manage membership there).
+* @ianhundere @jphayes @oeikenberry @RobertKelly
