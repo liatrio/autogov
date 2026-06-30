@@ -114,24 +114,40 @@ func applyFailOnPolicyError(cmd *cobra.Command) {
 // without --generate-vsa. policy (OPA) evaluation only runs during VSA
 // generation, so without this guard those flags are silently inert — a CI gate
 // built on --fail-on-policy-error would "pass" without ever evaluating policy.
+//
+// Several of these options are also env-bound (initConfig BindEnv), so the guard
+// checks the EFFECTIVE value (CLI flag or env, resolved via viper) rather than
+// just Flags().Changed(): otherwise FAIL_ON_POLICY_ERROR=true / POLICY_BUNDLE_PATH=…
+// set via env would slip past and leave policy inert.
 func validatePolicyFlagsRequireVSA(cmd *cobra.Command) error {
 	if generateVSA, _ := cmd.Flags().GetBool(flagGenerateVSA); generateVSA {
 		return nil
 	}
-	policyFlags := []string{
-		flagPolicyBundlePath,
-		flagPolicySchemasPath,
-		flagPolicyDataPath,
-		flagPolicyBundleDigest,
-		flagFailOnPolicyError,
-		flagPolicyURI,
-	}
 	var set []string
-	for _, f := range policyFlags {
-		if cmd.Flags().Changed(f) {
+
+	// env-bound string options: requested via the CLI flag or its env var.
+	for _, f := range []string{flagPolicyBundlePath, flagPolicySchemasPath, flagPolicyDataPath} {
+		v, _ := cmd.Flags().GetString(f)
+		if v == "" {
+			v = viper.GetString(f) // env value (BindEnv), else ""
+		}
+		if v != "" {
 			set = append(set, "--"+f)
 		}
 	}
+	// not env-bound: the CLI flag is the only source.
+	for _, f := range []string{flagPolicyBundleDigest, flagPolicyURI} {
+		if v, _ := cmd.Flags().GetString(f); v != "" {
+			set = append(set, "--"+f)
+		}
+	}
+	// fail-on-policy-error (bool) is resolved from flag/env into viper by
+	// applyFailOnPolicyError; also read the flag directly so the guard holds even
+	// when called without that pre-step.
+	if failOn, _ := cmd.Flags().GetBool(flagFailOnPolicyError); failOn || viper.GetBool(flagFailOnPolicyError) {
+		set = append(set, "--"+flagFailOnPolicyError)
+	}
+
 	if len(set) > 0 {
 		return fmt.Errorf("%s require --%s; policy evaluation only runs during VSA generation", strings.Join(set, ", "), flagGenerateVSA)
 	}
