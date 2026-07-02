@@ -26,7 +26,7 @@ jobs:
       actions: read
       pull-requests: read
       artifact-metadata: write
-    uses: liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@b6c847fb50b581fcd3a3e282696f0c1bb4cbc3ab # v0.27.4
+    uses: liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@b2aa95259a872fc00b0fb65890ce3dba2aedaecf # v0.31.2
     secrets: inherit
     with:
       subject-path: autogov
@@ -40,7 +40,7 @@ jobs:
       contents: read
       actions: read
       artifact-metadata: write
-    uses: liatrio/autogov-workflows/.github/workflows/rw-verify.yaml@b6c847fb50b581fcd3a3e282696f0c1bb4cbc3ab # v0.27.4
+    uses: liatrio/autogov-workflows/.github/workflows/rw-verify.yaml@b2aa95259a872fc00b0fb65890ce3dba2aedaecf # v0.31.2
     secrets: inherit
     with:
       build-type: blob
@@ -79,7 +79,7 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-      - uses: ko-build/setup-ko@d006021bd0c28d1ce33a07e7943d48b079944c8d # v0.9
+      - uses: ko-build/setup-ko@61b4d1d396f5b2e7d6bb6fefdce3dc38d1a13445 # v0.10
         with:
           version: v0.18.1
       - name: Derive build metadata
@@ -103,7 +103,7 @@ jobs:
           fi
       - name: Log in to GitHub Container Registry
         if: ${{ steps.gate.outputs.should-push == 'true' }}
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        uses: docker/login-action@c99871dec2022cc055c062a10cc1a1310835ceb4 # v4.3.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -122,7 +122,7 @@ jobs:
           fi
       - name: Attest image provenance
         if: ${{ steps.gate.outputs.should-push == 'true' }}
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-name: ghcr.io/liatrio/autogov
           subject-digest: ${{ steps.build.outputs.digest }}
