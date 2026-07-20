@@ -79,7 +79,7 @@ autogov is honest about its own [SLSA v1.2](https://slsa.dev/spec/v1.2/about) po
 
 ### Build track — SLSA Build L3
 
-autogov's own releases are built to **SLSA Build L3**:
+autogov's own releases are built to **[SLSA Build L3](https://slsa.dev/spec/v1.2/build-track-basics#build-l3-hardened-builds)**:
 
 - Build and attest jobs run on GitHub-hosted, isolated, ephemeral runners; the build path is guarded so a self-hosted runner fails the job (this applies to the blob build/attest jobs and the ko OCI image alike).
 - Build steps cannot reach the signing keys — provenance is generated and signed by GitHub's [`attest-build-provenance`](https://github.com/actions/attest-build-provenance) outside the build step.
@@ -96,13 +96,13 @@ The repository continuously enforces technical controls on its protected branch 
 - linear / retained history (history is not rewritable or deletable),
 - no admin or team bypass — bypass is narrowed to the release bot only, declared as a single allowlisted exception.
 
-On the basis of these enforced-and-recorded controls autogov claims **honest Source L3** (the SLSA v1.2 source track grants L3 for continuously enforced, recorded technical controls — no human review is required for L3).
+On the basis of these enforced-and-recorded controls autogov claims **honest Source L3** (the [SLSA v1.2 source track](https://slsa.dev/spec/v1.2/source-requirements#source-l3) grants L3 for continuously enforced, recorded technical controls — no human review is required for L3).
 
 This Source L3 claim is **currently dormant.** The v0.1 producer emits an empty `continuityStartRevision`, so the verifier fail-closes the continuity leg and the level stays at the conservative floor — no attestation actually earns L3 yet. It lights up once continuity tracking lands; until then the controls are *enforced and recorded* but the numbered L3 is not yet awarded. The verifier never promotes the level from an unverified signer, and never blocks when the controls are absent.
 
-### Two-party review (the v1.2 "L4" tier) — deferred, unclaimed
+### Two-party review (the v1.2 "L4" tier) — enforced + recorded
 
-Two-party review is the separate, higher SLSA v1.2 source control (the "L4" tier). autogov **does not claim it.** It is deferred to a future external / FOSS-contributor review pool. There is no `SLSA_SOURCE_LEVEL_4` numeric token — L4 is a non-numbered annotation, so when two-party review is in place it is recorded only as the `ORG_SOURCE_TWO_PARTY_REVIEWED` annotation, never as a level. Nothing in autogov today implies two-party review is performed.
+Two-party review is the separate, higher SLSA v1.2 source control (the ["L4" tier](https://slsa.dev/spec/v1.2/source-requirements#source-l4)). The protected branch requires **two approving reviews** plus designated code-owner review before any change is submitted, and re-reviews changes pushed mid-review (`dismiss_stale_reviews_on_push`); the release bot's `chore(release)` commits are the one allowlisted trusted-robot exception the spec permits. Because two-party review is **not a numbered level** — there is no `SLSA_SOURCE_LEVEL_4` token — autogov records it only as the non-numbered `ORG_SOURCE_TWO_PARTY_REVIEWED` annotation, emitted from verified evidence when a change's source-review attestation shows **two or more distinct approvers** (`summary.distinctApprovers >= 2`). Like the L3 claim it is evidence-driven and never asserted: a change that did not receive two distinct approvals simply does not carry the annotation.
 
 See [`verify source`](#verify-source) for how source levels are surfaced from evidence, and [docs/vsa-metadata.md](docs/vsa-metadata.md) for the VSA level fields.
 
@@ -263,7 +263,7 @@ autogov verify source \
 
 #### Promoting the level from enforced controls
 
-Passing `--source-review-attestation-path` (also requiring `--cert-identity`) supplies a signed source-review attestation whose **enforced technical controls** can promote the source level to `SLSA_SOURCE_LEVEL_3` and surface the factual controls as non-numbered `ORG_SOURCE_*` annotations. The promotion is **fail-closed**: when the bundle is absent or unverifiable the level stays at the conservative floor, and the L3 continuity leg is currently dormant (the v0.1 producer emits an empty `continuityStartRevision`), so no attestation earns L3 yet — see [Source track](#source-track--controls-enforced--recorded-source-l3-dormant). Two-party review remains a separate, unclaimed control with no numbered token (there is no `SLSA_SOURCE_LEVEL_4`).
+Passing `--source-review-attestation-path` (also requiring `--cert-identity`) supplies a signed source-review attestation whose **enforced technical controls** can promote the source level to `SLSA_SOURCE_LEVEL_3` and surface the factual controls as non-numbered `ORG_SOURCE_*` annotations. The promotion is **fail-closed**: when the bundle is absent or unverifiable the level stays at the conservative floor, and the L3 continuity leg is currently dormant (the v0.1 producer emits an empty `continuityStartRevision`), so no attestation earns L3 yet — see [Source track](#source-track--controls-enforced--recorded-source-l3-dormant). Two-party review is a separate control with no numbered token (there is no `SLSA_SOURCE_LEVEL_4`); it surfaces as the `ORG_SOURCE_TWO_PARTY_REVIEWED` annotation when the attestation shows two or more distinct approvers.
 
 ```bash
 autogov verify source \
