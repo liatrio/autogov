@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	gh "github.com/google/go-github/v88/github"
+	gh "github.com/google/go-github/v89/github"
 	"github.com/liatrio/autogov/pkg/attestations"
 )
 

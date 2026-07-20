@@ -3,7 +3,7 @@ package github
 import (
 	"os"
 
-	"github.com/google/go-github/v88/github"
+	"github.com/google/go-github/v89/github"
 	"github.com/spf13/viper"
 )
 

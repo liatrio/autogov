@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	gogithub "github.com/google/go-github/v88/github"
+	gogithub "github.com/google/go-github/v89/github"
 
 	"github.com/liatrio/autogov/pkg/digest"
 )
@@ -82,7 +82,7 @@ func (f *fakeGHReleaseClient) DownloadReleaseAsset(ctx context.Context, owner, r
 
 // makeRelease builds a release with the given tag and (name->id) assets.
 func makeRelease(tag string, assets map[string]int64) *gogithub.RepositoryRelease {
-	r := &gogithub.RepositoryRelease{TagName: gogithub.Ptr(tag)}
+	r := &gogithub.RepositoryRelease{TagName: tag}
 	for name, id := range assets {
 		r.Assets = append(r.Assets, &gogithub.ReleaseAsset{ID: gogithub.Ptr(id), Name: gogithub.Ptr(name)})
 	}

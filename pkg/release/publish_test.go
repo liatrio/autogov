@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
-	gogithub "github.com/google/go-github/v88/github"
+	gogithub "github.com/google/go-github/v89/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -49,9 +49,9 @@ func TestFindDraftReleaseByTag(t *testing.T) {
 			tag:  "v1.2.0",
 			mockReleases: []*gogithub.RepositoryRelease{
 				{
-					ID:      gogithub.Ptr(int64(42)),
-					TagName: gogithub.Ptr("v1.2.0"),
-					Draft:   gogithub.Ptr(true),
+					ID:      int64(42),
+					TagName: "v1.2.0",
+					Draft:   true,
 				},
 			},
 			wantErr: false,
@@ -68,9 +68,9 @@ func TestFindDraftReleaseByTag(t *testing.T) {
 			tag:  "v1.0.0",
 			mockReleases: []*gogithub.RepositoryRelease{
 				{
-					ID:      gogithub.Ptr(int64(10)),
-					TagName: gogithub.Ptr("v1.0.0"),
-					Draft:   gogithub.Ptr(false),
+					ID:      int64(10),
+					TagName: "v1.0.0",
+					Draft:   false,
 				},
 			},
 			wantErr:     true,
@@ -127,19 +127,19 @@ func TestFindLatestDraftRelease(t *testing.T) {
 			name: "found latest draft",
 			mockReleases: []*gogithub.RepositoryRelease{
 				{
-					ID:      gogithub.Ptr(int64(3)),
-					TagName: gogithub.Ptr("v1.3.0"),
-					Draft:   gogithub.Ptr(false),
+					ID:      int64(3),
+					TagName: "v1.3.0",
+					Draft:   false,
 				},
 				{
-					ID:      gogithub.Ptr(int64(2)),
-					TagName: gogithub.Ptr("v1.2.0"),
-					Draft:   gogithub.Ptr(true),
+					ID:      int64(2),
+					TagName: "v1.2.0",
+					Draft:   true,
 				},
 				{
-					ID:      gogithub.Ptr(int64(1)),
-					TagName: gogithub.Ptr("v1.1.0"),
-					Draft:   gogithub.Ptr(false),
+					ID:      int64(1),
+					TagName: "v1.1.0",
+					Draft:   false,
 				},
 			},
 			wantTag: "v1.2.0",
@@ -149,9 +149,9 @@ func TestFindLatestDraftRelease(t *testing.T) {
 			name: "no draft releases exist",
 			mockReleases: []*gogithub.RepositoryRelease{
 				{
-					ID:      gogithub.Ptr(int64(1)),
-					TagName: gogithub.Ptr("v1.0.0"),
-					Draft:   gogithub.Ptr(false),
+					ID:      int64(1),
+					TagName: "v1.0.0",
+					Draft:   false,
 				},
 			},
 			wantErr:     true,
@@ -286,16 +286,16 @@ func TestExecutePublish(t *testing.T) {
 			setupMock: func(m *mockReleaseService) {
 				m.listReleases = []*gogithub.RepositoryRelease{
 					{
-						ID:      gogithub.Ptr(int64(42)),
-						TagName: gogithub.Ptr("v1.2.0"),
-						Draft:   gogithub.Ptr(true),
+						ID:      int64(42),
+						TagName: "v1.2.0",
+						Draft:   true,
 					},
 				}
 				m.updateRelease = &gogithub.RepositoryRelease{
-					ID:      gogithub.Ptr(int64(42)),
-					TagName: gogithub.Ptr("v1.2.0"),
-					Draft:   gogithub.Ptr(false),
-					HTMLURL: gogithub.Ptr("https://github.com/owner/repo/releases/tag/v1.2.0"),
+					ID:      int64(42),
+					TagName: "v1.2.0",
+					Draft:   false,
+					HTMLURL: "https://github.com/owner/repo/releases/tag/v1.2.0",
 				}
 			},
 			validate: func(t *testing.T, result *PublishResult) {
@@ -315,16 +315,16 @@ func TestExecutePublish(t *testing.T) {
 			setupMock: func(m *mockReleaseService) {
 				m.listReleases = []*gogithub.RepositoryRelease{
 					{
-						ID:      gogithub.Ptr(int64(50)),
-						TagName: gogithub.Ptr("v2.0.0"),
-						Draft:   gogithub.Ptr(true),
+						ID:      int64(50),
+						TagName: "v2.0.0",
+						Draft:   true,
 					},
 				}
 				m.updateRelease = &gogithub.RepositoryRelease{
-					ID:      gogithub.Ptr(int64(50)),
-					TagName: gogithub.Ptr("v2.0.0"),
-					Draft:   gogithub.Ptr(false),
-					HTMLURL: gogithub.Ptr("https://github.com/owner/repo/releases/tag/v2.0.0"),
+					ID:      int64(50),
+					TagName: "v2.0.0",
+					Draft:   false,
+					HTMLURL: "https://github.com/owner/repo/releases/tag/v2.0.0",
 				}
 			},
 			validate: func(t *testing.T, result *PublishResult) {
@@ -343,9 +343,9 @@ func TestExecutePublish(t *testing.T) {
 			setupMock: func(m *mockReleaseService) {
 				m.listReleases = []*gogithub.RepositoryRelease{
 					{
-						ID:      gogithub.Ptr(int64(10)),
-						TagName: gogithub.Ptr("v1.0.0"),
-						Draft:   gogithub.Ptr(true),
+						ID:      int64(10),
+						TagName: "v1.0.0",
+						Draft:   true,
 					},
 				}
 			},
@@ -376,9 +376,9 @@ func TestExecutePublish(t *testing.T) {
 			setupMock: func(m *mockReleaseService) {
 				m.listReleases = []*gogithub.RepositoryRelease{
 					{
-						ID:      gogithub.Ptr(int64(10)),
-						TagName: gogithub.Ptr("v1.0.0"),
-						Draft:   gogithub.Ptr(false),
+						ID:      int64(10),
+						TagName: "v1.0.0",
+						Draft:   false,
 					},
 				}
 			},
@@ -394,9 +394,9 @@ func TestExecutePublish(t *testing.T) {
 			setupMock: func(m *mockReleaseService) {
 				m.listReleases = []*gogithub.RepositoryRelease{
 					{
-						ID:      gogithub.Ptr(int64(10)),
-						TagName: gogithub.Ptr("v1.0.0"),
-						Draft:   gogithub.Ptr(true),
+						ID:      int64(10),
+						TagName: "v1.0.0",
+						Draft:   true,
 					},
 				}
 				m.updateErr = fmt.Errorf("API error")
@@ -539,9 +539,9 @@ func TestExecutePublishVerifyTagExistsError(t *testing.T) {
 	mock := &mockReleaseService{
 		listReleases: []*gogithub.RepositoryRelease{
 			{
-				ID:      gogithub.Ptr(int64(99)),
-				TagName: gogithub.Ptr("v2.0.0"),
-				Draft:   gogithub.Ptr(true),
+				ID:      int64(99),
+				TagName: "v2.0.0",
+				Draft:   true,
 			},
 		},
 	}
@@ -565,11 +565,11 @@ func TestFindDraftReleaseByTagPaginated(t *testing.T) {
 		pages: [][]*gogithub.RepositoryRelease{
 			// page 1: no match
 			{
-				{ID: gogithub.Ptr(int64(1)), TagName: gogithub.Ptr("v1.0.0"), Draft: gogithub.Ptr(false)},
+				{ID: int64(1), TagName: "v1.0.0", Draft: false},
 			},
 			// page 2: target draft found
 			{
-				{ID: gogithub.Ptr(int64(2)), TagName: gogithub.Ptr("v2.0.0"), Draft: gogithub.Ptr(true)},
+				{ID: int64(2), TagName: "v2.0.0", Draft: true},
 			},
 		},
 	}
@@ -588,11 +588,11 @@ func TestFindLatestDraftReleasePaginated(t *testing.T) {
 		pages: [][]*gogithub.RepositoryRelease{
 			// page 1: all published
 			{
-				{ID: gogithub.Ptr(int64(1)), TagName: gogithub.Ptr("v1.0.0"), Draft: gogithub.Ptr(false)},
+				{ID: int64(1), TagName: "v1.0.0", Draft: false},
 			},
 			// page 2: draft found
 			{
-				{ID: gogithub.Ptr(int64(2)), TagName: gogithub.Ptr("v1.1.0"), Draft: gogithub.Ptr(true)},
+				{ID: int64(2), TagName: "v1.1.0", Draft: true},
 			},
 		},
 	}
@@ -640,15 +640,15 @@ func TestPublishByReleaseID(t *testing.T) {
 	mock := &mockReleaseService{
 		// GetRelease by ID returns the draft
 		getReleaseByID: &gogithub.RepositoryRelease{
-			ID:      gogithub.Ptr(int64(42)),
-			TagName: gogithub.Ptr("v1.2.0"),
-			Draft:   gogithub.Ptr(true),
+			ID:      int64(42),
+			TagName: "v1.2.0",
+			Draft:   true,
 		},
 		updateRelease: &gogithub.RepositoryRelease{
-			ID:      gogithub.Ptr(int64(42)),
-			TagName: gogithub.Ptr("v1.2.0"),
-			Draft:   gogithub.Ptr(false),
-			HTMLURL: gogithub.Ptr("https://github.com/owner/repo/releases/tag/v1.2.0"),
+			ID:      int64(42),
+			TagName: "v1.2.0",
+			Draft:   false,
+			HTMLURL: "https://github.com/owner/repo/releases/tag/v1.2.0",
 		},
 	}
 
@@ -680,9 +680,9 @@ func TestPublishByReleaseIDAlreadyPublished(t *testing.T) {
 
 	mock := &mockReleaseService{
 		getReleaseByID: &gogithub.RepositoryRelease{
-			ID:      gogithub.Ptr(int64(42)),
-			TagName: gogithub.Ptr("v1.2.0"),
-			Draft:   gogithub.Ptr(false), // already published
+			ID:      int64(42),
+			TagName: "v1.2.0",
+			Draft:   false, // already published
 		},
 	}
 

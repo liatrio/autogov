@@ -11,7 +11,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
-	gogithub "github.com/google/go-github/v88/github"
+	gogithub "github.com/google/go-github/v89/github"
 	githelper "github.com/liatrio/autogov/pkg/helper/git"
 	"github.com/liatrio/autogov/pkg/mutate"
 	"gopkg.in/yaml.v3"
@@ -86,8 +86,8 @@ type ReleaseService interface {
 	// release operations
 	GetReleaseByTag(ctx context.Context, owner, repo, tag string) (*gogithub.RepositoryRelease, *gogithub.Response, error)
 	GetRelease(ctx context.Context, owner, repo string, id int64) (*gogithub.RepositoryRelease, *gogithub.Response, error)
-	CreateRelease(ctx context.Context, owner, repo string, release *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error)
-	UpdateRelease(ctx context.Context, owner, repo string, id int64, release *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error)
+	CreateRelease(ctx context.Context, owner, repo string, release gogithub.CreateReleaseRequest) (*gogithub.RepositoryRelease, *gogithub.Response, error)
+	UpdateRelease(ctx context.Context, owner, repo string, id int64, release gogithub.UpdateReleaseRequest) (*gogithub.RepositoryRelease, *gogithub.Response, error)
 	ListReleases(ctx context.Context, owner, repo string, opts *gogithub.ListOptions) ([]*gogithub.RepositoryRelease, *gogithub.Response, error)
 	UploadReleaseAsset(ctx context.Context, owner, repo string, id int64, opts *gogithub.UploadOptions, file *os.File) (*gogithub.ReleaseAsset, *gogithub.Response, error)
 	// read operations (tag discovery, commit comparison, branch validation)
@@ -116,12 +116,12 @@ func (s *githubReleaseService) GetRelease(ctx context.Context, owner, repo strin
 	return s.client.Repositories.GetRelease(ctx, owner, repo, id)
 }
 
-func (s *githubReleaseService) CreateRelease(ctx context.Context, owner, repo string, release *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
+func (s *githubReleaseService) CreateRelease(ctx context.Context, owner, repo string, release gogithub.CreateReleaseRequest) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
 	return s.client.Repositories.CreateRelease(ctx, owner, repo, release)
 }
 
-func (s *githubReleaseService) UpdateRelease(ctx context.Context, owner, repo string, id int64, release *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
-	return s.client.Repositories.EditRelease(ctx, owner, repo, id, release)
+func (s *githubReleaseService) UpdateRelease(ctx context.Context, owner, repo string, id int64, release gogithub.UpdateReleaseRequest) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
+	return s.client.Repositories.UpdateRelease(ctx, owner, repo, id, release)
 }
 
 func (s *githubReleaseService) ListReleases(ctx context.Context, owner, repo string, opts *gogithub.ListOptions) ([]*gogithub.RepositoryRelease, *gogithub.Response, error) {
@@ -445,7 +445,7 @@ func performCutSideEffects(repo *git.Repository, opts *CutOptions, plan *Release
 
 // markReleasePublished flips a draft release to published via the GitHub API.
 func markReleasePublished(ctx context.Context, svc ReleaseService, owner, repo string, releaseID int64) error {
-	rel := &gogithub.RepositoryRelease{Draft: gogithub.Ptr(false)}
+	rel := gogithub.UpdateReleaseRequest{Draft: gogithub.Ptr(false)}
 	_, resp, err := svc.UpdateRelease(ctx, owner, repo, releaseID, rel)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -1075,8 +1075,8 @@ func createGitHubRelease(repo *git.Repository, opts *CutOptions, plan *ReleasePl
 
 	ctx := context.Background()
 
-	release := &gogithub.RepositoryRelease{
-		TagName:              gogithub.Ptr(plan.NextVersion),
+	release := gogithub.CreateReleaseRequest{
+		TagName:              plan.NextVersion,
 		Name:                 gogithub.Ptr(plan.NextVersion),
 		Body:                 gogithub.Ptr(plan.ChangelogPreview),
 		Draft:                gogithub.Ptr(draft),
