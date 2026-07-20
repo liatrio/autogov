@@ -1,6 +1,6 @@
 module github.com/liatrio/autogov
 
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/cli/go-gh/v2 v2.13.0
