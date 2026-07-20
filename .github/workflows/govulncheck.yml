@@ -38,7 +38,7 @@ jobs:
       - name: Run govulncheck
         run: |
           set -euo pipefail
-          go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
           # json mode exits 0 on findings (non-zero only on execution errors);
           # fail on any call-reachable finding whose OSV ID is not allowlisted
           # in .govulncheck-ignore (permanent, unfixable advisories only).
