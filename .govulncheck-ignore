@@ -1,0 +1,10 @@
+# OSV IDs excluded from the govulncheck CI gate, one per line.
+# Only list advisories that can never be fixed by a dependency bump; every
+# entry needs a tracking issue and gets removed when the dependency chain
+# clears it.
+
+# x/crypto/openpgp flagged unmaintained/unsafe-by-design — no fixed version
+# will ever exist. Reaches autogov transitively (go-git/sigstore); autogov
+# performs no PGP operations of its own. Remove when the chain drops openpgp.
+# Tracked in https://github.com/liatrio/autogov/issues/339
+GO-2026-5932

@@ -37,5 +37,30 @@ jobs:
           cache-dependency-path: go.sum
       - name: Run govulncheck
         run: |
+          set -euo pipefail
           go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
-          govulncheck ./...
+          # json mode exits 0 on findings (non-zero only on execution errors);
+          # fail on any call-reachable finding whose OSV ID is not allowlisted
+          # in .govulncheck-ignore (permanent, unfixable advisories only).
+          scan="$RUNNER_TEMP/govulncheck.json"
+          govulncheck -format json ./... > "$scan"
+          # a valid scan always starts with a config record; an empty or
+          # truncated stream must fail, not pass as "no findings".
+          jq -es '[.[] | select(.config != null)] | length > 0' "$scan" > /dev/null \
+            || { echo "::error::govulncheck emitted no config record — scan output invalid"; exit 1; }
+          # allowlist entries: strip inline comments, CR, and all whitespace so
+          # a CRLF or trailing-space edit cannot silently void an entry.
+          ignore='[]'
+          if [ -f .govulncheck-ignore ]; then
+            ignore=$(sed -E 's/#.*//; s/[[:space:]]//g; /^$/d' .govulncheck-ignore | jq -Rn '[inputs]')
+          fi
+          found=$(jq -s '[.[] | select(.finding != null) | .finding | select(.trace[0].function != null) | .osv] | unique' "$scan")
+          fail=$(jq -n --argjson f "$found" --argjson i "$ignore" '$f - $i')
+          echo "call-reachable findings: $(echo "$found" | jq -r 'if length == 0 then "none" else join(", ") end')"
+          echo "ignored via .govulncheck-ignore: $(jq -n --argjson f "$found" --argjson i "$ignore" '($f - ($f - $i)) | if length == 0 then "none" else join(", ") end' -r)"
+          if [ "$(echo "$fail" | jq length)" -gt 0 ]; then
+            echo "$fail" | jq -r '.[]' | while read -r id; do
+              jq -rs --arg id "$id" '([.[] | select(.osv.id == $id)][0].osv.summary // "") | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A") | "::error::" + $id + ": " + .' "$scan"
+            done
+            exit 1
+          fi
