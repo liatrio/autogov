@@ -14,7 +14,7 @@ import (
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	gogithub "github.com/google/go-github/v88/github"
+	gogithub "github.com/google/go-github/v89/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -108,7 +108,7 @@ func (m *mockReleaseService) GetBranch(_ context.Context, _, _, _ string, _ int)
 	return m.getBranchResult, mockResp(code), m.getBranchErr
 }
 
-func (m *mockReleaseService) CreateRelease(_ context.Context, _, _ string, _ *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
+func (m *mockReleaseService) CreateRelease(_ context.Context, _, _ string, _ gogithub.CreateReleaseRequest) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
 	code := 201
 	if m.createErr != nil {
 		code = 500
@@ -116,7 +116,7 @@ func (m *mockReleaseService) CreateRelease(_ context.Context, _, _ string, _ *go
 	return m.createRelease, mockResp(code), m.createErr
 }
 
-func (m *mockReleaseService) UpdateRelease(_ context.Context, _, _ string, _ int64, _ *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
+func (m *mockReleaseService) UpdateRelease(_ context.Context, _, _ string, _ int64, _ gogithub.UpdateReleaseRequest) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
 	code := 200
 	if m.updateErr != nil {
 		code = 500
@@ -543,8 +543,8 @@ func TestExecuteCutFullFlowViaAPI(t *testing.T) {
 		createRefResult:    &gogithub.Reference{},
 		updateRefResult:    &gogithub.Reference{},
 		createRelease: &gogithub.RepositoryRelease{
-			ID:      gogithub.Ptr(int64(42)),
-			HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
+			ID:      int64(42),
+			HTMLURL: "https://github.com/test/repo/releases/tag/v1.1.0",
 		},
 		getReleaseErr: fmt.Errorf("not found"),
 	}
@@ -675,8 +675,8 @@ func TestCheckImmutabilityPublishedRelease(t *testing.T) {
 	// mock: published (non-draft) release exists
 	mock := &mockReleaseService{
 		getRelease: &gogithub.RepositoryRelease{
-			ID:    gogithub.Ptr(int64(99)),
-			Draft: gogithub.Ptr(false),
+			ID:    int64(99),
+			Draft: false,
 		},
 	}
 
@@ -700,8 +700,8 @@ func TestCheckImmutabilityDraftReleaseAllowed(t *testing.T) {
 	// mock: draft release exists (should be allowed)
 	mock := &mockReleaseService{
 		getRelease: &gogithub.RepositoryRelease{
-			ID:    gogithub.Ptr(int64(50)),
-			Draft: gogithub.Ptr(true),
+			ID:    int64(50),
+			Draft: true,
 		},
 	}
 
@@ -729,8 +729,8 @@ func TestCreateDraftRelease(t *testing.T) {
 
 	mock := &mockReleaseService{
 		createRelease: &gogithub.RepositoryRelease{
-			ID:      gogithub.Ptr(int64(42)),
-			HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
+			ID:      int64(42),
+			HTMLURL: "https://github.com/test/repo/releases/tag/v1.1.0",
 		},
 	}
 
@@ -818,9 +818,9 @@ func TestExecuteCutWithPublish(t *testing.T) {
 		createRefResult:    &gogithub.Reference{},
 		updateRefResult:    &gogithub.Reference{},
 		createRelease: &gogithub.RepositoryRelease{
-			ID:      gogithub.Ptr(int64(99)),
-			Draft:   gogithub.Ptr(false),
-			HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
+			ID:      int64(99),
+			Draft:   false,
+			HTMLURL: "https://github.com/test/repo/releases/tag/v1.1.0",
 		},
 		getReleaseErr: fmt.Errorf("not found"),
 	}
@@ -880,8 +880,8 @@ func TestExecuteCutTagPlacement(t *testing.T) {
 		createRefResult:    &gogithub.Reference{},
 		updateRefResult:    &gogithub.Reference{},
 		createRelease: &gogithub.RepositoryRelease{
-			ID:      gogithub.Ptr(int64(77)),
-			HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
+			ID:      int64(77),
+			HTMLURL: "https://github.com/test/repo/releases/tag/v1.1.0",
 		},
 		getReleaseErr: fmt.Errorf("not found"),
 	}
@@ -1060,8 +1060,8 @@ func setupCutScenario(t *testing.T) (string, *mockReleaseService) {
 		createRefResult:    &gogithub.Reference{},
 		updateRefResult:    &gogithub.Reference{},
 		createRelease: &gogithub.RepositoryRelease{
-			ID:      gogithub.Ptr(int64(99)),
-			HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
+			ID:      int64(99),
+			HTMLURL: "https://github.com/test/repo/releases/tag/v1.1.0",
 		},
 		getReleaseErr: fmt.Errorf("not found"),
 	}
@@ -1145,10 +1145,10 @@ func TestExecuteCutDryRunSkipsUpload(t *testing.T) {
 func TestExecuteCutResumeUploadsMissingAssets(t *testing.T) {
 	dir, mock := setupCutScenario(t)
 	mock.listReleases = []*gogithub.RepositoryRelease{{
-		ID:      gogithub.Ptr(int64(777)),
-		TagName: gogithub.Ptr("v1.1.0"),
-		HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
-		Draft:   gogithub.Ptr(true),
+		ID:      int64(777),
+		TagName: "v1.1.0",
+		HTMLURL: "https://github.com/test/repo/releases/tag/v1.1.0",
+		Draft:   true,
 		Assets:  []*gogithub.ReleaseAsset{{Name: gogithub.Ptr("first"), State: gogithub.Ptr("uploaded")}},
 	}}
 
@@ -1182,10 +1182,10 @@ func TestExecuteCutResumeUploadsMissingAssets(t *testing.T) {
 func TestExecuteCutResumePublishesWhenAllAssetsPresent(t *testing.T) {
 	dir, mock := setupCutScenario(t)
 	mock.listReleases = []*gogithub.RepositoryRelease{{
-		ID:      gogithub.Ptr(int64(777)),
-		TagName: gogithub.Ptr("v1.1.0"),
-		HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
-		Draft:   gogithub.Ptr(true),
+		ID:      int64(777),
+		TagName: "v1.1.0",
+		HTMLURL: "https://github.com/test/repo/releases/tag/v1.1.0",
+		Draft:   true,
 		Assets: []*gogithub.ReleaseAsset{
 			{Name: gogithub.Ptr("first"), State: gogithub.Ptr("uploaded")},
 			{Name: gogithub.Ptr("second"), State: gogithub.Ptr("uploaded")},
@@ -1217,10 +1217,10 @@ func TestExecuteCutResumePublishesWhenAllAssetsPresent(t *testing.T) {
 func TestExecuteCutResumeReuploadsIncompleteAsset(t *testing.T) {
 	dir, mock := setupCutScenario(t)
 	mock.listReleases = []*gogithub.RepositoryRelease{{
-		ID:      gogithub.Ptr(int64(777)),
-		TagName: gogithub.Ptr("v1.1.0"),
-		HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
-		Draft:   gogithub.Ptr(true),
+		ID:      int64(777),
+		TagName: "v1.1.0",
+		HTMLURL: "https://github.com/test/repo/releases/tag/v1.1.0",
+		Draft:   true,
 		Assets:  []*gogithub.ReleaseAsset{{Name: gogithub.Ptr("first"), State: gogithub.Ptr("open")}},
 	}}
 
@@ -1246,9 +1246,9 @@ func TestExecuteCutResumeRejectsPublishedRelease(t *testing.T) {
 	dir, mock := setupCutScenario(t)
 	mock.getReleaseErr = nil
 	published := &gogithub.RepositoryRelease{
-		ID:      gogithub.Ptr(int64(99)),
-		TagName: gogithub.Ptr("v1.1.0"),
-		Draft:   gogithub.Ptr(false),
+		ID:      int64(99),
+		TagName: "v1.1.0",
+		Draft:   false,
 	}
 	mock.getRelease = published                                  // checkImmutability path
 	mock.listReleases = []*gogithub.RepositoryRelease{published} // detectResume must NOT resume a published release
@@ -1269,10 +1269,10 @@ func TestExecuteCutResumeRejectsPublishedRelease(t *testing.T) {
 func TestExecuteCutResumeDryRunMakesNoWrites(t *testing.T) {
 	dir, mock := setupCutScenario(t)
 	mock.listReleases = []*gogithub.RepositoryRelease{{
-		ID:      gogithub.Ptr(int64(777)),
-		TagName: gogithub.Ptr("v1.1.0"),
-		HTMLURL: gogithub.Ptr("https://github.com/test/repo/releases/tag/v1.1.0"),
-		Draft:   gogithub.Ptr(true),
+		ID:      int64(777),
+		TagName: "v1.1.0",
+		HTMLURL: "https://github.com/test/repo/releases/tag/v1.1.0",
+		Draft:   true,
 	}}
 
 	a := filepath.Join(t.TempDir(), "first")

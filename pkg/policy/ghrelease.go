@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	gogithub "github.com/google/go-github/v88/github"
+	gogithub "github.com/google/go-github/v89/github"
 
 	"github.com/liatrio/autogov/pkg/digest"
 	"github.com/liatrio/autogov/pkg/github"

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	gh "github.com/google/go-github/v88/github"
+	gh "github.com/google/go-github/v89/github"
 )
 
 // ReviewService abstracts the GitHub REST calls the source-review predicate
@@ -17,7 +17,7 @@ import (
 // adds no GraphQL/githubv4 dependency (see the source-review design).
 type ReviewService interface {
 	// ListPullRequestsWithCommit returns pull requests associated with a commit
-	// SHA. Documented quirk (go-github v88): if the SHA is not present in the
+	// SHA. Documented quirk (go-github v89): if the SHA is not present in the
 	// repository's default branch, the result includes ONLY open pull requests —
 	// so a release-branch/tag build can return zero merged PRs even though the
 	// change was reviewed. NewSourceReview treats that as incompleteness, not a
@@ -38,7 +38,7 @@ type ReviewService interface {
 	GetRuleset(ctx context.Context, owner, repo string, rulesetID int64, includesParents bool) (*gh.RepositoryRuleset, *gh.Response, error)
 
 	// GetRulesetHistory returns the VERSION HISTORY of a ruleset, newest first,
-	// for the SLSA Source-L3 continuity walk. go-github v88 binds NEITHER ruleset
+	// for the SLSA Source-L3 continuity walk. go-github v89 binds NEITHER ruleset
 	// history endpoint, so this is issued via the raw client. It tries the
 	// repo-scoped endpoint first; if that 404s (the id belongs to an ORG/parent
 	// ruleset that is only visible through includesParents on the repo), it falls
@@ -134,7 +134,7 @@ func (s *githubReviewService) GetRepository(ctx context.Context, owner, repo str
 }
 
 // rawRulesetVersion is the wire shape of one ruleset-history entry
-// (GET .../rulesets/{id}/history). Decoded locally because go-github v88 binds
+// (GET .../rulesets/{id}/history). Decoded locally because go-github v89 binds
 // no type for it.
 type rawRulesetVersion struct {
 	VersionID int64 `json:"version_id"`
