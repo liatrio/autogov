@@ -35,7 +35,10 @@ jobs:
       - name: Install Task
         uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
         with:
-          version: 3.x
+          # pinned (not 3.x): the wildcard makes setup-task resolve "latest 3.x"
+          # via the GitHub API on every run, which flakes ("unable to get latest
+          # version"). renovate keeps this current (see renovate.json).
+          version: 3.52.0
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Re-vendor public-good trusted root
         run: task vendor-public-trusted-root
