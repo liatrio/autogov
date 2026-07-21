@@ -47,8 +47,20 @@ func (e *SourceRefMismatchError) Error() string {
 // default gha oidc token issuer
 const DefaultCertIssuer = "https://token.actions.githubusercontent.com"
 
-// timeout for fetching attestations from github api
-const attestationFetchTimeout = 2 * time.Minute
+const (
+	// timeout for fetching attestations from github api
+	attestationFetchTimeout = 2 * time.Minute
+
+	attestationFetchAttempts          = 5
+	attestationFetchBaseDelay         = time.Second
+	attestationBundleUnavailableError = "attestation bundle is not yet available"
+)
+
+type attestationRetryConfig struct {
+	attempts  int
+	baseDelay time.Duration
+	wait      func(context.Context, time.Duration) error
+}
 
 // represents a SHA-256 digest of an artifact
 type Digest struct {
@@ -207,12 +219,224 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 	}
 
 	// get gh attestations
-	atts, _, err := client.Organizations.ListAttestations(ctx, org, artifactRef.String(), &github.ListOptions{})
+	atts, err := fetchGitHubAttestations(ctx, client, org, artifactRef.String())
 	if err != nil {
-		return nil, fmt.Errorf("failed to list attestations: %w", err)
+		return nil, err
 	}
 
-	return verifyAttestations(ctx, atts.Attestations, artifactRef.String(), trust, opts)
+	return verifyAttestations(ctx, atts, artifactRef.String(), trust, opts)
+}
+
+func fetchGitHubAttestations(ctx context.Context, client *github.Client, org, subjectDigest string) ([]*github.Attestation, error) {
+	return fetchGitHubAttestationsWithRetry(ctx, client, org, subjectDigest, attestationRetryConfig{
+		attempts:  attestationFetchAttempts,
+		baseDelay: attestationFetchBaseDelay,
+		wait:      waitForAttestationRetry,
+	})
+}
+
+func fetchGitHubAttestationsWithRetry(
+	ctx context.Context,
+	client *github.Client,
+	org,
+	subjectDigest string,
+	config attestationRetryConfig,
+) ([]*github.Attestation, error) {
+	if config.attempts <= 0 {
+		return nil, fmt.Errorf("attestation retry attempts must be positive")
+	}
+	if config.baseDelay < 0 {
+		return nil, fmt.Errorf("attestation retry base delay must not be negative")
+	}
+	if config.wait == nil {
+		return nil, fmt.Errorf("attestation retry wait function is required")
+	}
+
+	observedIdentities := make(map[string]struct{})
+	minEvidence := 0
+	lastUnavailableCount := 0
+	lastContinuityPreserved := true
+	lastDistinctCount := 0
+
+	for attempt := 0; attempt < config.attempts; attempt++ {
+		snapshot, err := listAllGitHubAttestations(ctx, client, org, subjectDigest)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list attestations: %w", err)
+		}
+
+		identities, unavailableCount := attestationSnapshotEvidence(snapshot)
+		continuityPreserved := containsAllAttestationIdentities(identities, observedIdentities)
+
+		if unavailableCount > 0 {
+			evidenceCount := len(identities) + unavailableCount
+			if evidenceCount > minEvidence {
+				minEvidence = evidenceCount
+			}
+		}
+
+		for identity := range identities {
+			observedIdentities[identity] = struct{}{}
+		}
+
+		if unavailableCount == 0 &&
+			continuityPreserved &&
+			len(identities) >= minEvidence &&
+			containsAllAttestationIdentities(identities, observedIdentities) {
+			return snapshot, nil
+		}
+
+		lastUnavailableCount = unavailableCount
+		lastContinuityPreserved = continuityPreserved &&
+			containsAllAttestationIdentities(identities, observedIdentities)
+		lastDistinctCount = len(identities)
+
+		if attempt == config.attempts-1 {
+			break
+		}
+
+		delay := config.baseDelay * time.Duration(1<<attempt)
+		if err := config.wait(ctx, delay); err != nil {
+			return nil, err
+		}
+	}
+
+	reason := attestationBundleUnavailableError
+	switch {
+	case lastUnavailableCount > 0:
+		reason = fmt.Sprintf("%d attestation bundle(s) are not yet available", lastUnavailableCount)
+	case !lastContinuityPreserved:
+		reason = "a previously observed attestation is missing"
+	case lastDistinctCount < minEvidence:
+		reason = fmt.Sprintf("snapshot contains %d distinct attestation(s), fewer than the observed minimum of %d", lastDistinctCount, minEvidence)
+	}
+
+	return nil, fmt.Errorf(
+		"attestation list did not stabilize after %d attempts (%s); retry verification shortly",
+		config.attempts,
+		reason,
+	)
+}
+
+func listAllGitHubAttestations(
+	ctx context.Context,
+	client *github.Client,
+	org,
+	subjectDigest string,
+) ([]*github.Attestation, error) {
+	page := 1
+	seenPages := map[int]struct{}{page: {}}
+	var snapshot []*github.Attestation
+
+	for {
+		atts, response, err := client.Organizations.ListAttestations(
+			ctx,
+			org,
+			subjectDigest,
+			&github.ListOptions{Page: page},
+		)
+		if err != nil {
+			return nil, err
+		}
+		if atts == nil || response == nil {
+			return nil, fmt.Errorf("GitHub returned an incomplete attestation list response for page %d", page)
+		}
+
+		snapshot = append(snapshot, atts.Attestations...)
+		nextPage := response.NextPage
+		if nextPage == 0 {
+			return snapshot, nil
+		}
+		if nextPage < 0 {
+			return nil, fmt.Errorf(
+				"invalid attestation pagination: next page %d from page %d is not positive",
+				nextPage,
+				page,
+			)
+		}
+		if _, seen := seenPages[nextPage]; seen {
+			return nil, fmt.Errorf(
+				"invalid attestation pagination: next page %d was already visited",
+				nextPage,
+			)
+		}
+		if nextPage != page+1 {
+			return nil, fmt.Errorf(
+				"invalid attestation pagination: next page %d is not contiguous after page %d",
+				nextPage,
+				page,
+			)
+		}
+
+		seenPages[nextPage] = struct{}{}
+		page = nextPage
+	}
+}
+
+func attestationSnapshotEvidence(attestations []*github.Attestation) (map[string]struct{}, int) {
+	identities := make(map[string]struct{})
+	unavailableCount := 0
+
+	for _, attestation := range attestations {
+		if isAttestationBundleUnavailable(attestation) {
+			unavailableCount++
+			continue
+		}
+		identities[canonicalAttestationBundleIdentity(attestation.Bundle)] = struct{}{}
+	}
+
+	return identities, unavailableCount
+}
+
+func containsAllAttestationIdentities(candidate, required map[string]struct{}) bool {
+	for identity := range required {
+		if _, ok := candidate[identity]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func canonicalAttestationBundleIdentity(raw json.RawMessage) string {
+	trimmed := bytes.TrimSpace(raw)
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	decoder.UseNumber()
+
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return string(trimmed)
+	}
+
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return string(trimmed)
+	}
+
+	canonical, err := json.Marshal(value)
+	if err != nil {
+		return string(trimmed)
+	}
+	return string(canonical)
+}
+
+func isAttestationBundleUnavailable(attestation *github.Attestation) bool {
+	if attestation == nil {
+		return true
+	}
+
+	bundleData := bytes.TrimSpace(attestation.Bundle)
+	return len(bundleData) == 0 || bytes.Equal(bundleData, []byte("null"))
+}
+
+func waitForAttestationRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // resolveAcceptedIdentities populates opts.AcceptedIdentities from the cert-identity
@@ -449,6 +673,10 @@ type attestationStatement struct {
 // parseAttestationBundle marshals the GitHub attestation bundle, parses it, and
 // extracts the envelope, raw payload, and decoded in-toto statement.
 func parseAttestationBundle(att *github.Attestation) (b *bundle.Bundle, rawPayload string, sigBytes []byte, statement attestationStatement, err error) {
+	if isAttestationBundleUnavailable(att) {
+		return nil, "", nil, statement, errors.New(attestationBundleUnavailableError)
+	}
+
 	// GitHub attestation bundle
 	bundleData, err := att.Bundle.MarshalJSON()
 	if err != nil {
@@ -689,10 +917,10 @@ func handleBlobVerification(ctx context.Context, artifactRef *Digest, org string
 	}
 
 	// get gh attestations
-	atts, _, err := client.Organizations.ListAttestations(ctx, org, artifactRef.String(), &github.ListOptions{})
+	atts, err := fetchGitHubAttestations(ctx, client, org, artifactRef.String())
 	if err != nil {
-		return nil, fmt.Errorf("failed to list attestations: %w", err)
+		return nil, err
 	}
 
-	return verifyAttestations(ctx, atts.Attestations, opts.BlobPath, trust, opts)
+	return verifyAttestations(ctx, atts, opts.BlobPath, trust, opts)
 }
