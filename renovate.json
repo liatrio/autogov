@@ -73,7 +73,7 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/(^|/)\\.github/workflows/.*\\.ya?ml$/"
+        "/(^|/)\\.github/(workflows|actions)/.*\\.ya?ml$/"
       ],
       "matchStrings": [
         "go-task/setup-task@[a-f0-9]+ # v[\\d.]+[\\s\\S]*?version: (?<currentValue>\\d+\\.\\d+\\.\\d+)"
