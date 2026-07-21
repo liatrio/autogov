@@ -10,6 +10,10 @@ You cannot trust a build artifact unless you can prove who built it and how. aut
 
 A unified CLI for attestation verification and release management. Supports [cosign](https://docs.sigstore.dev/cosign/signing/overview/)-based verification with SLSA v1.2 VSA (Verification Summary Attestation) support, integrated OPA policy evaluation, and a full release engine with changelog generation.
 
+`v1.0.0` establishes the CLI's commands, flags, and output as its
+SemVer-governed public interface. Breaking changes to that interface require a
+major version bump.
+
 > **Note**: This tool supports attestation verification for container images (ghcr.io) and blobs, VSA generation, policy evaluation, and release management (plan, cut, publish) with conventional commit-based changelog generation.
 
 ## The autogov ecosystem
