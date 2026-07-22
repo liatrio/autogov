@@ -47,8 +47,11 @@ jobs:
       blob-artifact-id: ${{ needs.attest-blob.outputs.blob-artifact-id }}
       cert-identity: https://github.com/liatrio/autogov-workflows/.github/workflows/rw-attest-blob.yaml@a35a71dae5b9ec8f60a92e7b9ed0ee551acce8ef # v1.1.1
       # autogov's own release claims Source L3 (enforced controls), not L4 (review),
-      # so it self-verifies at min_approvals 0; the published bundle stays strict.
-      policy-data-overlay: '{"source_review_thresholds":{"min_approvals":0}}'
+      # so it self-verifies at min_approvals 0; the published bundle stays strict. It
+      # also declares its two narrow ruleset bypass actors (the release-bot Integration
+      # and the sole-maintainer User) so self-verify stays internally consistent; the
+      # source-posture gate remains inert (require_min_source_posture unset).
+      policy-data-overlay: '{"source_review_thresholds":{"min_approvals":0},"source_level_thresholds":{"allowed_bypass_actors":["Integration:801323","User:138915"]}}'
       # a FAILED self-verify fails verify-blob, skipping the release job.
       allow-failed-vsa: false
       vuln-threshold-critical: '0'

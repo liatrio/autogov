@@ -56,6 +56,11 @@ type mockReviewService struct {
 	commitsErr    error
 	defaultBranch string // GetRepository default branch ("" => "main" via helper)
 	repoErr       error  // GetRepository error
+
+	// merged-by supplemental fetch (best-effort). getPR is the PR returned by
+	// GetPullRequest (nil => no merger recorded); getPRErr forces the error path.
+	getPR    *gh.PullRequest
+	getPRErr error
 }
 
 func srResp() *gh.Response {
@@ -180,6 +185,15 @@ func (m *mockReviewService) GetRepository(_ context.Context, _, _ string) (*gh.R
 		db = "main"
 	}
 	return &gh.Repository{DefaultBranch: gh.Ptr(db)}, srResp(), nil
+}
+
+func (m *mockReviewService) GetPullRequest(_ context.Context, _, _ string, _ int) (*gh.PullRequest, *gh.Response, error) {
+	if m.getPRErr != nil {
+		return nil, srResp(), m.getPRErr
+	}
+	// nil getPR is the default: the best-effort caller tolerates a nil PR and simply
+	// records no merger, so existing tests that never set getPR do not panic.
+	return m.getPR, srResp(), nil
 }
 
 func srUser(login string, id int64, typ string) *gh.User {
@@ -940,6 +954,66 @@ func TestNewSourceReview_HappyPath(t *testing.T) {
 	}
 	if c.SourceRevision != srSourceSHA || c.Ref != "main" {
 		t.Errorf("sourceRevision=%q ref=%q", c.SourceRevision, c.Ref)
+	}
+	srValidate(t, c)
+}
+
+func TestNewSourceReview_MergedByPopulated(t *testing.T) {
+	// the supplemental single-PR GET returns a merger -> mergedBy/mergedById are
+	// recorded as evidence (login + rename-safe numeric id).
+	m := &mockReviewService{
+		prs:     []*gh.PullRequest{srMergedPR()},
+		reviews: []*gh.PullRequestReview{srReview(srUser("alice", 2, "User"), reviewStateApproved, srHeadSHA, srBaseTime.Add(time.Minute))},
+		getPR:   &gh.PullRequest{MergedBy: srUser("merger", 138915, "User")},
+	}
+	c := srBuild(t, m, srOpts())
+	if c.PullRequest == nil {
+		t.Fatal("expected pullRequest to be populated")
+	}
+	if c.PullRequest.MergedBy != "merger" {
+		t.Errorf("mergedBy = %q, want %q", c.PullRequest.MergedBy, "merger")
+	}
+	if c.PullRequest.MergedByID != 138915 {
+		t.Errorf("mergedById = %d, want 138915", c.PullRequest.MergedByID)
+	}
+	srValidate(t, c) // schema must accept the new pullRequest.mergedBy/mergedById fields
+}
+
+func TestNewSourceReview_MergedByFetchErrorIsBestEffort(t *testing.T) {
+	// the supplemental GET errors -> mergedBy/mergedById stay empty AND the rest of
+	// the predicate is byte-for-byte the no-error baseline (no new fail-close). This
+	// is fail-open evidence enrichment: an error must NOT flip ReviewToolingComplete.
+	base := &mockReviewService{
+		prs:     []*gh.PullRequest{srMergedPR()},
+		reviews: []*gh.PullRequestReview{srReview(srUser("alice", 2, "User"), reviewStateApproved, srHeadSHA, srBaseTime.Add(time.Minute))},
+	}
+	want := srBuild(t, base, srOpts())
+
+	m := &mockReviewService{
+		prs:      []*gh.PullRequest{srMergedPR()},
+		reviews:  []*gh.PullRequestReview{srReview(srUser("alice", 2, "User"), reviewStateApproved, srHeadSHA, srBaseTime.Add(time.Minute))},
+		getPRErr: errBoom,
+	}
+	c := srBuild(t, m, srOpts())
+
+	if c.PullRequest == nil {
+		t.Fatal("pullRequest should still be populated on a merged_by fetch error")
+	}
+	if c.PullRequest.MergedBy != "" || c.PullRequest.MergedByID != 0 {
+		t.Errorf("mergedBy=%q mergedById=%d, want empty/0 on fetch error", c.PullRequest.MergedBy, c.PullRequest.MergedByID)
+	}
+	if !c.ReviewToolingComplete {
+		t.Error("reviewToolingComplete = false; a merged_by fetch error must NOT fail closed (best-effort)")
+	}
+	// the rest of the predicate must match the no-error baseline exactly.
+	if c.Summary != want.Summary {
+		t.Errorf("summary drift on fetch error: got %+v, want %+v", c.Summary, want.Summary)
+	}
+	if !reflect.DeepEqual(c.Approvers, want.Approvers) {
+		t.Errorf("approvers drift on fetch error: got %+v, want %+v", c.Approvers, want.Approvers)
+	}
+	if !reflect.DeepEqual(c.PullRequest, want.PullRequest) {
+		t.Errorf("pullRequest drift on fetch error: got %+v, want %+v", c.PullRequest, want.PullRequest)
 	}
 	srValidate(t, c)
 }

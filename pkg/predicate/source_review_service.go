@@ -63,6 +63,12 @@ type ReviewService interface {
 	// -> the default branch is unknown -> a "~DEFAULT_BRANCH"-only version fails
 	// closed.
 	GetRepository(ctx context.Context, owner, repo string) (*gh.Repository, *gh.Response, error)
+	// GetPullRequest returns a single pull request. It exists to read merged_by:
+	// the ListPullRequestsWithCommit list endpoint does NOT populate that field
+	// (verified live — it returns merged_by:null for a known-merged PR), so the
+	// merger identity requires this supplemental single-PR GET. Best-effort and
+	// evidence-only in NewSourceReview (a failure never degrades the attestation).
+	GetPullRequest(ctx context.Context, owner, repo string, number int) (*gh.PullRequest, *gh.Response, error)
 }
 
 // RulesetVersion is one entry in a ruleset's version history. created_at is NOT
@@ -131,6 +137,13 @@ func (s *githubReviewService) ListCommits(ctx context.Context, owner, repo strin
 
 func (s *githubReviewService) GetRepository(ctx context.Context, owner, repo string) (*gh.Repository, *gh.Response, error) {
 	return s.client.Repositories.Get(ctx, owner, repo)
+}
+
+// GetPullRequest reads a single pull request to recover merged_by, which the
+// ListPullRequestsWithCommit list endpoint does NOT populate (verified live: it
+// returns merged_by:null for a known-merged PR).
+func (s *githubReviewService) GetPullRequest(ctx context.Context, owner, repo string, number int) (*gh.PullRequest, *gh.Response, error) {
+	return s.client.PullRequests.Get(ctx, owner, repo, number)
 }
 
 // rawRulesetVersion is the wire shape of one ruleset-history entry

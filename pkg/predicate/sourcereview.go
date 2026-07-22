@@ -62,6 +62,12 @@ type SourceReviewPR struct {
 	Author         string `json:"author,omitempty"`
 	MergedAt       string `json:"mergedAt,omitempty"`
 	MergeCommitSha string `json:"mergeCommitSha,omitempty"`
+	// MergedBy / MergedByID are best-effort, evidence-only: the login and numeric
+	// id of whoever merged the PR. Captured via a supplemental single-PR GET because
+	// ListPullRequestsWithCommit does NOT populate merged_by. Never a gate input;
+	// left empty/0 when the supplemental GET fails or returns no merger.
+	MergedBy   string `json:"mergedBy,omitempty"`
+	MergedByID int64  `json:"mergedById,omitempty"`
 }
 
 // SourceReviewApprover is one distinct reviewer whose latest opinionated review
@@ -327,6 +333,22 @@ func NewSourceReview(ctx context.Context, svc ReviewService, opts SourceReviewOp
 	if selected.GetUser() == nil || prAuthorID == 0 || prHeadSHA == "" {
 		c.ReviewToolingComplete = false
 		return c, nil
+	}
+
+	// best-effort, evidence-only: record WHO merged the PR (login + numeric id).
+	// merged_by is populated ONLY by the single-PR GET, never by the list endpoint
+	// (verified live: ListPullRequestsWithCommit returns merged_by:null). On ANY
+	// error or nil merger we record nothing and leave ReviewToolingComplete alone —
+	// fail-open enrichment, exactly like fetchTechnicalControls/fetchReviewControls.
+	full, resp, err := svc.GetPullRequest(ctx, opts.Owner, opts.Repo, selected.GetNumber())
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err == nil && full != nil {
+		if mb := full.GetMergedBy(); mb != nil {
+			c.PullRequest.MergedBy = truncateRunes(mb.GetLogin(), srMaxStringLen)
+			c.PullRequest.MergedByID = mb.GetID()
+		}
 	}
 
 	// step 8 (fetched before staleness in step 4, which needs dismissStale):
