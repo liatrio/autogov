@@ -12,12 +12,31 @@ import (
 	"github.com/liatrio/autogov/pkg/helper/version"
 )
 
-// OpenRepository opens a git repository at the given path
+// OpenRepository opens a git repository at the given path.
+//
+// If the fast path (git.PlainOpen) fails because a branch in the repository's
+// config has a merge ref outside refs/heads/ (e.g. the refs/pull/<n>/head
+// that `gh pr checkout` writes, which real git accepts but go-git's config
+// parser rejects -- see sanitize.go), it retries by sanitizing that config
+// in memory and reopening through go-git's lower-level Open. Any failure in
+// that retry falls back to the original PlainOpen error, never a confusing
+// error from the workaround path itself.
 func OpenRepository(path string) (*git.Repository, error) {
 	repo, err := git.PlainOpen(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open repository at %s: %w", path, err)
+	if err == nil {
+		return repo, nil
 	}
+
+	plainOpenErr := fmt.Errorf("failed to open repository at %s: %w", path, err)
+	if !isBranchConfigError(err) {
+		return nil, plainOpenErr
+	}
+
+	repo, sanitizeErr := openWithSanitizedBranchConfig(path)
+	if sanitizeErr != nil {
+		return nil, fmt.Errorf("%w (sanitize-branch-config workaround also failed: %v)", plainOpenErr, sanitizeErr)
+	}
+
 	return repo, nil
 }
 

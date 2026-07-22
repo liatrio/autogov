@@ -3,7 +3,7 @@ package gitpolicy
 import (
 	"fmt"
 
-	"github.com/go-git/go-git/v5"
+	githelper "github.com/liatrio/autogov/pkg/helper/git"
 )
 
 // VerifyPolicy orchestrates the full policy verification flow.
@@ -15,7 +15,7 @@ func VerifyPolicy(opts VerifyOptions) (*VerificationResult, error) {
 	}
 
 	// Open the repository.
-	repo, err := git.PlainOpen(opts.RepoPath)
+	repo, err := githelper.OpenRepository(opts.RepoPath)
 	if err != nil {
 		return nil, fmt.Errorf("verify policy: open repository %q: %w", opts.RepoPath, err)
 	}
