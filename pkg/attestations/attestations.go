@@ -11,9 +11,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -219,7 +222,7 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 	}
 
 	// get gh attestations
-	atts, err := fetchGitHubAttestations(ctx, client, org, artifactRef.String())
+	atts, err := FetchGitHubAttestations(ctx, client, org, artifactRef.String())
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +230,15 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 	return verifyAttestations(ctx, atts, artifactRef.String(), trust, opts)
 }
 
-func fetchGitHubAttestations(ctx context.Context, client *github.Client, org, subjectDigest string) ([]*github.Attestation, error) {
+// FetchGitHubAttestations retrieves the complete, stabilized set of GitHub
+// attestations for subjectDigest, retrying to ride out the propagation race
+// where a just-signed attestation briefly reports a null bundle (see #341).
+// It is the single production entry point for fetching attestations from the
+// GitHub API online — all online call sites (image/blob verification, offline
+// bundle download) must route through it rather than calling
+// client.Organizations.ListAttestations directly, so they share the same
+// retry, null-bundle classification, and full-pagination behavior.
+func FetchGitHubAttestations(ctx context.Context, client *github.Client, org, subjectDigest string) ([]*github.Attestation, error) {
 	return fetchGitHubAttestationsWithRetry(ctx, client, org, subjectDigest, attestationRetryConfig{
 		attempts:  attestationFetchAttempts,
 		baseDelay: attestationFetchBaseDelay,
@@ -317,58 +328,69 @@ func fetchGitHubAttestationsWithRetry(
 	)
 }
 
+// number of records requested per page; larger pages shrink the window during
+// which a subject digest's attestations can straddle a page boundary.
+const attestationListPageSize = 100
+
+// listAllGitHubAttestations retrieves every attestation for subjectDigest.
+//
+// GET /orgs/{org}/attestations/{subject_digest} is cursor-paginated
+// (per_page/before/after), not page-numbered: go-github's typed ListOptions
+// only carries a numeric "page" parameter, which this endpoint silently
+// ignores, so response.NextPage is always 0 against it and a naive caller
+// using ListOptions would treat page 1 as the complete list. Requests are
+// therefore built manually to carry the "after" cursor from the previous
+// response's Link header.
 func listAllGitHubAttestations(
 	ctx context.Context,
 	client *github.Client,
 	org,
 	subjectDigest string,
 ) ([]*github.Attestation, error) {
-	page := 1
-	seenPages := map[int]struct{}{page: {}}
+	cursor := ""
+	seenCursors := make(map[string]struct{})
 	var snapshot []*github.Attestation
 
 	for {
-		atts, response, err := client.Organizations.ListAttestations(
-			ctx,
-			org,
-			subjectDigest,
-			&github.ListOptions{Page: page},
-		)
+		query := url.Values{}
+		query.Set("per_page", strconv.Itoa(attestationListPageSize))
+		if cursor != "" {
+			query.Set("after", cursor)
+		}
+		requestURL := fmt.Sprintf("orgs/%s/attestations/%s?%s", org, subjectDigest, query.Encode())
+
+		req, err := client.NewRequest(ctx, http.MethodGet, requestURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build attestation list request: %w", err)
+		}
+
+		var atts *github.AttestationsResponse
+		response, err := client.Do(req, &atts)
 		if err != nil {
 			return nil, err
 		}
 		if atts == nil || response == nil {
-			return nil, fmt.Errorf("GitHub returned an incomplete attestation list response for page %d", page)
+			return nil, fmt.Errorf("GitHub returned an incomplete attestation list response")
 		}
 
 		snapshot = append(snapshot, atts.Attestations...)
-		nextPage := response.NextPage
-		if nextPage == 0 {
+
+		nextCursor := response.After
+		if nextCursor == "" {
 			return snapshot, nil
 		}
-		if nextPage < 0 {
+		if _, seen := seenCursors[nextCursor]; seen {
+			// fail closed rather than loop forever on a repeated or
+			// non-advancing cursor (e.g. a server bug or an opaque cursor
+			// that never terminates).
 			return nil, fmt.Errorf(
-				"invalid attestation pagination: next page %d from page %d is not positive",
-				nextPage,
-				page,
-			)
-		}
-		if _, seen := seenPages[nextPage]; seen {
-			return nil, fmt.Errorf(
-				"invalid attestation pagination: next page %d was already visited",
-				nextPage,
-			)
-		}
-		if nextPage != page+1 {
-			return nil, fmt.Errorf(
-				"invalid attestation pagination: next page %d is not contiguous after page %d",
-				nextPage,
-				page,
+				"invalid attestation pagination: cursor %q was already visited",
+				nextCursor,
 			)
 		}
 
-		seenPages[nextPage] = struct{}{}
-		page = nextPage
+		seenCursors[nextCursor] = struct{}{}
+		cursor = nextCursor
 	}
 }
 
@@ -917,7 +939,7 @@ func handleBlobVerification(ctx context.Context, artifactRef *Digest, org string
 	}
 
 	// get gh attestations
-	atts, err := fetchGitHubAttestations(ctx, client, org, artifactRef.String())
+	atts, err := FetchGitHubAttestations(ctx, client, org, artifactRef.String())
 	if err != nil {
 		return nil, err
 	}

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v89/github"
+	"github.com/liatrio/autogov/pkg/attestations"
 	"github.com/liatrio/autogov/pkg/digest"
 	ghclient "github.com/liatrio/autogov/pkg/github"
 	"github.com/liatrio/autogov/pkg/offline"
@@ -132,17 +133,16 @@ func (ad *AttestationDownloader) fetchAttestations(ctx context.Context, digest s
 	}
 	owner := parts[0]
 
-	// list attestations for the organization and digest
-	attestations, _, err := ad.client.Organizations.ListAttestations(ctx, owner, digest, &github.ListOptions{})
+	// list attestations for the organization and digest, via the shared
+	// retrying/paginating helper (retries a propagation-race null bundle,
+	// paginates the full cursor-based result set) rather than a bare,
+	// single-page, un-retried API call.
+	atts, err := attestations.FetchGitHubAttestations(ctx, ad.client, owner, digest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list attestations: %w", err)
 	}
 
-	if attestations == nil || attestations.Attestations == nil {
-		return []*github.Attestation{}, nil
-	}
-
-	return attestations.Attestations, nil
+	return atts, nil
 }
 
 // converts GitHub attestations to Sigstore bundles
