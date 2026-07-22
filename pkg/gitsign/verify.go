@@ -15,6 +15,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	githelper "github.com/liatrio/autogov/pkg/helper/git"
 	"github.com/liatrio/autogov/pkg/root"
 )
 
@@ -50,7 +51,7 @@ type VerificationResult struct {
 
 // OpenRepository opens a git repository at the given path.
 func OpenRepository(path string) (*git.Repository, error) {
-	repo, err := git.PlainOpen(path)
+	repo, err := githelper.OpenRepository(path)
 	if err != nil {
 		return nil, fmt.Errorf("verify git: open repository: %w", err)
 	}
