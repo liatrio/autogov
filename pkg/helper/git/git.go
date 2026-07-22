@@ -150,6 +150,13 @@ func resolveTagToCommit(repo *git.Repository, tagHash plumbing.Hash) (plumbing.H
 // GetCommitsSinceTag returns all commits since the given tag (or from beginning if tagName is empty)
 // if firstParent is true, only follows first parent in merge commits
 // toRef specifies the target ref (defaults to HEAD if empty)
+//
+// When tagName is non-empty and resolves to a commit that the walk from toRef
+// never actually reaches (reversed range, divergent range, or -- in
+// firstParent mode -- a stop commit only reachable via a merged-in side
+// branch), this returns an empty slice and a nil error instead of the full
+// history: git's two-dot A..B semantics mean an unreachable A yields nothing,
+// not everything. A warning is printed to stderr in that case.
 func GetCommitsSinceTag(repo *git.Repository, tagName string, toRef string, firstParent bool) ([]*object.Commit, error) {
 	// resolve target ref
 	var targetHash plumbing.Hash
@@ -180,10 +187,32 @@ func GetCommitsSinceTag(repo *git.Repository, tagName string, toRef string, firs
 		}
 	}
 
+	var commits []*object.Commit
+	var reached bool
+	var err error
 	if firstParent {
-		return walkFirstParent(repo, targetHash, stopHash)
+		commits, reached, err = walkFirstParent(repo, targetHash, stopHash)
+	} else {
+		commits, reached, err = walkAllParents(repo, targetHash, stopHash)
 	}
-	return walkAllParents(repo, targetHash, stopHash)
+	if err != nil {
+		return nil, err
+	}
+
+	if stopHash != plumbing.ZeroHash && !reached {
+		displayTo := toRef
+		if displayTo == "" {
+			displayTo = "HEAD"
+		}
+		mode := "all-parents"
+		if firstParent {
+			mode = "first-parent"
+		}
+		fmt.Fprintf(os.Stderr, "warning: %s walk from %s never reached %s; returning empty commit range instead of full history\n", mode, displayTo, tagName)
+		return nil, nil
+	}
+
+	return commits, nil
 }
 
 // resolveRef resolves a ref string to a commit hash
@@ -211,16 +240,24 @@ func resolveRef(repo *git.Repository, ref string) (plumbing.Hash, error) {
 	return plumbing.ZeroHash, fmt.Errorf("cannot resolve ref: %s", ref)
 }
 
-// walkFirstParent walks commits following only first parent
-func walkFirstParent(repo *git.Repository, startHash, stopHash plumbing.Hash) ([]*object.Commit, error) {
+// walkFirstParent walks commits following only first parent.
+// The second return value reports whether stopHash was actually reached by
+// the walk (trivially true when stopHash is the zero hash, i.e. no stop was
+// requested); callers use this to detect a stop that the first-parent chain
+// never encounters (reversed range, or a stop only reachable via a merged-in
+// side branch).
+func walkFirstParent(repo *git.Repository, startHash, stopHash plumbing.Hash) ([]*object.Commit, bool, error) {
 	var commits []*object.Commit
+	reached := stopHash == plumbing.ZeroHash
+
 	current, err := repo.CommitObject(startHash)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get start commit: %w", err)
+		return nil, false, fmt.Errorf("failed to get start commit: %w", err)
 	}
 
 	for current != nil {
 		if stopHash != plumbing.ZeroHash && current.Hash == stopHash {
+			reached = true
 			break
 		}
 
@@ -236,12 +273,17 @@ func walkFirstParent(repo *git.Repository, startHash, stopHash plumbing.Hash) ([
 		}
 	}
 
-	return commits, nil
+	return commits, reached, nil
 }
 
-// walkAllParents walks all commits reachable from start (BFS traversal)
-func walkAllParents(repo *git.Repository, startHash, stopHash plumbing.Hash) ([]*object.Commit, error) {
+// walkAllParents walks all commits reachable from start (BFS traversal).
+// The second return value reports whether stopHash was actually reached by
+// the walk (trivially true when stopHash is the zero hash, i.e. no stop was
+// requested); callers use this to detect a stop the BFS never encounters
+// (reversed or divergent range).
+func walkAllParents(repo *git.Repository, startHash, stopHash plumbing.Hash) ([]*object.Commit, bool, error) {
 	var commits []*object.Commit
+	reached := stopHash == plumbing.ZeroHash
 	seen := make(map[plumbing.Hash]bool)
 	queue := []plumbing.Hash{startHash}
 
@@ -256,6 +298,7 @@ func walkAllParents(repo *git.Repository, startHash, stopHash plumbing.Hash) ([]
 
 		// stop at the tag commit (don't include it)
 		if stopHash != plumbing.ZeroHash && hash == stopHash {
+			reached = true
 			continue
 		}
 
@@ -278,7 +321,7 @@ func walkAllParents(repo *git.Repository, startHash, stopHash plumbing.Hash) ([]
 		}
 	}
 
-	return commits, nil
+	return commits, reached, nil
 }
 
 // GetRepositoryName attempts to extract the repository name from remote URL

@@ -1,6 +1,7 @@
 package git
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -283,6 +284,172 @@ func TestGetCommitsSinceTagMergeFirstParentVsAll(t *testing.T) {
 	}
 	assert.Contains(t, fpMessages[0], "merge side branch")
 	assert.Contains(t, fpMessages[1], "feature B")
+}
+
+// captureStderr swaps os.Stderr for a pipe for the duration of fn, returning
+// everything fn wrote to stderr. Restoration happens via t.Cleanup, so this
+// must not be used from a t.Parallel test (os.Stderr is process-global).
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+
+	orig := os.Stderr
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = w
+	t.Cleanup(func() {
+		os.Stderr = orig
+	})
+
+	fn()
+
+	require.NoError(t, w.Close())
+	os.Stderr = orig
+
+	captured, err := io.ReadAll(r)
+	require.NoError(t, err)
+	_ = r.Close()
+	return string(captured)
+}
+
+func TestGetCommitsSinceTagReversedRangeFirstParent(t *testing.T) {
+	dir, repo := createTestRepo(t)
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	createTag(t, repo, "v1.0.0")
+	addCommit(t, repo, dir, "feat: feature B")
+	createTag(t, repo, "v2.0.0")
+
+	// reversed: --from v2.0.0 (newer) --to v1.0.0 (older)
+	commits, err := GetCommitsSinceTag(repo, "v2.0.0", "v1.0.0", true)
+	require.NoError(t, err)
+	assert.Empty(t, commits)
+}
+
+func TestGetCommitsSinceTagReversedRangeAllParents(t *testing.T) {
+	dir, repo := createTestRepo(t)
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	createTag(t, repo, "v1.0.0")
+	addCommit(t, repo, dir, "feat: feature B")
+	createTag(t, repo, "v2.0.0")
+
+	// reversed: --from v2.0.0 (newer) --to v1.0.0 (older)
+	commits, err := GetCommitsSinceTag(repo, "v2.0.0", "v1.0.0", false)
+	require.NoError(t, err)
+	assert.Empty(t, commits)
+}
+
+func TestGetCommitsSinceTagDivergentRangeAllParents(t *testing.T) {
+	dir, repo := createTestRepo(t)
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	root, err := repo.Head()
+	require.NoError(t, err)
+
+	// side branch off root, tagged
+	addCommit(t, repo, dir, "fix: side branch commit")
+	createTag(t, repo, "v-side")
+
+	// back to root, build a divergent main path that never merges the side branch back in
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+	err = wt.Checkout(&git.CheckoutOptions{
+		Hash:  root.Hash(),
+		Force: true,
+	})
+	require.NoError(t, err)
+	addCommit(t, repo, dir, "feat: main A")
+	addCommit(t, repo, dir, "feat: main B")
+
+	// neither ref is an ancestor of the other
+	commits, err := GetCommitsSinceTag(repo, "v-side", "HEAD", false)
+	require.NoError(t, err)
+	assert.Empty(t, commits)
+}
+
+func TestGetCommitsSinceTagFirstParentMergedInFrom(t *testing.T) {
+	dir, repo := createTestRepo(t)
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	// A - tag it (base)
+	addCommit(t, repo, dir, "feat: feature A")
+	createTag(t, repo, "v1.0.0")
+
+	// B on main branch
+	hashB := addCommit(t, repo, dir, "feat: feature B")
+
+	commitB, err := repo.CommitObject(hashB)
+	require.NoError(t, err)
+	parentA, err := commitB.Parent(0)
+	require.NoError(t, err)
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+	err = wt.Checkout(&git.CheckoutOptions{
+		Hash:  parentA.Hash,
+		Force: true,
+	})
+	require.NoError(t, err)
+
+	// C, D on a side branch off A; D is tagged and only reachable via the merge's non-first parent
+	_ = addCommit(t, repo, dir, "fix: fix C")
+	_ = addCommit(t, repo, dir, "fix: fix D")
+	createTag(t, repo, "v-side")
+
+	hashD, err := repo.Head()
+	require.NoError(t, err)
+
+	// back to B, merge the side branch in
+	err = wt.Checkout(&git.CheckoutOptions{
+		Hash:  hashB,
+		Force: true,
+	})
+	require.NoError(t, err)
+	createMergeCommit(t, repo, dir, hashB, hashD.Hash(), "chore: merge side branch")
+
+	// first-parent walk from HEAD (merge -> B -> A -> root) never encounters v-side (on D)
+	commits, err := GetCommitsSinceTag(repo, "v-side", "HEAD", true)
+	require.NoError(t, err)
+	assert.Empty(t, commits, "first-parent walk must not silently fall through to root")
+}
+
+func TestGetCommitsSinceTagSameRefNoWarning(t *testing.T) {
+	dir, repo := createTestRepo(t)
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	createTag(t, repo, "v1.0.0")
+	addCommit(t, repo, dir, "feat: feature B")
+
+	var commits []*object.Commit
+	var err error
+	stderrOutput := captureStderr(t, func() {
+		commits, err = GetCommitsSinceTag(repo, "v1.0.0", "v1.0.0", false)
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, commits)
+	assert.Empty(t, stderrOutput, "from == to must not print a warning (matches git A..A)")
+}
+
+func TestGetCommitsSinceTagReversedRangeWarnsOnStderr(t *testing.T) {
+	dir, repo := createTestRepo(t)
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	createTag(t, repo, "v1.0.0")
+	addCommit(t, repo, dir, "feat: feature B")
+	createTag(t, repo, "v2.0.0")
+
+	var commits []*object.Commit
+	var err error
+	stderrOutput := captureStderr(t, func() {
+		commits, err = GetCommitsSinceTag(repo, "v2.0.0", "v1.0.0", true)
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, commits)
+	assert.Contains(t, stderrOutput, "warning:")
+	assert.Contains(t, stderrOutput, "v1.0.0")
+	assert.Contains(t, stderrOutput, "v2.0.0")
 }
 
 func TestGetRepositoryNameUnknown(t *testing.T) {
