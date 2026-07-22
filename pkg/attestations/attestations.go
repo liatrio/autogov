@@ -11,9 +11,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,8 +50,20 @@ func (e *SourceRefMismatchError) Error() string {
 // default gha oidc token issuer
 const DefaultCertIssuer = "https://token.actions.githubusercontent.com"
 
-// timeout for fetching attestations from github api
-const attestationFetchTimeout = 2 * time.Minute
+const (
+	// timeout for fetching attestations from github api
+	attestationFetchTimeout = 2 * time.Minute
+
+	attestationFetchAttempts          = 5
+	attestationFetchBaseDelay         = time.Second
+	attestationBundleUnavailableError = "attestation bundle is not yet available"
+)
+
+type attestationRetryConfig struct {
+	attempts  int
+	baseDelay time.Duration
+	wait      func(context.Context, time.Duration) error
+}
 
 // represents a SHA-256 digest of an artifact
 type Digest struct {
@@ -207,12 +222,243 @@ func GetFromGitHub(ctx context.Context, imageRef string, client *github.Client, 
 	}
 
 	// get gh attestations
-	atts, _, err := client.Organizations.ListAttestations(ctx, org, artifactRef.String(), &github.ListOptions{})
+	atts, err := FetchGitHubAttestations(ctx, client, org, artifactRef.String())
 	if err != nil {
-		return nil, fmt.Errorf("failed to list attestations: %w", err)
+		return nil, err
 	}
 
-	return verifyAttestations(ctx, atts.Attestations, artifactRef.String(), trust, opts)
+	return verifyAttestations(ctx, atts, artifactRef.String(), trust, opts)
+}
+
+// FetchGitHubAttestations retrieves the complete, stabilized set of GitHub
+// attestations for subjectDigest, retrying to ride out the propagation race
+// where a just-signed attestation briefly reports a null bundle (see #341).
+// It is the single production entry point for fetching attestations from the
+// GitHub API online — all online call sites (image/blob verification, offline
+// bundle download) must route through it rather than calling
+// client.Organizations.ListAttestations directly, so they share the same
+// retry, null-bundle classification, and full-pagination behavior.
+func FetchGitHubAttestations(ctx context.Context, client *github.Client, org, subjectDigest string) ([]*github.Attestation, error) {
+	return fetchGitHubAttestationsWithRetry(ctx, client, org, subjectDigest, attestationRetryConfig{
+		attempts:  attestationFetchAttempts,
+		baseDelay: attestationFetchBaseDelay,
+		wait:      waitForAttestationRetry,
+	})
+}
+
+func fetchGitHubAttestationsWithRetry(
+	ctx context.Context,
+	client *github.Client,
+	org,
+	subjectDigest string,
+	config attestationRetryConfig,
+) ([]*github.Attestation, error) {
+	if config.attempts <= 0 {
+		return nil, fmt.Errorf("attestation retry attempts must be positive")
+	}
+	if config.baseDelay < 0 {
+		return nil, fmt.Errorf("attestation retry base delay must not be negative")
+	}
+	if config.wait == nil {
+		return nil, fmt.Errorf("attestation retry wait function is required")
+	}
+
+	observedIdentities := make(map[string]struct{})
+	minEvidence := 0
+	lastUnavailableCount := 0
+	lastContinuityPreserved := true
+	lastDistinctCount := 0
+
+	for attempt := 0; attempt < config.attempts; attempt++ {
+		snapshot, err := listAllGitHubAttestations(ctx, client, org, subjectDigest)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list attestations: %w", err)
+		}
+
+		identities, unavailableCount := attestationSnapshotEvidence(snapshot)
+		continuityPreserved := containsAllAttestationIdentities(identities, observedIdentities)
+
+		if unavailableCount > 0 {
+			evidenceCount := len(identities) + unavailableCount
+			if evidenceCount > minEvidence {
+				minEvidence = evidenceCount
+			}
+		}
+
+		for identity := range identities {
+			observedIdentities[identity] = struct{}{}
+		}
+
+		if unavailableCount == 0 &&
+			continuityPreserved &&
+			len(identities) >= minEvidence &&
+			containsAllAttestationIdentities(identities, observedIdentities) {
+			return snapshot, nil
+		}
+
+		lastUnavailableCount = unavailableCount
+		lastContinuityPreserved = continuityPreserved &&
+			containsAllAttestationIdentities(identities, observedIdentities)
+		lastDistinctCount = len(identities)
+
+		if attempt == config.attempts-1 {
+			break
+		}
+
+		delay := config.baseDelay * time.Duration(1<<attempt)
+		if err := config.wait(ctx, delay); err != nil {
+			return nil, err
+		}
+	}
+
+	reason := attestationBundleUnavailableError
+	switch {
+	case lastUnavailableCount > 0:
+		reason = fmt.Sprintf("%d attestation bundle(s) are not yet available", lastUnavailableCount)
+	case !lastContinuityPreserved:
+		reason = "a previously observed attestation is missing"
+	case lastDistinctCount < minEvidence:
+		reason = fmt.Sprintf("snapshot contains %d distinct attestation(s), fewer than the observed minimum of %d", lastDistinctCount, minEvidence)
+	}
+
+	return nil, fmt.Errorf(
+		"attestation list did not stabilize after %d attempts (%s); retry verification shortly",
+		config.attempts,
+		reason,
+	)
+}
+
+// number of records requested per page; larger pages shrink the window during
+// which a subject digest's attestations can straddle a page boundary.
+const attestationListPageSize = 100
+
+// listAllGitHubAttestations retrieves every attestation for subjectDigest.
+//
+// GET /orgs/{org}/attestations/{subject_digest} is cursor-paginated
+// (per_page/before/after), not page-numbered: go-github's typed ListOptions
+// only carries a numeric "page" parameter, which this endpoint silently
+// ignores, so response.NextPage is always 0 against it and a naive caller
+// using ListOptions would treat page 1 as the complete list. Requests are
+// therefore built manually to carry the "after" cursor from the previous
+// response's Link header.
+func listAllGitHubAttestations(
+	ctx context.Context,
+	client *github.Client,
+	org,
+	subjectDigest string,
+) ([]*github.Attestation, error) {
+	cursor := ""
+	seenCursors := make(map[string]struct{})
+	var snapshot []*github.Attestation
+
+	for {
+		query := url.Values{}
+		query.Set("per_page", strconv.Itoa(attestationListPageSize))
+		if cursor != "" {
+			query.Set("after", cursor)
+		}
+		requestURL := fmt.Sprintf("orgs/%s/attestations/%s?%s", org, subjectDigest, query.Encode())
+
+		req, err := client.NewRequest(ctx, http.MethodGet, requestURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build attestation list request: %w", err)
+		}
+
+		var atts *github.AttestationsResponse
+		response, err := client.Do(req, &atts)
+		if err != nil {
+			return nil, err
+		}
+		if atts == nil || response == nil {
+			return nil, fmt.Errorf("GitHub returned an incomplete attestation list response")
+		}
+
+		snapshot = append(snapshot, atts.Attestations...)
+
+		nextCursor := response.After
+		if nextCursor == "" {
+			return snapshot, nil
+		}
+		if _, seen := seenCursors[nextCursor]; seen {
+			// fail closed rather than loop forever on a repeated or
+			// non-advancing cursor (e.g. a server bug or an opaque cursor
+			// that never terminates).
+			return nil, fmt.Errorf(
+				"invalid attestation pagination: cursor %q was already visited",
+				nextCursor,
+			)
+		}
+
+		seenCursors[nextCursor] = struct{}{}
+		cursor = nextCursor
+	}
+}
+
+func attestationSnapshotEvidence(attestations []*github.Attestation) (map[string]struct{}, int) {
+	identities := make(map[string]struct{})
+	unavailableCount := 0
+
+	for _, attestation := range attestations {
+		if isAttestationBundleUnavailable(attestation) {
+			unavailableCount++
+			continue
+		}
+		identities[canonicalAttestationBundleIdentity(attestation.Bundle)] = struct{}{}
+	}
+
+	return identities, unavailableCount
+}
+
+func containsAllAttestationIdentities(candidate, required map[string]struct{}) bool {
+	for identity := range required {
+		if _, ok := candidate[identity]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func canonicalAttestationBundleIdentity(raw json.RawMessage) string {
+	trimmed := bytes.TrimSpace(raw)
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	decoder.UseNumber()
+
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return string(trimmed)
+	}
+
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return string(trimmed)
+	}
+
+	canonical, err := json.Marshal(value)
+	if err != nil {
+		return string(trimmed)
+	}
+	return string(canonical)
+}
+
+func isAttestationBundleUnavailable(attestation *github.Attestation) bool {
+	if attestation == nil {
+		return true
+	}
+
+	bundleData := bytes.TrimSpace(attestation.Bundle)
+	return len(bundleData) == 0 || bytes.Equal(bundleData, []byte("null"))
+}
+
+func waitForAttestationRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // resolveAcceptedIdentities populates opts.AcceptedIdentities from the cert-identity
@@ -449,6 +695,10 @@ type attestationStatement struct {
 // parseAttestationBundle marshals the GitHub attestation bundle, parses it, and
 // extracts the envelope, raw payload, and decoded in-toto statement.
 func parseAttestationBundle(att *github.Attestation) (b *bundle.Bundle, rawPayload string, sigBytes []byte, statement attestationStatement, err error) {
+	if isAttestationBundleUnavailable(att) {
+		return nil, "", nil, statement, errors.New(attestationBundleUnavailableError)
+	}
+
 	// GitHub attestation bundle
 	bundleData, err := att.Bundle.MarshalJSON()
 	if err != nil {
@@ -689,10 +939,10 @@ func handleBlobVerification(ctx context.Context, artifactRef *Digest, org string
 	}
 
 	// get gh attestations
-	atts, _, err := client.Organizations.ListAttestations(ctx, org, artifactRef.String(), &github.ListOptions{})
+	atts, err := FetchGitHubAttestations(ctx, client, org, artifactRef.String())
 	if err != nil {
-		return nil, fmt.Errorf("failed to list attestations: %w", err)
+		return nil, err
 	}
 
-	return verifyAttestations(ctx, atts.Attestations, opts.BlobPath, trust, opts)
+	return verifyAttestations(ctx, atts, opts.BlobPath, trust, opts)
 }

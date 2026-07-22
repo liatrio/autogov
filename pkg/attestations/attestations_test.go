@@ -3,10 +3,16 @@ package attestations
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/go-github/v89/github"
 	"github.com/liatrio/autogov/pkg/certid"
@@ -37,6 +43,76 @@ const (
 	errMsgOrgRequired         = "github organization name is required"
 	errMsgArtifactRefRequired = "artifact reference is required"
 )
+
+func newAttestationTestClient(t *testing.T, handler http.HandlerFunc) *github.Client {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	baseURL := server.URL + "/"
+	return mustClient(
+		t,
+		github.WithHTTPClient(server.Client()),
+		github.WithURLs(&baseURL, nil),
+	)
+}
+
+// assertAttestationRequest asserts a request against the real API's contract:
+// GET /orgs/{org}/attestations/{subject_digest} paginated via per_page/after
+// (cursor), not page=N. expectedAfter is "" for the first request of a
+// listing (no cursor yet).
+func assertAttestationRequest(t *testing.T, request *http.Request, expectedAfter string) {
+	t.Helper()
+	if request.Method != http.MethodGet {
+		t.Errorf("request method = %s, want %s", request.Method, http.MethodGet)
+	}
+	wantPath := "/orgs/test-org/attestations/" + validTestDigest
+	if request.URL.Path != wantPath {
+		t.Errorf("request path = %s, want %s", request.URL.Path, wantPath)
+	}
+	if got := request.URL.Query().Get("per_page"); got != "100" {
+		t.Errorf("request per_page = %q, want 100", got)
+	}
+	if got := request.URL.Query().Get("after"); got != expectedAfter {
+		t.Errorf("request after = %q, want %q", got, expectedAfter)
+	}
+}
+
+// writeAttestationPage writes an attestation-list response. nextCursor, when
+// non-empty, is emitted as a real cursor-style `rel="next"` Link header
+// (after=<cursor>) — the shape the live API actually returns, never a
+// `page=N` link.
+func writeAttestationPage(
+	t *testing.T,
+	w http.ResponseWriter,
+	request *http.Request,
+	attestations []*github.Attestation,
+	nextCursor string,
+) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	if nextCursor != "" {
+		nextURL := fmt.Sprintf("http://%s%s?per_page=100&after=%s", request.Host, request.URL.Path, nextCursor)
+		w.Header().Set("Link", fmt.Sprintf("<%s>; rel=\"next\"", nextURL))
+	}
+	if err := json.NewEncoder(w).Encode(github.AttestationsResponse{Attestations: attestations}); err != nil {
+		t.Errorf("encode attestation page: %v", err)
+	}
+}
+
+func testAttestation(bundleData string) *github.Attestation {
+	return &github.Attestation{Bundle: json.RawMessage(bundleData)}
+}
+
+func instantRetryConfig(attempts int, waited *[]time.Duration) attestationRetryConfig {
+	return attestationRetryConfig{
+		attempts:  attempts,
+		baseDelay: time.Millisecond,
+		wait: func(_ context.Context, delay time.Duration) error {
+			*waited = append(*waited, delay)
+			return nil
+		},
+	}
+}
 
 func getGitHubToken(t *testing.T) string {
 	// check for gh tokens
@@ -1000,5 +1076,744 @@ func TestVerifyAttestationWithNonexistentTrustedRoot(t *testing.T) {
 	_, err := verifyAttestation(att, blobPath, "/nonexistent/path/root.json", 0, opts)
 	if err == nil {
 		t.Error("verifyAttestation() with nonexistent trusted root expected error")
+	}
+}
+
+func TestFetchGitHubAttestationsRetriesUnavailableBundle(t *testing.T) {
+	var calls atomic.Int32
+	available := testAttestation(`{"bundle":"available"}`)
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		assertAttestationRequest(t, request, "")
+		if calls.Add(1) == 1 {
+			writeAttestationPage(t, w, request, []*github.Attestation{{Bundle: nil}}, "")
+			return
+		}
+		writeAttestationPage(t, w, request, []*github.Attestation{available}, "")
+	})
+
+	var waited []time.Duration
+	got, err := fetchGitHubAttestationsWithRetry(
+		context.Background(),
+		client,
+		"test-org",
+		validTestDigest,
+		instantRetryConfig(5, &waited),
+	)
+	if err != nil {
+		t.Fatalf("fetchGitHubAttestationsWithRetry() error = %v", err)
+	}
+	if calls.Load() != 2 {
+		t.Errorf("request count = %d, want 2", calls.Load())
+	}
+	if len(waited) != 1 || waited[0] != time.Millisecond {
+		t.Errorf("retry delays = %v, want [1ms]", waited)
+	}
+	if len(got) != 1 || string(got[0].Bundle) != string(available.Bundle) {
+		t.Errorf("returned attestations = %#v, want complete second snapshot", got)
+	}
+}
+
+func TestFetchGitHubAttestationsExhaustsBoundedRetries(t *testing.T) {
+	var calls atomic.Int32
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		assertAttestationRequest(t, request, "")
+		calls.Add(1)
+		writeAttestationPage(t, w, request, []*github.Attestation{nil}, "")
+	})
+
+	var waited []time.Duration
+	_, err := fetchGitHubAttestationsWithRetry(
+		context.Background(),
+		client,
+		"test-org",
+		validTestDigest,
+		instantRetryConfig(attestationFetchAttempts, &waited),
+	)
+	if err == nil {
+		t.Fatal("fetchGitHubAttestationsWithRetry() error = nil, want bounded exhaustion")
+	}
+	if calls.Load() != attestationFetchAttempts {
+		t.Errorf("request count = %d, want %d", calls.Load(), attestationFetchAttempts)
+	}
+	wantDelays := []time.Duration{
+		time.Millisecond,
+		2 * time.Millisecond,
+		4 * time.Millisecond,
+		8 * time.Millisecond,
+	}
+	if len(waited) != len(wantDelays) {
+		t.Fatalf("retry delays = %v, want %v", waited, wantDelays)
+	}
+	for index := range wantDelays {
+		if waited[index] != wantDelays[index] {
+			t.Errorf("retry delay %d = %v, want %v", index, waited[index], wantDelays[index])
+		}
+	}
+	if !strings.Contains(err.Error(), "attestation list did not stabilize after 5 attempts") ||
+		!strings.Contains(err.Error(), "not yet available") ||
+		!strings.Contains(err.Error(), "retry verification shortly") {
+		t.Errorf("exhaustion error = %v, want stable actionable guidance", err)
+	}
+}
+
+func TestFetchGitHubAttestationsCancellationDuringWait(t *testing.T) {
+	var calls atomic.Int32
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		assertAttestationRequest(t, request, "")
+		calls.Add(1)
+		writeAttestationPage(t, w, request, []*github.Attestation{{Bundle: nil}}, "")
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	waitEntered := make(chan struct{})
+	config := attestationRetryConfig{
+		attempts:  5,
+		baseDelay: time.Hour,
+		wait: func(waitCtx context.Context, _ time.Duration) error {
+			close(waitEntered)
+			cancel()
+			<-waitCtx.Done()
+			return waitCtx.Err()
+		},
+	}
+
+	_, err := fetchGitHubAttestationsWithRetry(ctx, client, "test-org", validTestDigest, config)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("fetchGitHubAttestationsWithRetry() error = %v, want context canceled", err)
+	}
+	select {
+	case <-waitEntered:
+	default:
+		t.Fatal("retry waiter was not entered")
+	}
+	if calls.Load() != 1 {
+		t.Errorf("request count = %d, want 1", calls.Load())
+	}
+}
+
+func TestWaitForAttestationRetryCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- waitForAttestationRetry(ctx, time.Minute)
+	}()
+
+	watchdog := time.NewTimer(5 * time.Second)
+	defer watchdog.Stop()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("waitForAttestationRetry() error = %v, want context canceled", err)
+		}
+	case <-watchdog.C:
+		t.Fatal("waitForAttestationRetry() did not stop after context cancellation")
+	}
+}
+
+func TestFetchGitHubAttestationsDoesNotRetryAPIError(t *testing.T) {
+	var calls atomic.Int32
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		assertAttestationRequest(t, request, "")
+		calls.Add(1)
+		http.Error(w, "temporary server failure", http.StatusInternalServerError)
+	})
+
+	var waited []time.Duration
+	_, err := fetchGitHubAttestationsWithRetry(
+		context.Background(),
+		client,
+		"test-org",
+		validTestDigest,
+		instantRetryConfig(5, &waited),
+	)
+	if err == nil || !strings.Contains(err.Error(), "failed to list attestations") {
+		t.Fatalf("fetchGitHubAttestationsWithRetry() error = %v, want list error", err)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("request count = %d, want 1", calls.Load())
+	}
+	if len(waited) != 0 {
+		t.Errorf("retry delays = %v, want none", waited)
+	}
+}
+
+func TestFetchGitHubAttestationsDoesNotRetryLaterPageAPIError(t *testing.T) {
+	var calls atomic.Int32
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		call := calls.Add(1)
+		if call == 1 {
+			assertAttestationRequest(t, request, "")
+			writeAttestationPage(t, w, request, []*github.Attestation{testAttestation(`{"id":"first"}`)}, "c1")
+			return
+		}
+		assertAttestationRequest(t, request, "c1")
+		http.Error(w, "later page failure", http.StatusBadGateway)
+	})
+
+	var waited []time.Duration
+	_, err := fetchGitHubAttestationsWithRetry(
+		context.Background(),
+		client,
+		"test-org",
+		validTestDigest,
+		instantRetryConfig(5, &waited),
+	)
+	if err == nil || !strings.Contains(err.Error(), "failed to list attestations") {
+		t.Fatalf("fetchGitHubAttestationsWithRetry() error = %v, want list error", err)
+	}
+	if calls.Load() != 2 {
+		t.Errorf("request count = %d, want 2", calls.Load())
+	}
+	if len(waited) != 0 {
+		t.Errorf("retry delays = %v, want none", waited)
+	}
+}
+
+func TestFetchGitHubAttestationsReturnsMalformedNonNullWithoutRetry(t *testing.T) {
+	var calls atomic.Int32
+	malformed := testAttestation(`"invalid json"`)
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		assertAttestationRequest(t, request, "")
+		calls.Add(1)
+		writeAttestationPage(t, w, request, []*github.Attestation{malformed}, "")
+	})
+
+	var waited []time.Duration
+	got, err := fetchGitHubAttestationsWithRetry(
+		context.Background(),
+		client,
+		"test-org",
+		validTestDigest,
+		instantRetryConfig(5, &waited),
+	)
+	if err != nil {
+		t.Fatalf("fetchGitHubAttestationsWithRetry() error = %v", err)
+	}
+	if calls.Load() != 1 || len(waited) != 0 {
+		t.Errorf("requests = %d, waits = %v; want one request and no retry", calls.Load(), waited)
+	}
+	_, _, _, _, err = parseAttestationBundle(got[0])
+	if err == nil || !strings.Contains(err.Error(), "failed to unmarshal bundle") {
+		t.Errorf("parseAttestationBundle() error = %v, want existing parse failure", err)
+	}
+}
+
+func TestFetchGitHubAttestationsRetriesWholePaginatedSnapshot(t *testing.T) {
+	var calls atomic.Int32
+	first := testAttestation(`{"id":"first"}`)
+	second := testAttestation(`{"id":"second"}`)
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		call := int(calls.Add(1))
+		wantAfter := ""
+		if call%2 == 0 {
+			wantAfter = "c1"
+		}
+		assertAttestationRequest(t, request, wantAfter)
+
+		switch call {
+		case 1, 3:
+			writeAttestationPage(t, w, request, []*github.Attestation{first}, "c1")
+		case 2:
+			writeAttestationPage(t, w, request, []*github.Attestation{{Bundle: nil}}, "")
+		case 4:
+			writeAttestationPage(t, w, request, []*github.Attestation{second}, "")
+		default:
+			t.Errorf("unexpected request %d", call)
+		}
+	})
+
+	var waited []time.Duration
+	got, err := fetchGitHubAttestationsWithRetry(
+		context.Background(),
+		client,
+		"test-org",
+		validTestDigest,
+		instantRetryConfig(5, &waited),
+	)
+	if err != nil {
+		t.Fatalf("fetchGitHubAttestationsWithRetry() error = %v", err)
+	}
+	if calls.Load() != 4 || len(waited) != 1 {
+		t.Errorf("requests = %d, waits = %v; want four requests and one wait", calls.Load(), waited)
+	}
+	if len(got) != 2 || string(got[0].Bundle) != string(first.Bundle) || string(got[1].Bundle) != string(second.Bundle) {
+		t.Errorf("returned snapshot = %#v, want complete second two-page snapshot", got)
+	}
+}
+
+func TestFetchGitHubAttestationsDeduplicatesAvailableOverlapForContinuity(t *testing.T) {
+	var calls atomic.Int32
+	first := testAttestation(`{"id":"first"}`)
+	second := testAttestation(`{"id":"second"}`)
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		call := int(calls.Add(1))
+		wantAfter := ""
+		if call%2 == 0 {
+			wantAfter = "c1"
+		}
+		assertAttestationRequest(t, request, wantAfter)
+
+		switch call {
+		case 1, 3:
+			writeAttestationPage(t, w, request, []*github.Attestation{first}, "c1")
+		case 2:
+			writeAttestationPage(t, w, request, []*github.Attestation{first, {Bundle: nil}}, "")
+		case 4:
+			writeAttestationPage(t, w, request, []*github.Attestation{second}, "")
+		default:
+			t.Errorf("unexpected request %d", call)
+		}
+	})
+
+	var waited []time.Duration
+	got, err := fetchGitHubAttestationsWithRetry(
+		context.Background(),
+		client,
+		"test-org",
+		validTestDigest,
+		instantRetryConfig(3, &waited),
+	)
+	if err != nil {
+		t.Fatalf("fetchGitHubAttestationsWithRetry() error = %v", err)
+	}
+	if calls.Load() != 4 || len(waited) != 1 {
+		t.Errorf("requests = %d, waits = %v; want four requests and one wait", calls.Load(), waited)
+	}
+	// assert actual bundle identity, not just count: a regression that returns
+	// a stale/wrong two-record snapshot (e.g. [first, first] from the
+	// unresolved first attempt) must not pass this test.
+	if len(got) != 2 || string(got[0].Bundle) != string(first.Bundle) || string(got[1].Bundle) != string(second.Bundle) {
+		t.Errorf("returned attestations = %#v, want deduplicated two-identity snapshot [first, second]", got)
+	}
+}
+
+func TestFetchGitHubAttestationsRetriesLostDistinctIdentity(t *testing.T) {
+	var calls atomic.Int32
+	first := testAttestation(`{"id":"first"}`)
+	second := testAttestation(`{"id":"second"}`)
+	third := testAttestation(`{"id":"third"}`)
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		assertAttestationRequest(t, request, "")
+		switch calls.Add(1) {
+		case 1:
+			writeAttestationPage(t, w, request, []*github.Attestation{first, second, {Bundle: nil}}, "")
+		case 2:
+			writeAttestationPage(t, w, request, []*github.Attestation{first, third, third}, "")
+		case 3:
+			writeAttestationPage(t, w, request, []*github.Attestation{first, second, third}, "")
+		default:
+			t.Error("unexpected request")
+		}
+	})
+
+	var waited []time.Duration
+	got, err := fetchGitHubAttestationsWithRetry(
+		context.Background(),
+		client,
+		"test-org",
+		validTestDigest,
+		instantRetryConfig(3, &waited),
+	)
+	if err != nil {
+		t.Fatalf("fetchGitHubAttestationsWithRetry() error = %v", err)
+	}
+	if calls.Load() != 3 || len(waited) != 2 {
+		t.Errorf("requests = %d, waits = %v; want three requests and two waits", calls.Load(), waited)
+	}
+	// assert actual bundle identity, not just count: a regression that returns
+	// a stale snapshot (e.g. attempt 2's [first, third, third]) with the same
+	// record count must not pass this test.
+	want := []*github.Attestation{first, second, third}
+	if len(got) != len(want) {
+		t.Fatalf("returned attestation count = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if string(got[i].Bundle) != string(want[i].Bundle) {
+			t.Errorf("returned attestations[%d] = %s, want %s", i, got[i].Bundle, want[i].Bundle)
+		}
+	}
+}
+
+func TestFetchGitHubAttestationsCanonicalizesIdentity(t *testing.T) {
+	var calls atomic.Int32
+	firstEncoding := testAttestation(`{"a":1,"b":{"c":2}}`)
+	secondEncoding := testAttestation(` { "b": { "c": 2 }, "a": 1 } `)
+	firstEncoding.RepositoryID = 1
+	secondEncoding.RepositoryID = 2
+	replacement := testAttestation(`{"id":"replacement"}`)
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		assertAttestationRequest(t, request, "")
+		if calls.Add(1) == 1 {
+			writeAttestationPage(t, w, request, []*github.Attestation{firstEncoding, {Bundle: nil}}, "")
+			return
+		}
+		writeAttestationPage(t, w, request, []*github.Attestation{secondEncoding, replacement}, "")
+	})
+
+	var waited []time.Duration
+	got, err := fetchGitHubAttestationsWithRetry(
+		context.Background(),
+		client,
+		"test-org",
+		validTestDigest,
+		instantRetryConfig(3, &waited),
+	)
+	if err != nil {
+		t.Fatalf("fetchGitHubAttestationsWithRetry() error = %v", err)
+	}
+	if calls.Load() != 2 || len(waited) != 1 {
+		t.Errorf("requests = %d, waits = %v; want two requests and one wait", calls.Load(), waited)
+	}
+	if len(got) != 2 || got[0].RepositoryID != secondEncoding.RepositoryID {
+		t.Errorf("returned snapshot did not preserve the complete response encoding: %#v", got)
+	}
+}
+
+func TestFetchGitHubAttestationsRejectsOneResolutionForTwoUnavailableRecords(t *testing.T) {
+	var calls atomic.Int32
+	resolved := testAttestation(`{"id":"resolved"}`)
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		assertAttestationRequest(t, request, "")
+		if calls.Add(1) == 1 {
+			writeAttestationPage(t, w, request, []*github.Attestation{{Bundle: nil}, {Bundle: json.RawMessage(`null`)}}, "")
+			return
+		}
+		writeAttestationPage(t, w, request, []*github.Attestation{resolved}, "")
+	})
+
+	var waited []time.Duration
+	_, err := fetchGitHubAttestationsWithRetry(
+		context.Background(),
+		client,
+		"test-org",
+		validTestDigest,
+		instantRetryConfig(2, &waited),
+	)
+	if err == nil {
+		t.Fatal("fetchGitHubAttestationsWithRetry() error = nil, want incomplete resolution rejection")
+	}
+	if calls.Load() != 2 || len(waited) != 1 {
+		t.Errorf("requests = %d, waits = %v; want two requests and one wait", calls.Load(), waited)
+	}
+	if !strings.Contains(err.Error(), "observed minimum of 2") {
+		t.Errorf("error = %v, want two-record evidence lower bound", err)
+	}
+}
+
+func TestFetchGitHubAttestationsEventuallyResolvesTwoUnavailableRecords(t *testing.T) {
+	var calls atomic.Int32
+	first := testAttestation(`{"id":"first"}`)
+	second := testAttestation(`{"id":"second"}`)
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		assertAttestationRequest(t, request, "")
+		switch calls.Add(1) {
+		case 1:
+			writeAttestationPage(t, w, request, []*github.Attestation{{Bundle: nil}, {Bundle: json.RawMessage(` null `)}}, "")
+		case 2:
+			writeAttestationPage(t, w, request, []*github.Attestation{first}, "")
+		case 3:
+			writeAttestationPage(t, w, request, []*github.Attestation{first, second}, "")
+		default:
+			t.Error("unexpected request")
+		}
+	})
+
+	var waited []time.Duration
+	got, err := fetchGitHubAttestationsWithRetry(
+		context.Background(),
+		client,
+		"test-org",
+		validTestDigest,
+		instantRetryConfig(3, &waited),
+	)
+	if err != nil {
+		t.Fatalf("fetchGitHubAttestationsWithRetry() error = %v", err)
+	}
+	if calls.Load() != 3 || len(waited) != 2 {
+		t.Errorf("requests = %d, waits = %v; want three requests and two waits", calls.Load(), waited)
+	}
+	// assert actual bundle identity, not just count: a regression that returns
+	// a stale one-record snapshot padded to the right length must not pass.
+	want := []*github.Attestation{first, second}
+	if len(got) != len(want) {
+		t.Fatalf("returned attestation count = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if string(got[i].Bundle) != string(want[i].Bundle) {
+			t.Errorf("returned attestations[%d] = %s, want %s", i, got[i].Bundle, want[i].Bundle)
+		}
+	}
+}
+
+func TestListAllGitHubAttestationsRejectsRepeatedOrCyclicCursor(t *testing.T) {
+	// the real endpoint's "after" cursor is an opaque token: it need not be
+	// numeric or contiguous. the only invariant listAllGitHubAttestations can
+	// enforce is "don't revisit a cursor already seen" (fail closed instead of
+	// looping forever on a repeated or non-advancing cursor).
+	tests := []struct {
+		name          string
+		nextCursors   map[string]string // current cursor ("" = first request) -> next cursor
+		wantCalls     int32
+		wantErrorText string
+	}{
+		{
+			name:          "repeated current cursor",
+			nextCursors:   map[string]string{"": "same", "same": "same"},
+			wantCalls:     2,
+			wantErrorText: `cursor "same" was already visited`,
+		},
+		{
+			name:          "cycle to visited cursor",
+			nextCursors:   map[string]string{"": "a", "a": "b", "b": "a"},
+			wantCalls:     3,
+			wantErrorText: `cursor "a" was already visited`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var calls atomic.Int32
+			client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+				cursor := request.URL.Query().Get("after")
+				calls.Add(1)
+				writeAttestationPage(t, w, request, []*github.Attestation{testAttestation(`{"id":"page"}`)}, test.nextCursors[cursor])
+			})
+
+			_, err := listAllGitHubAttestations(context.Background(), client, "test-org", validTestDigest)
+			if err == nil || !strings.Contains(err.Error(), test.wantErrorText) {
+				t.Errorf("listAllGitHubAttestations() error = %v, want %q", err, test.wantErrorText)
+			}
+			if calls.Load() != test.wantCalls {
+				t.Errorf("request count = %d, want %d", calls.Load(), test.wantCalls)
+			}
+		})
+	}
+}
+
+func TestUnavailableAttestationBundleClassificationAndParsing(t *testing.T) {
+	tests := []struct {
+		name        string
+		attestation *github.Attestation
+		unavailable bool
+	}{
+		{name: "nil attestation", attestation: nil, unavailable: true},
+		{name: "nil bundle", attestation: &github.Attestation{Bundle: nil}, unavailable: true},
+		{name: "empty bundle", attestation: testAttestation(""), unavailable: true},
+		{name: "whitespace bundle", attestation: testAttestation(" \n\t "), unavailable: true},
+		{name: "literal null", attestation: testAttestation("null"), unavailable: true},
+		{name: "whitespace null", attestation: testAttestation(" \n null\t"), unavailable: true},
+		{name: "non-null object", attestation: testAttestation(`{}`), unavailable: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isAttestationBundleUnavailable(test.attestation); got != test.unavailable {
+				t.Errorf("isAttestationBundleUnavailable() = %t, want %t", got, test.unavailable)
+			}
+			if !test.unavailable {
+				return
+			}
+
+			_, _, _, _, err := parseAttestationBundle(test.attestation)
+			if err == nil || err.Error() != attestationBundleUnavailableError {
+				t.Errorf("parseAttestationBundle() error = %v, want %q", err, attestationBundleUnavailableError)
+			}
+		})
+	}
+}
+
+func TestCanonicalAttestationBundleIdentity(t *testing.T) {
+	first := json.RawMessage(`{"a":1,"b":{"c":2}}`)
+	reordered := json.RawMessage("  { \"b\": { \"c\": 2 }, \"a\": 1 }\n")
+	if got, want := canonicalAttestationBundleIdentity(first), canonicalAttestationBundleIdentity(reordered); got != want {
+		t.Errorf("canonical identities differ: %q != %q", got, want)
+	}
+
+	if got := canonicalAttestationBundleIdentity(json.RawMessage("  invalid json \n")); got != "invalid json" {
+		t.Errorf("malformed fallback identity = %q, want trimmed raw data", got)
+	}
+	if got := canonicalAttestationBundleIdentity(json.RawMessage(`{"a":1} {"b":2}`)); got != `{"a":1} {"b":2}` {
+		t.Errorf("trailing JSON fallback identity = %q, want trimmed raw data", got)
+	}
+}
+
+func TestAttestationSnapshotEvidenceCountsUnavailableRecordsIndividually(t *testing.T) {
+	duplicate := testAttestation(`{"id":"duplicate"}`)
+	identities, unavailableCount := attestationSnapshotEvidence([]*github.Attestation{
+		duplicate,
+		duplicate,
+		nil,
+		{Bundle: nil},
+		{Bundle: json.RawMessage(` null `)},
+	})
+	if len(identities) != 1 {
+		t.Errorf("distinct available identities = %d, want 1", len(identities))
+	}
+	if unavailableCount != 3 {
+		t.Errorf("unavailable record count = %d, want 3", unavailableCount)
+	}
+}
+
+func TestFetchGitHubAttestationsRejectsInvalidRetryConfig(t *testing.T) {
+	tests := []struct {
+		name          string
+		config        attestationRetryConfig
+		wantErrorText string
+	}{
+		{
+			name:          "no attempts",
+			config:        attestationRetryConfig{attempts: 0, wait: waitForAttestationRetry},
+			wantErrorText: "attempts must be positive",
+		},
+		{
+			name:          "negative delay",
+			config:        attestationRetryConfig{attempts: 1, baseDelay: -time.Second, wait: waitForAttestationRetry},
+			wantErrorText: "base delay must not be negative",
+		},
+		{
+			name:          "missing waiter",
+			config:        attestationRetryConfig{attempts: 1},
+			wantErrorText: "wait function is required",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := fetchGitHubAttestationsWithRetry(
+				context.Background(),
+				mustClient(t),
+				"test-org",
+				validTestDigest,
+				test.config,
+			)
+			if err == nil || !strings.Contains(err.Error(), test.wantErrorText) {
+				t.Errorf("fetchGitHubAttestationsWithRetry() error = %v, want %q", err, test.wantErrorText)
+			}
+		})
+	}
+}
+
+// TestFetchGitHubAttestationsEmptyListReturnsImmediately pins today's
+// intended behavior for a zero-record response (e.g. a digest with no
+// attestations at all): one request, no retry, an empty result. An empty list
+// carries no unavailable-bundle evidence, so it must not be treated like a
+// propagation-race retry case.
+func TestFetchGitHubAttestationsEmptyListReturnsImmediately(t *testing.T) {
+	var calls atomic.Int32
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		assertAttestationRequest(t, request, "")
+		calls.Add(1)
+		writeAttestationPage(t, w, request, []*github.Attestation{}, "")
+	})
+
+	var waited []time.Duration
+	got, err := fetchGitHubAttestationsWithRetry(
+		context.Background(),
+		client,
+		"test-org",
+		validTestDigest,
+		instantRetryConfig(5, &waited),
+	)
+	if err != nil {
+		t.Fatalf("fetchGitHubAttestationsWithRetry() error = %v", err)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("request count = %d, want 1 (empty list is not retried)", calls.Load())
+	}
+	if len(waited) != 0 {
+		t.Errorf("retry delays = %v, want none", waited)
+	}
+	if len(got) != 0 {
+		t.Errorf("returned attestations = %#v, want empty result", got)
+	}
+}
+
+// TestFetchGitHubAttestationsContinuityExhaustionNeverRecovers pins that an
+// identity lost on attempt 1 and never recovered across all remaining
+// attempts errors via the "previously observed attestation is missing" path,
+// rather than silently returning the smaller, incomplete snapshot.
+func TestFetchGitHubAttestationsContinuityExhaustionNeverRecovers(t *testing.T) {
+	var calls atomic.Int32
+	first := testAttestation(`{"id":"first"}`)
+	second := testAttestation(`{"id":"second"}`)
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		assertAttestationRequest(t, request, "")
+		if calls.Add(1) == 1 {
+			// attempt 1: "second" is observed (evidence recorded) alongside an
+			// unavailable record, forcing a retry.
+			writeAttestationPage(t, w, request, []*github.Attestation{first, second, {Bundle: nil}}, "")
+			return
+		}
+		// every subsequent attempt: "second" never reappears.
+		writeAttestationPage(t, w, request, []*github.Attestation{first}, "")
+	})
+
+	var waited []time.Duration
+	_, err := fetchGitHubAttestationsWithRetry(
+		context.Background(),
+		client,
+		"test-org",
+		validTestDigest,
+		instantRetryConfig(5, &waited),
+	)
+	if err == nil {
+		t.Fatal("fetchGitHubAttestationsWithRetry() error = nil, want continuity-exhaustion rejection")
+	}
+	if calls.Load() != 5 || len(waited) != 4 {
+		t.Errorf("requests = %d, waits = %v; want five requests and four waits", calls.Load(), waited)
+	}
+	if !strings.Contains(err.Error(), "previously observed attestation is missing") {
+		t.Errorf("error = %v, want continuity-loss guidance", err)
+	}
+}
+
+// TestHandleBlobVerificationExercisesProductionRetryWrapper exercises
+// handleBlobVerification's fetch path — the actual production wrapper
+// (attempts=5, baseDelay=1s, the real waiter), not a fast test-only retry
+// config — against an httptest mock, pinning that a null-bundle-then-available
+// sequence really does produce two requests. Neither TestGetFromGitHub nor
+// TestHandleBlobVerification exercises this: both require a live GitHub token
+// and skip (or fail before reaching fetch) without one, so a regression that
+// reverted a call site to a bare, un-retried client.Organizations.ListAttestations
+// call, or broke the wrapper's attempts/baseDelay wiring, would pass the whole
+// suite today.
+func TestHandleBlobVerificationExercisesProductionRetryWrapper(t *testing.T) {
+	var calls atomic.Int32
+	available := testAttestation(`{"bundle":"available"}`)
+	client := newAttestationTestClient(t, func(w http.ResponseWriter, request *http.Request) {
+		if calls.Add(1) == 1 {
+			writeAttestationPage(t, w, request, []*github.Attestation{{Bundle: nil}}, "")
+			return
+		}
+		writeAttestationPage(t, w, request, []*github.Attestation{available}, "")
+	})
+
+	tmpDir := t.TempDir()
+	blobPath := filepath.Join(tmpDir, testFileName)
+	if err := os.WriteFile(blobPath, []byte(testFileData), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	artifactRef := &Digest{value: validTestDigest}
+	opts := Options{
+		CertIdentity: verifyCertIdentity,
+		CertIssuer:   testCertIssuer,
+		BlobPath:     blobPath,
+		Quiet:        true,
+	}
+
+	// the embedded trusted-root fallback works offline (per TestVerifyAttestation),
+	// so this reaches the real fetch wrapper without a live token. the mock's
+	// "available" bundle is not a real Sigstore bundle, so downstream
+	// verification is expected to fail — this test only pins that the
+	// production wrapper is reached and actually retries.
+	_, err := handleBlobVerification(context.Background(), artifactRef, "test-org", client, opts, t.TempDir())
+	if err == nil {
+		t.Fatal("handleBlobVerification() error = nil, want downstream verification error for a fake bundle")
+	}
+	if calls.Load() != 2 {
+		t.Errorf("request count = %d, want 2 (null-bundle retry then available)", calls.Load())
 	}
 }
