@@ -46,7 +46,9 @@
             "url": { "type": "string", "maxLength": 512 },
             "author": { "type": "string", "maxLength": 512 },
             "mergedAt": { "type": "string", "maxLength": 64 },
-            "mergeCommitSha": { "type": "string", "maxLength": 64 }
+            "mergeCommitSha": { "type": "string", "maxLength": 64 },
+            "mergedBy": { "type": "string", "maxLength": 512 },
+            "mergedById": { "type": "integer", "minimum": 0 }
           },
           "required": ["number"]
         },
