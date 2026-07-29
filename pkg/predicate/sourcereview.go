@@ -62,10 +62,16 @@ type SourceReviewPR struct {
 	Author         string `json:"author,omitempty"`
 	MergedAt       string `json:"mergedAt,omitempty"`
 	MergeCommitSha string `json:"mergeCommitSha,omitempty"`
-	// MergedBy / MergedByID are best-effort, evidence-only: the login and numeric
-	// id of whoever merged the PR. Captured via a supplemental single-PR GET because
-	// ListPullRequestsWithCommit does NOT populate merged_by. Never a gate input;
-	// left empty/0 when the supplemental GET fails or returns no merger.
+	// MergedBy / MergedByID are best-effort: the login and numeric id of whoever
+	// merged the PR. Captured via a supplemental single-PR GET because
+	// ListPullRequestsWithCommit does NOT populate merged_by; left empty/0 when
+	// that GET fails or returns no merger, with no signal to distinguish a
+	// transient fetch failure from a genuinely absent merger. Evidence-only for
+	// every other purpose, but MergedByID IS a gate input for one path
+	// specifically: autogov-policy-library's source_review policy denies a
+	// min_approvals:0 payload whose MergedByID is absent/0 or not on its
+	// zero_approval_merger_allowlist, so an ambiguous fetch failure fails closed
+	// there (an accepted risk, not a bug) rather than silently passing.
 	MergedBy   string `json:"mergedBy,omitempty"`
 	MergedByID int64  `json:"mergedById,omitempty"`
 }
