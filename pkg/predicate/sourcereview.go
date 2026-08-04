@@ -61,13 +61,20 @@ const (
 // earlier, on both autogov and autogov-policy-library, via both a UI-adjacent
 // and an API-driven merge, then succeeds cleanly if repeated seconds later.
 // Not a permissions or code issue -- the same call against the same PR simply
-// needs a short wait. vars (not consts) so tests can shrink them and exercise
-// the retry path without real sleeps. Exponential: attempt N waits
-// baseDelay*2^(N-1) (1s, 2s, 4s with the defaults -- ~7s worst case), mirroring
-// pkg/attestations.attestationFetchAttempts/attestationFetchBaseDelay's shape
-// for the same class of GitHub-propagation race (#341).
+// needs to wait. vars (not consts) so tests can shrink them and exercise the
+// retry path without real sleeps. Exponential: attempt N waits
+// baseDelay*2^(N-1). A first attempt at 4 (1s,2s,4s -- ~7s worst case,
+// mirroring pkg/attestations.attestationFetchAttempts/attestationFetchBaseDelay's
+// shape for the same class of GitHub-propagation race, #341) was NOT enough:
+// confirmed live (2026-08-04) that a real CI attest-blob run, using the
+// workflow's default github.token, still returned merged_by:null after ~7s of
+// retrying on top of ~1 minute already elapsed since the merge (a personal
+// OAuth token resolved the same PR minutes later, but that alone doesn't rule
+// out github.token simply needing longer, rather than a token-scope gap).
+// Raised to 8 attempts (1s,2s,4s,8s,16s,32s,64s -- ~127s worst case) to
+// tolerate a much longer delay before concluding it is a token issue instead.
 var (
-	mergedByFetchAttempts  = 4
+	mergedByFetchAttempts  = 8
 	mergedByFetchBaseDelay = time.Second
 )
 
@@ -381,13 +388,24 @@ func NewSourceReview(ctx context.Context, svc ReviewService, opts SourceReviewOp
 	// persistently nil merger after retries, or a cancelled context all fall
 	// through with nothing recorded and ReviewToolingComplete untouched — never
 	// fails the attestation, exactly like fetchTechnicalControls/fetchReviewControls.
+	//
+	// Retries specifically on (a) an error, or (b) a successfully-returned PR
+	// object whose merger isn't populated yet -- both plausibly transient. It
+	// does NOT retry a nil PR object returned alongside a nil error: go-github
+	// never actually returns that shape (a successful REST call always decodes
+	// to a real struct), so treating it as "might resolve on retry" would just
+	// burn the full budget on every call that hits this branch for a reason
+	// unrelated to propagation -- give up immediately instead.
 	var mergedBy *gh.User
 	for attempt := 0; attempt < mergedByFetchAttempts; attempt++ {
 		full, resp, err := svc.GetPullRequest(ctx, opts.Owner, opts.Repo, selected.GetNumber())
 		if resp != nil {
 			_ = resp.Body.Close()
 		}
-		if err == nil && full != nil {
+		if err == nil {
+			if full == nil {
+				break
+			}
 			if mb := full.GetMergedBy(); mb != nil {
 				mergedBy = mb
 				break
