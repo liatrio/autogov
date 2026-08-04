@@ -388,13 +388,24 @@ func NewSourceReview(ctx context.Context, svc ReviewService, opts SourceReviewOp
 	// persistently nil merger after retries, or a cancelled context all fall
 	// through with nothing recorded and ReviewToolingComplete untouched — never
 	// fails the attestation, exactly like fetchTechnicalControls/fetchReviewControls.
+	//
+	// Retries specifically on (a) an error, or (b) a successfully-returned PR
+	// object whose merger isn't populated yet -- both plausibly transient. It
+	// does NOT retry a nil PR object returned alongside a nil error: go-github
+	// never actually returns that shape (a successful REST call always decodes
+	// to a real struct), so treating it as "might resolve on retry" would just
+	// burn the full budget on every call that hits this branch for a reason
+	// unrelated to propagation -- give up immediately instead.
 	var mergedBy *gh.User
 	for attempt := 0; attempt < mergedByFetchAttempts; attempt++ {
 		full, resp, err := svc.GetPullRequest(ctx, opts.Owner, opts.Repo, selected.GetNumber())
 		if resp != nil {
 			_ = resp.Body.Close()
 		}
-		if err == nil && full != nil {
+		if err == nil {
+			if full == nil {
+				break
+			}
 			if mb := full.GetMergedBy(); mb != nil {
 				mergedBy = mb
 				break
