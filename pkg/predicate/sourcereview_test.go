@@ -59,8 +59,13 @@ type mockReviewService struct {
 
 	// merged-by supplemental fetch (best-effort). getPR is the PR returned by
 	// GetPullRequest (nil => no merger recorded); getPRErr forces the error path.
-	getPR    *gh.PullRequest
-	getPRErr error
+	// getPRFailAttempts simulates the GitHub backend propagation race: the first
+	// N calls return a PR with no merger (as if merged_by hadn't propagated
+	// yet), then getPR is returned starting on call N+1.
+	getPR             *gh.PullRequest
+	getPRErr          error
+	getPRFailAttempts int
+	getPRCallCount    int
 }
 
 func srResp() *gh.Response {
@@ -190,6 +195,12 @@ func (m *mockReviewService) GetRepository(_ context.Context, _, _ string) (*gh.R
 func (m *mockReviewService) GetPullRequest(_ context.Context, _, _ string, _ int) (*gh.PullRequest, *gh.Response, error) {
 	if m.getPRErr != nil {
 		return nil, srResp(), m.getPRErr
+	}
+	m.getPRCallCount++
+	if m.getPRCallCount <= m.getPRFailAttempts {
+		// simulate the propagation race: the PR resolves but merged_by hasn't
+		// propagated on this attempt yet.
+		return &gh.PullRequest{Number: gh.Ptr(0)}, srResp(), nil
 	}
 	// nil getPR is the default: the best-effort caller tolerates a nil PR and simply
 	// records no merger, so existing tests that never set getPR do not panic.
@@ -1014,6 +1025,66 @@ func TestNewSourceReview_MergedByFetchErrorIsBestEffort(t *testing.T) {
 	}
 	if !reflect.DeepEqual(c.PullRequest, want.PullRequest) {
 		t.Errorf("pullRequest drift on fetch error: got %+v, want %+v", c.PullRequest, want.PullRequest)
+	}
+	srValidate(t, c)
+}
+
+// srShrinkMergedByRetryDelay shrinks the package-level retry delay to
+// nanoseconds for the duration of a test, so the retry-path tests below don't
+// incur real multi-second sleeps. Restores the original value on cleanup.
+func srShrinkMergedByRetryDelay(t *testing.T) {
+	orig := mergedByFetchBaseDelay
+	mergedByFetchBaseDelay = time.Nanosecond
+	t.Cleanup(func() { mergedByFetchBaseDelay = orig })
+}
+
+func TestNewSourceReview_MergedByPopulatedAfterRetry(t *testing.T) {
+	// the first (mergedByFetchAttempts-1) calls simulate the GitHub backend
+	// propagation race (PR resolves, merger not yet visible); the final
+	// in-budget call succeeds -> mergedBy/mergedById still get recorded, same
+	// as an immediate success, just after retrying within budget.
+	srShrinkMergedByRetryDelay(t)
+	m := &mockReviewService{
+		prs:               []*gh.PullRequest{srMergedPR()},
+		reviews:           []*gh.PullRequestReview{srReview(srUser("alice", 2, "User"), reviewStateApproved, srHeadSHA, srBaseTime.Add(time.Minute))},
+		getPR:             &gh.PullRequest{MergedBy: srUser("merger", 138915, "User")},
+		getPRFailAttempts: mergedByFetchAttempts - 1,
+	}
+	c := srBuild(t, m, srOpts())
+	if c.PullRequest == nil {
+		t.Fatal("expected pullRequest to be populated")
+	}
+	if c.PullRequest.MergedBy != "merger" || c.PullRequest.MergedByID != 138915 {
+		t.Errorf("mergedBy=%q mergedById=%d, want merger/138915 after retrying within budget", c.PullRequest.MergedBy, c.PullRequest.MergedByID)
+	}
+	if m.getPRCallCount != mergedByFetchAttempts {
+		t.Errorf("GetPullRequest called %d times, want exactly %d (retry to the point of success)", m.getPRCallCount, mergedByFetchAttempts)
+	}
+	srValidate(t, c)
+}
+
+func TestNewSourceReview_MergedByAbsentAfterRetriesExhausted(t *testing.T) {
+	// the propagation race never resolves within the retry budget -> mergedBy/
+	// mergedById stay empty (same fail-open contract as an outright fetch
+	// error), and every retry attempt is spent (not fewer, not more).
+	srShrinkMergedByRetryDelay(t)
+	m := &mockReviewService{
+		prs:               []*gh.PullRequest{srMergedPR()},
+		reviews:           []*gh.PullRequestReview{srReview(srUser("alice", 2, "User"), reviewStateApproved, srHeadSHA, srBaseTime.Add(time.Minute))},
+		getPRFailAttempts: mergedByFetchAttempts, // never resolves within budget
+	}
+	c := srBuild(t, m, srOpts())
+	if c.PullRequest == nil {
+		t.Fatal("pullRequest should still be populated when the merger never resolves")
+	}
+	if c.PullRequest.MergedBy != "" || c.PullRequest.MergedByID != 0 {
+		t.Errorf("mergedBy=%q mergedById=%d, want empty/0 when retries exhaust", c.PullRequest.MergedBy, c.PullRequest.MergedByID)
+	}
+	if !c.ReviewToolingComplete {
+		t.Error("reviewToolingComplete = false; exhausted merged_by retries must NOT fail closed (best-effort)")
+	}
+	if m.getPRCallCount != mergedByFetchAttempts {
+		t.Errorf("GetPullRequest called %d times, want exactly %d (full retry budget spent)", m.getPRCallCount, mergedByFetchAttempts)
 	}
 	srValidate(t, c)
 }
