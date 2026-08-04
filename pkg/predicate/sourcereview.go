@@ -54,6 +54,37 @@ const (
 	srMaxControlItems = 1000 // backstop for status-check contexts + bypass actors (matches schema maxItems)
 )
 
+// mergedByFetchAttempts/mergedByFetchBaseDelay bound the retry budget for the
+// supplemental merger-identity GET (below), which races GitHub's own backend
+// propagation immediately after a merge: confirmed live (2026-08-04) that the
+// identical GetPullRequest call returns merged_by:null for a merge moments
+// earlier, on both autogov and autogov-policy-library, via both a UI-adjacent
+// and an API-driven merge, then succeeds cleanly if repeated seconds later.
+// Not a permissions or code issue -- the same call against the same PR simply
+// needs a short wait. vars (not consts) so tests can shrink them and exercise
+// the retry path without real sleeps. Exponential: attempt N waits
+// baseDelay*2^(N-1) (1s, 2s, 4s with the defaults -- ~7s worst case), mirroring
+// pkg/attestations.attestationFetchAttempts/attestationFetchBaseDelay's shape
+// for the same class of GitHub-propagation race (#341).
+var (
+	mergedByFetchAttempts  = 4
+	mergedByFetchBaseDelay = time.Second
+)
+
+// waitForMergedByRetry sleeps for delay, honoring context cancellation so a
+// caller's timeout still bounds the total wait rather than blocking past it.
+func waitForMergedByRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 // SourceReviewPR captures the pull request whose merge produced the source
 // revision. Omitted entirely when no merged PR is resolved.
 type SourceReviewPR struct {
@@ -343,18 +374,35 @@ func NewSourceReview(ctx context.Context, svc ReviewService, opts SourceReviewOp
 
 	// best-effort, evidence-only: record WHO merged the PR (login + numeric id).
 	// merged_by is populated ONLY by the single-PR GET, never by the list endpoint
-	// (verified live: ListPullRequestsWithCommit returns merged_by:null). On ANY
-	// error or nil merger we record nothing and leave ReviewToolingComplete alone —
-	// fail-open enrichment, exactly like fetchTechnicalControls/fetchReviewControls.
-	full, resp, err := svc.GetPullRequest(ctx, opts.Owner, opts.Repo, selected.GetNumber())
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	if err == nil && full != nil {
-		if mb := full.GetMergedBy(); mb != nil {
-			c.PullRequest.MergedBy = truncateRunes(mb.GetLogin(), srMaxStringLen)
-			c.PullRequest.MergedByID = mb.GetID()
+	// (verified live: ListPullRequestsWithCommit returns merged_by:null). The
+	// single-PR GET itself also races GitHub's backend propagation immediately
+	// after a merge (see mergedByFetchAttempts above); a short bounded retry
+	// rides that out. Still best-effort throughout: a persistent error, a
+	// persistently nil merger after retries, or a cancelled context all fall
+	// through with nothing recorded and ReviewToolingComplete untouched — never
+	// fails the attestation, exactly like fetchTechnicalControls/fetchReviewControls.
+	var mergedBy *gh.User
+	for attempt := 0; attempt < mergedByFetchAttempts; attempt++ {
+		full, resp, err := svc.GetPullRequest(ctx, opts.Owner, opts.Repo, selected.GetNumber())
+		if resp != nil {
+			_ = resp.Body.Close()
 		}
+		if err == nil && full != nil {
+			if mb := full.GetMergedBy(); mb != nil {
+				mergedBy = mb
+				break
+			}
+		}
+		if attempt == mergedByFetchAttempts-1 {
+			break
+		}
+		if waitErr := waitForMergedByRetry(ctx, mergedByFetchBaseDelay*time.Duration(1<<attempt)); waitErr != nil {
+			break
+		}
+	}
+	if mergedBy != nil {
+		c.PullRequest.MergedBy = truncateRunes(mergedBy.GetLogin(), srMaxStringLen)
+		c.PullRequest.MergedByID = mergedBy.GetID()
 	}
 
 	// step 8 (fetched before staleness in step 4, which needs dismissStale):
