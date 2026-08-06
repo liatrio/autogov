@@ -13,7 +13,7 @@ require (
 	github.com/google/go-github/v89 v89.0.0
 	github.com/open-policy-agent/opa v1.19.0
 	github.com/opencontainers/image-spec v1.1.1
-	github.com/sigstore/cosign/v3 v3.1.2
+	github.com/sigstore/cosign/v3 v3.1.3
 	github.com/sigstore/protobuf-specs v0.5.1
 	github.com/sigstore/rekor v1.5.3
 	github.com/sigstore/sigstore v1.10.9
@@ -23,7 +23,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
 	github.com/xeipuuv/gojsonschema v1.2.0
-	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
+	google.golang.org/protobuf v1.36.12-0.20260806062936-644d0267c26e
 	gopkg.in/yaml.v3 v3.0.1
 	oras.land/oras-go/v2 v2.6.2
 )
