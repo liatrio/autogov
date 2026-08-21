@@ -1,6 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "configMigration": true,
+  "minimumReleaseAge": "14 days",
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "internalChecksFilter": "strict",
+  "dependencyDashboard": true,
+  "automerge": false,
   "schedule": [
     "before 5am every weekday"
   ],
@@ -34,6 +39,13 @@
       "labels": [
         "dependency-major-update"
       ]
+    },
+    {
+      "description": "Pin floating references without delaying the security improvement",
+      "matchUpdateTypes": [
+        "pinDigest"
+      ],
+      "minimumReleaseAge": null
     }
   ],
   "customManagers": [
