@@ -1,6 +1,6 @@
 module github.com/liatrio/autogov
 
-go 1.26.5
+go 1.26.6
 
 require (
 	github.com/cli/go-gh/v2 v2.13.0
@@ -13,7 +13,7 @@ require (
 	github.com/google/go-github/v89 v89.0.0
 	github.com/open-policy-agent/opa v1.19.0
 	github.com/opencontainers/image-spec v1.1.1
-	github.com/sigstore/cosign/v3 v3.1.2
+	github.com/sigstore/cosign/v3 v3.1.3
 	github.com/sigstore/protobuf-specs v0.5.1
 	github.com/sigstore/rekor v1.5.3
 	github.com/sigstore/sigstore v1.10.9
@@ -145,7 +145,7 @@ require (
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.54.0 // indirect
-	golang.org/x/mod v0.38.0 // indirect
+	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
