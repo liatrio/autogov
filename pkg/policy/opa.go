@@ -386,7 +386,9 @@ func safeArchivePath(dest, name string) (string, error) {
 	if cleanPath != cleanDest && !strings.HasPrefix(cleanPath, cleanDest+string(os.PathSeparator)) {
 		return "", fmt.Errorf("invalid path in archive (path traversal attempt): %s", name)
 	}
-	return path, nil
+	// return the validated cleanPath (identical to path, since filepath.Join
+	// cleans) so static analysis sees the checked value flow to the callers
+	return cleanPath, nil
 }
 
 // writeRegularFile creates path (and its parent) and copies the current tar
