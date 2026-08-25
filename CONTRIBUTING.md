@@ -203,6 +203,12 @@ Contributors don't need to manage releases, but understanding the process helps:
 - **Discussions**: For general questions about usage or architecture
 - **Code Reviews**: Maintainers will provide feedback on pull requests
 
+## AI-Assisted Contributions
+
+Using AI tools to draft code, tests, or docs is fine. You are responsible for everything you submit — review and understand it as you would work you wrote by hand, and hold it to the same standards as the rest of this guide.
+
+Note meaningful AI assistance in the pull request description, not in commit messages or code comments. AI-assisted *review* is tooling and never counts as a second reviewing party (see [MAINTAINERS.md](MAINTAINERS.md)).
+
 ## Code of Conduct
 
 This project follows the [Contributor Covenant Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/). By participating, you are expected to uphold this code.
