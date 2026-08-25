@@ -79,7 +79,7 @@ const (
 	// PredicateTypeVSA represents SLSA VSA v1 predicate type - verification summary attestation.
 	// This predicate type summarizes the verification status of an artifact against security policies.
 	// Compatible with SLSA v1 specifications.
-	// Spec: https://slsa.dev/spec/v1.1/verification_summary
+	// Spec: https://slsa.dev/spec/v1.2/verification_summary
 	PredicateTypeVSA = "https://slsa.dev/verification_summary/v1"
 
 	// PredicateTypeAutogovMetadata represents AutoGov-specific metadata attestation.
@@ -226,7 +226,7 @@ var PredicateTypeRegistry = map[string]PredicateTypeInfo{
 		URI:         PredicateTypeVSA,
 		ShortName:   "SLSA VSA",
 		Description: "SLSA Verification Summary Attestation",
-		Spec:        "https://slsa.dev/spec/v1.1/verification_summary",
+		Spec:        "https://slsa.dev/spec/v1.2/verification_summary",
 	},
 	PredicateTypeAutogovMetadata: {
 		URI:         PredicateTypeAutogovMetadata,
