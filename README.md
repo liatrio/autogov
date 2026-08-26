@@ -587,11 +587,18 @@ Applies file mutations, creates a release commit and tag via GitHub API (providi
 - `--publish`: Publish the release directly (skip the draft state)
 - `--mode`: Git read mode: `auto` (default), `api` (require GitHub API), `local` (go-git only)
 - `--asset`: File to upload as a release asset (repeatable)
-- `--asset-label`: Display label for an asset as `name=label` (repeatable)
+- `--asset-source`: Directory to recursively collect release assets from as `ID=DIR` (repeatable)
+- `--asset-label`: Display label for an asset as `name=label`, where `name` is the final upload name (repeatable)
 - `--repo`: Path to git repository (default: `.`)
 - `--commit-author`: Author name for release commit (default: `autogov[bot]`)
 - `--commit-email`: Author email for release commit (default: `autogov[bot]@users.noreply.github.com`)
 - `-o, --output`: Output format: `text`, `json` (default: `text`)
+
+Explicit `--asset` files keep their basenames as upload names and remain repeatable for compatibility. Each `--asset-source ID=DIR` is searched recursively; zero-byte files are ignored, and the command fails if a source contains no non-empty regular files. Source-discovered files named `vsa-*.json` are always namespaced as `vsa-<sanitized-ID>-<suffix>.json`. The sanitized ID is lowercase, replaces each run of non-letter/digit characters with one hyphen, and trims leading or trailing hyphens. This also applies when the original basename already includes the source ID: for example, `--asset-source image=dist/image` maps `dist/image/vsa-image-PASSED.json` to `vsa-image-image-PASSED.json`. Other source-discovered files keep their basenames. Final upload names must be unique across explicit assets and all sources.
+
+Use those final upload names with `--asset-label`. For example, label the derived VSA above with `--asset-label vsa-image-image-PASSED.json="Image VSA"`. Release resume matching also uses final upload names.
+
+Draft releases created with explicit `--asset` arguments before adopting `--asset-source` may contain the old explicit VSA basenames. Finish those drafts with the original arguments, or clean the old assets from the draft before switching to source-derived names; the command does not automatically alias or delete old draft assets.
 
 #### `release publish` — Publish a draft release
 

@@ -51,7 +51,9 @@ type CutOptions struct {
 	Token           string            // GitHub token for API and push
 	ReleaseAPI      ReleaseService    // optional; created from Token if nil
 	Assets          []string          // file paths to upload as release assets
+	AssetSources    []AssetSource     // local directories to recursively collect release assets from
 	AssetLabels     map[string]string // optional asset name -> display label
+	ResolvedAssets  []ResolvedAsset   // validated assets paired with their final upload names
 }
 
 // CutResult captures the outcome of a release cut
@@ -260,10 +262,15 @@ func preflightCut(opts *CutOptions) (*git.Repository, error) {
 		return nil, err
 	}
 
-	// fail-fast: every asset path must exist before any commit/tag/push side effects
-	if err := validateAssets(opts.Assets, opts.AssetLabels); err != nil {
+	// Fail fast: resolve every local asset before any commit/tag/push side effects.
+	resolvedAssets, err := ResolveAssets(opts.Assets, opts.AssetSources)
+	if err != nil {
 		return nil, err
 	}
+	if err := validateAssetLabels(resolvedAssets, opts.AssetLabels); err != nil {
+		return nil, err
+	}
+	opts.ResolvedAssets = resolvedAssets
 
 	repo, err := githelper.OpenRepository(opts.RepoPath)
 	if err != nil {
@@ -360,10 +367,10 @@ func printDryRunPlan(opts *CutOptions, mutationSummary []string, tagName string)
 		action = "published"
 	}
 	fmt.Fprintf(os.Stderr, "dry-run: would create commit, tag, push, and create %s GitHub release\n", action)
-	if len(opts.Assets) > 0 {
-		names := make([]string, len(opts.Assets))
-		for i, p := range opts.Assets {
-			names[i] = filepath.Base(p)
+	if len(opts.ResolvedAssets) > 0 {
+		names := make([]string, len(opts.ResolvedAssets))
+		for i, asset := range opts.ResolvedAssets {
+			names[i] = asset.Name
 		}
 		fmt.Fprintf(os.Stderr, "dry-run: would upload %d asset(s): %s\n", len(names), strings.Join(names, ", "))
 	}
@@ -423,8 +430,8 @@ func performCutSideEffects(repo *git.Repository, opts *CutOptions, plan *Release
 	// step 9: upload release assets (if any). On failure return the PARTIAL result:
 	// the release/tag already exist and immutability blocks a re-cut, so the caller
 	// needs the release URL/ID and the names that did upload in order to recover.
-	if len(opts.Assets) > 0 {
-		uploaded, uploadErr := uploadAssets(ctx, opts.ReleaseAPI, owner, repoName, releaseID, opts.Assets, opts.AssetLabels)
+	if len(opts.ResolvedAssets) > 0 {
+		uploaded, uploadErr := uploadResolvedAssets(ctx, opts.ReleaseAPI, owner, repoName, releaseID, opts.ResolvedAssets, opts.AssetLabels)
 		result.UploadedAssets = uploaded
 		if uploadErr != nil {
 			return result, fmt.Errorf("failed to upload release assets: %w", uploadErr)
@@ -453,62 +460,39 @@ func markReleasePublished(ctx context.Context, svc ReleaseService, owner, repo s
 	return err
 }
 
-// validateAssets checks the requested assets fail-fast, before any release side
-// effects: each path must exist and be a non-empty regular file, no two assets may
-// share an upload name (base name), and every --asset-label must match one of those
-// names. (A file removed between this check and the upload would still fail later,
-// once the release exists — but the common mistakes are caught up front.)
-func validateAssets(assets []string, labels map[string]string) error {
+func validateAssetLabels(assets []ResolvedAsset, labels map[string]string) error {
 	names := make(map[string]struct{}, len(assets))
-	for _, path := range assets {
-		info, err := os.Stat(path)
-		if err != nil {
-			return fmt.Errorf("asset not found: %s: %w", path, err)
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("asset is not a regular file: %s", path)
-		}
-		if info.Size() == 0 {
-			return fmt.Errorf("asset is empty (0 bytes): %s", path)
-		}
-		name := filepath.Base(path)
-		if _, dup := names[name]; dup {
-			return fmt.Errorf("multiple assets resolve to the same name %q; release asset names must be unique", name)
-		}
-		names[name] = struct{}{}
+	for _, asset := range assets {
+		names[asset.Name] = struct{}{}
 	}
 	for name := range labels {
 		if _, ok := names[name]; !ok {
-			return fmt.Errorf("--asset-label %q does not match any --asset name (the name is the file's base name)", name)
+			return fmt.Errorf("--asset-label %q does not match any final upload name", name)
 		}
 	}
 	return nil
 }
 
-// uploadAssets uploads each asset file to the release and returns the uploaded asset
-// names. The asset name is the file's base name; an optional label is looked up by
-// that name in labels. Fails fast on the first upload error.
-func uploadAssets(ctx context.Context, svc ReleaseService, owner, repo string, releaseID int64, assets []string, labels map[string]string) ([]string, error) {
+func uploadResolvedAssets(ctx context.Context, svc ReleaseService, owner, repo string, releaseID int64, assets []ResolvedAsset, labels map[string]string) ([]string, error) {
 	uploaded := make([]string, 0, len(assets))
-	for _, path := range assets {
-		name := filepath.Base(path)
-		file, err := os.Open(path)
+	for _, asset := range assets {
+		file, err := os.Open(asset.Path)
 		if err != nil {
-			return uploaded, fmt.Errorf("failed to open asset %s: %w", path, err)
+			return uploaded, fmt.Errorf("failed to open asset %s: %w", asset.Path, err)
 		}
-		uploadOpts := &gogithub.UploadOptions{Name: name, Label: labels[name]}
+		uploadOpts := &gogithub.UploadOptions{Name: asset.Name, Label: labels[asset.Name]}
 		_, resp, uploadErr := svc.UploadReleaseAsset(ctx, owner, repo, releaseID, uploadOpts, file)
 		if resp != nil {
 			_ = resp.Body.Close()
 		}
 		closeErr := file.Close()
 		if uploadErr != nil {
-			return uploaded, fmt.Errorf("failed to upload asset %s: %w", name, uploadErr)
+			return uploaded, fmt.Errorf("failed to upload asset %s: %w", asset.Name, uploadErr)
 		}
 		if closeErr != nil {
-			return uploaded, fmt.Errorf("failed to close asset %s: %w", name, closeErr)
+			return uploaded, fmt.Errorf("failed to close asset %s: %w", asset.Name, closeErr)
 		}
-		uploaded = append(uploaded, name)
+		uploaded = append(uploaded, asset.Name)
 	}
 	return uploaded, nil
 }
@@ -577,7 +561,7 @@ func executeResume(opts *CutOptions, repo *git.Repository, result *CutResult, re
 	result.Published = false
 
 	skip := existingAssetNames(rel)
-	toUpload := assetsToUpload(opts.Assets, skip)
+	toUpload := resolvedAssetsToUpload(opts.ResolvedAssets, skip)
 
 	if opts.DryRun {
 		fmt.Fprintf(os.Stderr, "dry-run: would resume interrupted cut for %s (reuse draft release id %d), upload %d missing asset(s)\n", tagName, result.ReleaseID, len(toUpload))
@@ -596,7 +580,7 @@ func executeResume(opts *CutOptions, repo *git.Repository, result *CutResult, re
 	fmt.Fprintf(os.Stderr, "note: resuming interrupted cut for %s — reusing draft release, %d asset(s) to upload\n", tagName, len(toUpload))
 
 	if len(toUpload) > 0 {
-		uploaded, uploadErr := uploadAssets(ctx, opts.ReleaseAPI, owner, repoName, result.ReleaseID, toUpload, opts.AssetLabels)
+		uploaded, uploadErr := uploadResolvedAssets(ctx, opts.ReleaseAPI, owner, repoName, result.ReleaseID, toUpload, opts.AssetLabels)
 		result.UploadedAssets = uploaded
 		if uploadErr != nil {
 			return result, fmt.Errorf("failed to upload release assets: %w", uploadErr)
@@ -629,16 +613,14 @@ func existingAssetNames(rel *gogithub.RepositoryRelease) map[string]struct{} {
 	return names
 }
 
-// assetsToUpload filters asset paths down to those whose upload name (base name) is not
-// already present in skip, making re-upload on a resumed cut idempotent.
-func assetsToUpload(assets []string, skip map[string]struct{}) []string {
-	out := make([]string, 0, len(assets))
-	for _, p := range assets {
-		if _, done := skip[filepath.Base(p)]; done {
-			fmt.Fprintf(os.Stderr, "note: asset %s already attached to the release, skipping\n", filepath.Base(p))
+func resolvedAssetsToUpload(assets []ResolvedAsset, skip map[string]struct{}) []ResolvedAsset {
+	out := make([]ResolvedAsset, 0, len(assets))
+	for _, asset := range assets {
+		if _, done := skip[asset.Name]; done {
+			fmt.Fprintf(os.Stderr, "note: asset %s already attached to the release, skipping\n", asset.Name)
 			continue
 		}
-		out = append(out, p)
+		out = append(out, asset)
 	}
 	return out
 }
