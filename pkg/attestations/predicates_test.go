@@ -114,7 +114,7 @@ func TestPredicateTypeConstants_MatchSpecification(t *testing.T) {
 			name:         "PredicateTypeVSA",
 			constant:     PredicateTypeVSA,
 			expectedURI:  "https://slsa.dev/verification_summary/v1",
-			specLocation: "https://slsa.dev/spec/v1.0/verification_summary",
+			specLocation: "https://slsa.dev/spec/v1.2/verification_summary",
 		},
 	}
 
