@@ -38,20 +38,24 @@ Examples:
 }
 
 func init() {
-	cutCmd.Flags().String("plan-file", "", "Path to pre-generated release plan (JSON/YAML)")
-	cutCmd.Flags().String("branch", "main", "Expected branch to cut release from")
-	cutCmd.Flags().String("remote", "origin", "Git remote to push to")
-	cutCmd.Flags().String("mutations-config", "", "Path to mutations config file")
-	cutCmd.Flags().Bool("dry-run", false, "Show what would be done without making changes")
-	cutCmd.Flags().Bool("publish", false, "Publish release directly (skip draft state)")
-	cutCmd.Flags().String("mode", "auto", "Git read mode: auto (default), api (require GitHub API), local (go-git only)")
-	cutCmd.Flags().String("repo", ".", "Path to git repository")
-	cutCmd.Flags().String("commit-author", "autogov[bot]", "Author name for release commit")
-	cutCmd.Flags().String("commit-email", "autogov[bot]@users.noreply.github.com", "Author email for release commit")
-	cutCmd.Flags().StringP("output", "o", "text", "Output format: text, json")
-	cutCmd.Flags().StringArray("asset", nil, "File to upload as a release asset (repeatable)")
-	cutCmd.Flags().StringArray("asset-source", nil, "Local source directory to recursively collect release assets from as ID=DIR (repeatable)")
-	cutCmd.Flags().StringArray("asset-label", nil, "Display label for an asset as name=label, where name is the final upload name (repeatable)")
+	registerCutFlags(cutCmd)
+}
+
+func registerCutFlags(cmd *cobra.Command) {
+	cmd.Flags().String("plan-file", "", "Path to pre-generated release plan (JSON/YAML)")
+	cmd.Flags().String("branch", "main", "Expected branch to cut release from")
+	cmd.Flags().String("remote", "origin", "Git remote to push to")
+	cmd.Flags().String("mutations-config", "", "Path to mutations config file")
+	cmd.Flags().Bool("dry-run", false, "Show what would be done without making changes")
+	cmd.Flags().Bool("publish", false, "Publish release directly (skip draft state)")
+	cmd.Flags().String("mode", "auto", "Git read mode: auto (default), api (require GitHub API), local (go-git only)")
+	cmd.Flags().String("repo", ".", "Path to git repository")
+	cmd.Flags().String("commit-author", "autogov[bot]", "Author name for release commit")
+	cmd.Flags().String("commit-email", "autogov[bot]@users.noreply.github.com", "Author email for release commit")
+	cmd.Flags().StringP("output", "o", "text", "Output format: text, json")
+	cmd.Flags().StringArray("asset", nil, "File to upload as a release asset (repeatable)")
+	cmd.Flags().StringArray("asset-source", nil, "Local source directory to recursively collect release assets from as ID=DIR (repeatable)")
+	cmd.Flags().StringArray("asset-label", nil, "Display label for an asset as name=label, where name is the final upload name (repeatable)")
 }
 
 // parseAssetLabels parses repeated name=label pairs into a map keyed by final upload name.

@@ -28,16 +28,17 @@ func mockResp(code int) *gogithub.Response {
 // mockReleaseService implements ReleaseService for testing
 type mockReleaseService struct {
 	// release operations
-	getRelease        *gogithub.RepositoryRelease
-	getReleaseErr     error
-	getReleaseByID    *gogithub.RepositoryRelease
-	getReleaseByIDErr error
-	createRelease     *gogithub.RepositoryRelease
-	createErr         error
-	updateRelease     *gogithub.RepositoryRelease
-	updateErr         error
-	listReleases      []*gogithub.RepositoryRelease
-	listReleasesErr   error
+	getRelease         *gogithub.RepositoryRelease
+	getReleaseErr      error
+	getReleaseByID     *gogithub.RepositoryRelease
+	getReleaseByIDErr  error
+	createRelease      *gogithub.RepositoryRelease
+	createErr          error
+	updateRelease      *gogithub.RepositoryRelease
+	updateErr          error
+	listReleases       []*gogithub.RepositoryRelease
+	listReleasesErr    error
+	createReleaseCalls int
 
 	// read operations
 	listTagsResult  []*gogithub.RepositoryTag
@@ -61,6 +62,7 @@ type mockReleaseService struct {
 	updateRefErr       error
 	deleteRefErr       error
 	deletedRefs        []string // captured for assertions
+	createTagCalls     int
 
 	// asset operations
 	uploadAssetErr       error
@@ -110,6 +112,7 @@ func (m *mockReleaseService) GetBranch(_ context.Context, _, _, _ string, _ int)
 }
 
 func (m *mockReleaseService) CreateRelease(_ context.Context, _, _ string, _ gogithub.CreateReleaseRequest) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
+	m.createReleaseCalls++
 	code := 201
 	if m.createErr != nil {
 		code = 500
@@ -151,6 +154,7 @@ func (m *mockReleaseService) CreateCommit(_ context.Context, _, _ string, _ gogi
 }
 
 func (m *mockReleaseService) CreateTag(_ context.Context, _, _ string, tag gogithub.CreateTag) (*gogithub.Tag, *gogithub.Response, error) {
+	m.createTagCalls++
 	m.lastCreateTagArg = tag
 	return m.createTagResult, mockResp(201), m.createTagErr
 }
@@ -958,54 +962,61 @@ func TestExecuteCutAPIModeRequiresToken(t *testing.T) {
 	assert.Contains(t, err.Error(), "--mode=api requires a GitHub token")
 }
 
-func TestValidateAssets(t *testing.T) {
+func TestResolveAndValidateExplicitAssets(t *testing.T) {
 	dir := t.TempDir()
 	existing := filepath.Join(dir, "asset.txt")
 	require.NoError(t, os.WriteFile(existing, []byte("x"), 0o600))
+	resolveAndValidate := func(assets []string, labels map[string]string) error {
+		resolved, err := ResolveAssets(assets, nil)
+		if err != nil {
+			return err
+		}
+		return validateAssetLabels(resolved, labels)
+	}
 
 	t.Run("nil list is ok", func(t *testing.T) {
-		require.NoError(t, validateAssets(nil, nil))
+		require.NoError(t, resolveAndValidate(nil, nil))
 	})
 	t.Run("existing file is ok", func(t *testing.T) {
-		require.NoError(t, validateAssets([]string{existing}, nil))
+		require.NoError(t, resolveAndValidate([]string{existing}, nil))
 	})
 	t.Run("missing file errors", func(t *testing.T) {
-		err := validateAssets([]string{filepath.Join(dir, "nope.txt")}, nil)
+		err := resolveAndValidate([]string{filepath.Join(dir, "nope.txt")}, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "asset not found")
 	})
 	t.Run("non-regular file (directory) errors", func(t *testing.T) {
-		err := validateAssets([]string{dir}, nil)
+		err := resolveAndValidate([]string{dir}, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not a regular file")
 	})
 	t.Run("empty file errors", func(t *testing.T) {
 		empty := filepath.Join(dir, "empty.bin")
 		require.NoError(t, os.WriteFile(empty, nil, 0o600))
-		err := validateAssets([]string{empty}, nil)
+		err := resolveAndValidate([]string{empty}, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "empty")
 	})
 	t.Run("label matching an asset name is ok", func(t *testing.T) {
-		require.NoError(t, validateAssets([]string{existing}, map[string]string{"asset.txt": "My Asset"}))
+		require.NoError(t, resolveAndValidate([]string{existing}, map[string]string{"asset.txt": "My Asset"}))
 	})
 	t.Run("duplicate base names error", func(t *testing.T) {
 		sub := filepath.Join(dir, "sub")
 		require.NoError(t, os.Mkdir(sub, 0o750))
 		dup := filepath.Join(sub, "asset.txt")
 		require.NoError(t, os.WriteFile(dup, []byte("y"), 0o600))
-		err := validateAssets([]string{existing, dup}, nil)
+		err := resolveAndValidate([]string{existing, dup}, nil)
 		require.Error(t, err)
 		assert.EqualError(t, err, `multiple assets resolve to the same name "asset.txt"; release asset names must be unique`)
 	})
 	t.Run("label not matching any asset errors", func(t *testing.T) {
-		err := validateAssets([]string{existing}, map[string]string{"nope": "x"})
+		err := resolveAndValidate([]string{existing}, map[string]string{"nope": "x"})
 		require.Error(t, err)
-		assert.EqualError(t, err, `--asset-label "nope" does not match any --asset name (the name is the file's base name)`)
+		assert.EqualError(t, err, `--asset-label "nope" does not match any final upload name`)
 	})
 }
 
-func TestUploadAssets(t *testing.T) {
+func TestUploadResolvedAssets(t *testing.T) {
 	dir := t.TempDir()
 	binPath := filepath.Join(dir, "bin")
 	vsaPath := filepath.Join(dir, "vsa.json")
@@ -1015,7 +1026,9 @@ func TestUploadAssets(t *testing.T) {
 	t.Run("uploads each asset, mapping labels by base name", func(t *testing.T) {
 		mock := &mockReleaseService{}
 		labels := map[string]string{"bin": "Linux x86_64"}
-		uploaded, err := uploadAssets(context.Background(), mock, "o", "r", 42, []string{binPath, vsaPath}, labels)
+		assets, err := ResolveAssets([]string{binPath, vsaPath}, nil)
+		require.NoError(t, err)
+		uploaded, err := uploadResolvedAssets(context.Background(), mock, "o", "r", 42, assets, labels)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"bin", "vsa.json"}, uploaded)
 		assert.Equal(t, []string{"bin", "vsa.json"}, mock.uploadedAssetNames)
@@ -1023,14 +1036,14 @@ func TestUploadAssets(t *testing.T) {
 	})
 	t.Run("propagates upload error with asset name", func(t *testing.T) {
 		mock := &mockReleaseService{uploadAssetErr: fmt.Errorf("boom")}
-		uploaded, err := uploadAssets(context.Background(), mock, "o", "r", 42, []string{binPath}, nil)
+		uploaded, err := uploadResolvedAssets(context.Background(), mock, "o", "r", 42, []ResolvedAsset{{Path: binPath, Name: "bin"}}, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to upload asset bin")
 		assert.Empty(t, uploaded)
 	})
 	t.Run("errors when a file cannot be opened", func(t *testing.T) {
 		mock := &mockReleaseService{}
-		_, err := uploadAssets(context.Background(), mock, "o", "r", 42, []string{filepath.Join(dir, "missing")}, nil)
+		_, err := uploadResolvedAssets(context.Background(), mock, "o", "r", 42, []ResolvedAsset{{Path: filepath.Join(dir, "missing"), Name: "missing"}}, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to open asset")
 	})
@@ -1089,6 +1102,25 @@ func TestExecuteCutUploadsAssets(t *testing.T) {
 	assert.Equal(t, []string{"autogov", "vsa.json"}, result.UploadedAssets)
 	assert.Equal(t, []string{"autogov", "vsa.json"}, mock.uploadedAssetNames, "uploads use base names")
 	assert.Equal(t, []string{"Linux x86_64", ""}, mock.uploadedAssetLabels, "label mapped by base name")
+}
+
+func TestExecuteCutRejectsUnmatchedExplicitAssetLabelBeforeReleaseMutation(t *testing.T) {
+	dir, mock := setupCutScenario(t)
+	asset := filepath.Join(t.TempDir(), "autogov")
+	require.NoError(t, os.WriteFile(asset, []byte("bin"), 0o600))
+
+	opts := &CutOptions{
+		RepoPath: dir, Branch: "master", Remote: "origin",
+		Token: "test-token", ReleaseAPI: mock,
+		Assets:      []string{asset},
+		AssetLabels: map[string]string{"missing": "Missing asset"},
+	}
+
+	_, err := ExecuteCut(opts)
+	require.EqualError(t, err, `--asset-label "missing" does not match any final upload name`)
+	assert.Zero(t, mock.createReleaseCalls)
+	assert.Zero(t, mock.createTagCalls)
+	assert.Empty(t, mock.uploadedAssetNames)
 }
 
 func TestExecuteCutUploadsResolvedSourceAssets(t *testing.T) {

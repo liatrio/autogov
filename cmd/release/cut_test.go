@@ -67,20 +67,8 @@ func TestParseAssetSources(t *testing.T) {
 
 func TestCutOptionsFromFlagsPassesRepeatedAssetSources(t *testing.T) {
 	cmd := &cobra.Command{}
+	registerCutFlags(cmd)
 	flags := cmd.Flags()
-	flags.String("plan-file", "", "")
-	flags.String("branch", "main", "")
-	flags.String("remote", "origin", "")
-	flags.String("mutations-config", "", "")
-	flags.Bool("dry-run", false, "")
-	flags.Bool("publish", false, "")
-	flags.String("mode", "auto", "")
-	flags.String("repo", ".", "")
-	flags.String("commit-author", "autogov[bot]", "")
-	flags.String("commit-email", "autogov[bot]@users.noreply.github.com", "")
-	flags.StringArray("asset", nil, "")
-	flags.StringArray("asset-source", nil, "")
-	flags.StringArray("asset-label", nil, "")
 	require.NoError(t, flags.Set("asset-source", "image=dist/image"))
 	require.NoError(t, flags.Set("asset-source", "blob=dist/blob"))
 

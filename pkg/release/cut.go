@@ -267,12 +267,7 @@ func preflightCut(opts *CutOptions) (*git.Repository, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(opts.AssetSources) == 0 {
-		err = validateExplicitAssetLabels(resolvedAssets, opts.AssetLabels)
-	} else {
-		err = validateAssetLabels(resolvedAssets, opts.AssetLabels)
-	}
-	if err != nil {
+	if err := validateAssetLabels(resolvedAssets, opts.AssetLabels); err != nil {
 		return nil, err
 	}
 	opts.ResolvedAssets = resolvedAssets
@@ -465,15 +460,6 @@ func markReleasePublished(ctx context.Context, svc ReleaseService, owner, repo s
 	return err
 }
 
-// validateAssets preserves the explicit-asset validation entry point for callers and tests.
-func validateAssets(assets []string, labels map[string]string) error {
-	resolved, err := ResolveAssets(assets, nil)
-	if err != nil {
-		return err
-	}
-	return validateExplicitAssetLabels(resolved, labels)
-}
-
 func validateAssetLabels(assets []ResolvedAsset, labels map[string]string) error {
 	names := make(map[string]struct{}, len(assets))
 	for _, asset := range assets {
@@ -481,34 +467,10 @@ func validateAssetLabels(assets []ResolvedAsset, labels map[string]string) error
 	}
 	for name := range labels {
 		if _, ok := names[name]; !ok {
-			return fmt.Errorf("--asset-label %q does not match any resolved asset name", name)
+			return fmt.Errorf("--asset-label %q does not match any final upload name", name)
 		}
 	}
 	return nil
-}
-
-func validateExplicitAssetLabels(assets []ResolvedAsset, labels map[string]string) error {
-	names := make(map[string]struct{}, len(assets))
-	for _, asset := range assets {
-		names[asset.Name] = struct{}{}
-	}
-	for name := range labels {
-		if _, ok := names[name]; !ok {
-			return fmt.Errorf("--asset-label %q does not match any --asset name (the name is the file's base name)", name)
-		}
-	}
-	return nil
-}
-
-// uploadAssets uploads each asset file to the release and returns the uploaded asset
-// names. The asset name is the file's base name; an optional label is looked up by
-// that name in labels. Fails fast on the first upload error.
-func uploadAssets(ctx context.Context, svc ReleaseService, owner, repo string, releaseID int64, assets []string, labels map[string]string) ([]string, error) {
-	resolved := make([]ResolvedAsset, 0, len(assets))
-	for _, path := range assets {
-		resolved = append(resolved, ResolvedAsset{Path: path, Name: filepath.Base(path)})
-	}
-	return uploadResolvedAssets(ctx, svc, owner, repo, releaseID, resolved, labels)
 }
 
 func uploadResolvedAssets(ctx context.Context, svc ReleaseService, owner, repo string, releaseID int64, assets []ResolvedAsset, labels map[string]string) ([]string, error) {
