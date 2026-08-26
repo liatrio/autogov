@@ -89,11 +89,41 @@ func TestResolveAssets(t *testing.T) {
 	})
 
 	t.Run("rejects ambiguous sanitized source IDs", func(t *testing.T) {
-		dir := t.TempDir()
-		writeAsset(t, filepath.Join(dir, "asset"), "x")
-		_, err := ResolveAssets(nil, []AssetSource{{ID: "release image", Dir: dir}, {ID: "release-image", Dir: dir}})
+		firstDir := t.TempDir()
+		secondDir := t.TempDir()
+		writeAsset(t, filepath.Join(firstDir, "asset"), "x")
+		writeAsset(t, filepath.Join(secondDir, "asset"), "x")
+		_, err := ResolveAssets(nil, []AssetSource{{ID: "release image", Dir: firstDir}, {ID: "release-image", Dir: secondDir}})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "ambiguous asset source IDs")
+		assert.Contains(t, err.Error(), firstDir)
+		assert.Contains(t, err.Error(), secondDir)
+	})
+
+	t.Run("rejects invalid source inputs", func(t *testing.T) {
+		dir := t.TempDir()
+		file := filepath.Join(dir, "asset")
+		writeAsset(t, file, "x")
+
+		tests := []struct {
+			name   string
+			source AssetSource
+			want   string
+		}{
+			{name: "empty ID", source: AssetSource{Dir: dir}, want: "non-empty ID and directory"},
+			{name: "empty directory", source: AssetSource{ID: "source"}, want: "non-empty ID and directory"},
+			{name: "ID sanitizes to empty", source: AssetSource{ID: "---", Dir: dir}, want: "invalid asset source ID"},
+			{name: "missing directory", source: AssetSource{ID: "source", Dir: filepath.Join(dir, "missing")}, want: "failed to resolve asset source"},
+			{name: "source is a file", source: AssetSource{ID: "source", Dir: file}, want: "asset source is not a directory"},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := ResolveAssets(nil, []AssetSource{tt.source})
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.want)
+			})
+		}
 	})
 }
 

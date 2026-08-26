@@ -1007,7 +1007,9 @@ func TestResolveAndValidateExplicitAssets(t *testing.T) {
 		require.NoError(t, os.WriteFile(dup, []byte("y"), 0o600))
 		err := resolveAndValidate([]string{existing, dup}, nil)
 		require.Error(t, err)
-		assert.EqualError(t, err, `multiple assets resolve to the same name "asset.txt"; release asset names must be unique`)
+		assert.Contains(t, err.Error(), `multiple assets resolve to the same name "asset.txt"`)
+		assert.Contains(t, err.Error(), existing)
+		assert.Contains(t, err.Error(), dup)
 	})
 	t.Run("label not matching any asset errors", func(t *testing.T) {
 		err := resolveAndValidate([]string{existing}, map[string]string{"nope": "x"})

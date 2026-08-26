@@ -48,7 +48,7 @@ func ResolveAssets(assets []string, sources []AssetSource) ([]ResolvedAsset, err
 			return nil, fmt.Errorf("invalid asset source ID %q", source.ID)
 		}
 		if previous, duplicate := seenIDs[sanitizedID]; duplicate {
-			return nil, fmt.Errorf("ambiguous asset source IDs %q and %q both sanitize to %q", previous.ID, source.ID, sanitizedID)
+			return nil, fmt.Errorf("ambiguous asset source IDs %q (%s) and %q (%s) both sanitize to %q", previous.ID, previous.Dir, source.ID, source.Dir, sanitizedID)
 		}
 		seenIDs[sanitizedID] = source
 		normalized = append(normalized, normalizedSource{AssetSource: source, sanitizedID: sanitizedID})
@@ -64,7 +64,7 @@ func ResolveAssets(assets []string, sources []AssetSource) ([]ResolvedAsset, err
 		}
 		resolved = append(resolved, entries...)
 	}
-	if err := validateResolvedAssetNames(resolved, len(sources) == 0); err != nil {
+	if err := validateResolvedAssetNames(resolved); err != nil {
 		return nil, err
 	}
 	return resolved, nil
@@ -138,7 +138,7 @@ func validateAssetFile(path string) error {
 	return nil
 }
 
-func validateResolvedAssetNames(assets []ResolvedAsset, explicitOnly bool) error {
+func validateResolvedAssetNames(assets []ResolvedAsset) error {
 	pathsByName := make(map[string][]string, len(assets))
 	for _, asset := range assets {
 		pathsByName[asset.Name] = append(pathsByName[asset.Name], asset.Path)
@@ -146,9 +146,6 @@ func validateResolvedAssetNames(assets []ResolvedAsset, explicitOnly bool) error
 	for _, asset := range assets {
 		paths := pathsByName[asset.Name]
 		if len(paths) > 1 {
-			if explicitOnly {
-				return fmt.Errorf("multiple assets resolve to the same name %q; release asset names must be unique", asset.Name)
-			}
 			return fmt.Errorf("multiple assets resolve to the same name %q: %s", asset.Name, strings.Join(paths, ", "))
 		}
 	}
