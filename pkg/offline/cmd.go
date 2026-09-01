@@ -2,6 +2,10 @@ package offline
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -212,8 +216,10 @@ func bundleToOPA(b *bundle.Bundle) (map[string]interface{}, bool) {
 }
 
 // buildVSAInputs walks the verified attestations to build the attestation type
-// list, VSA subjects, and OPA bundle inputs.
-func buildVSAInputs(result *VerificationResult, bundles []*bundle.Bundle) (attestationTypes []string, vsaSubjects []vsa.VSASubject, bundlesForOPA []map[string]interface{}) {
+// list, VSA subjects, OPA bundle inputs, and the input-attestation resource
+// descriptors that bind each verified statement's exact payload digest into
+// the generated VSA (standard SLSA VSA inputAttestations).
+func buildVSAInputs(result *VerificationResult, bundles []*bundle.Bundle) (attestationTypes []string, vsaSubjects []vsa.VSASubject, bundlesForOPA []map[string]interface{}, inputAttestations []vsa.ResourceDescriptor) {
 	// builds VSA subjects from verified attestations and convert for OPA
 	subjectsMap := make(map[string]vsa.VSASubject)
 
@@ -241,6 +247,11 @@ func buildVSAInputs(result *VerificationResult, bundles []*bundle.Bundle) (attes
 				if opaBundle, ok := bundleToOPA(bundles[i]); ok {
 					bundlesForOPA = append(bundlesForOPA, opaBundle)
 				}
+				// bind the verified statement's exact DSSE payload digest so
+				// the VSA records which signed input statements it evaluated
+				if descriptor, ok := bundleInputDescriptor(bundles[i]); ok {
+					inputAttestations = append(inputAttestations, descriptor)
+				}
 			}
 		}
 	}
@@ -250,7 +261,38 @@ func buildVSAInputs(result *VerificationResult, bundles []*bundle.Bundle) (attes
 		vsaSubjects = append(vsaSubjects, subject)
 	}
 
-	return attestationTypes, vsaSubjects, bundlesForOPA
+	return attestationTypes, vsaSubjects, bundlesForOPA, inputAttestations
+}
+
+// bundleInputDescriptor builds the VSA inputAttestations descriptor for one
+// verified bundle: its predicate type URI plus the SHA-256 of the exact
+// in-toto statement bytes in the DSSE payload.
+//
+// Both halves are read from the same bundle on purpose. Callers pair an
+// attestation result with a bundle by slice index, and the multi-file
+// directory path can hand those two slices out of step, so taking the type
+// from the caller's attestation would let a descriptor bind one statement's
+// type to another statement's bytes.
+func bundleInputDescriptor(b *bundle.Bundle) (vsa.ResourceDescriptor, bool) {
+	envelope, err := b.Envelope()
+	if err != nil || envelope == nil || envelope.Payload == "" {
+		return vsa.ResourceDescriptor{}, false
+	}
+	payload, err := base64.StdEncoding.DecodeString(envelope.Payload)
+	if err != nil || len(payload) == 0 {
+		return vsa.ResourceDescriptor{}, false
+	}
+	var statement struct {
+		PredicateType string `json:"predicateType"`
+	}
+	if err := json.Unmarshal(payload, &statement); err != nil || statement.PredicateType == "" {
+		return vsa.ResourceDescriptor{}, false
+	}
+	sum := sha256.Sum256(payload)
+	return vsa.ResourceDescriptor{
+		URI:    statement.PredicateType,
+		Digest: map[string]string{"sha256": hex.EncodeToString(sum[:])},
+	}, true
 }
 
 // fallbackVSASubjects returns subjects derived from the artifact path or image
@@ -312,7 +354,7 @@ func generateOfflineVSA(cmd *cobra.Command, f runCommandFlags, artifactPath stri
 	bundles := verifier.Bundles()
 
 	// attestation types and create VSA subjects (also converted for OPA)
-	attestationTypes, vsaSubjects, bundlesForOPA := buildVSAInputs(result, bundles)
+	attestationTypes, vsaSubjects, bundlesForOPA, inputAttestations := buildVSAInputs(result, bundles)
 
 	// uses blob path or digest for main subject if no attestation subjects
 	if len(vsaSubjects) == 0 {
@@ -349,6 +391,7 @@ func generateOfflineVSA(cmd *cobra.Command, f runCommandFlags, artifactPath stri
 	vsaOptions.ArtifactDigest = resourceURI
 	vsaOptions.VSASubjects = vsaSubjects
 	vsaOptions.AttestationTypes = attestationTypes
+	vsaOptions.InputAttestations = inputAttestations
 	vsaOptions.Signatures = nil // no oci signatures in offline mode
 	// build L3 requires the build-provenance signer identity to have been
 	// enforced (cert-identity / signer allowlist); otherwise the VSA stays L0

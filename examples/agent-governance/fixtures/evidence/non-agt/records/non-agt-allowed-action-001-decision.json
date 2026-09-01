@@ -1,0 +1,1 @@
+{"caseId":"non-agt-allowed-action-001","engine":"toy-json-rules","matchedRule":"allow-sanctioned-write-marker","policyArtifactDigest":"sha256:874d825f3cad0134979cc8291d5b045928dfa19d26012bf0db0d228371a31bf9","verdict":"allow","viaDefault":false}

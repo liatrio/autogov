@@ -1,0 +1,100 @@
+{
+  "adapter": {
+    "artifact": {
+      "digest": "sha256:f6eb309966f04592b098bf8a7479f5841b99e11599d88c8861792606ff454304",
+      "uri": "urn:autogov:example:agent-governance:non-agt:adapter:0.1"
+    },
+    "contractVersion": "0.1",
+    "name": "non-agt-fixture-adapter",
+    "runtimeDigest": "sha256:b4f01ba0a9f3e05c553571f9593ad29a230d5b0b6971f763a26fb6157ae55c91"
+  },
+  "agent": {
+    "artifactDigest": "sha256:57273906dbc9eb12e7a400158a8a73bc8fd3a499a0c6508119935786d4a71e10",
+    "name": "agent-image",
+    "uri": "urn:autogov:example:agent-governance:agent-image"
+  },
+  "audit": {
+    "configurationDigest": "sha256:1fd1480f33008e2e5cc18b6da4b3c98b78515ee7134f0cf231e6c156e3af5ff8",
+    "sink": {
+      "digest": "sha256:511e0fcfe0be437ac8c101f2cc47f4ed88a1440173465382e43da471bb7bffb1",
+      "id": "redacted:non-agt-audit-sink"
+    },
+    "sinkKind": "file"
+  },
+  "conformance": {
+    "cases": [
+      {
+        "completedAt": "2026-08-26T20:00:09Z",
+        "correlationId": "sha256:b0b09c060ca15fad153c3c0cd9dea41da255d4336d6767d5f4e325aa312cb13b",
+        "decision": {
+          "observedAt": "2026-08-26T20:00:08Z",
+          "reference": {
+            "digest": "sha256:5dcc3f6d8a9ffaa09e1ffc2407a62d8b162aa91c6ec0eb62604fdc7f7a3a9c69",
+            "id": "redacted:non-agt-unknown-outcome-001-decision"
+          },
+          "state": "observed",
+          "verdict": "allow"
+        },
+        "id": "non-agt-unknown-outcome-001",
+        "kind": "allowed-action",
+        "outcome": {
+          "result": "unknown",
+          "state": "unknown"
+        },
+        "startedAt": "2026-08-26T20:00:08Z",
+        "testResult": {
+          "predicateType": "https://in-toto.io/attestation/test-result/v0.1",
+          "testId": "non-agt-unknown-outcome-001"
+        }
+      }
+    ],
+    "controlledTool": {
+      "actionClass": "filesystem.write.marker",
+      "artifact": {
+        "digest": "sha256:9df776a3bb10bd24bb1693b274a49a1a0e3e74b391d24171f35fc88d77e0b8da",
+        "uri": "urn:autogov:fixture:write-marker"
+      },
+      "name": "write-marker"
+    },
+    "fixture": {
+      "id": "non-agt-fixture-001",
+      "producer": "non-agt"
+    }
+  },
+  "enforcement": {
+    "defaultBehavior": "deny",
+    "mode": "enforce",
+    "observedInterventionPoints": [
+      "tool.pre"
+    ],
+    "requiredInterventionPoints": [
+      "tool.pre"
+    ]
+  },
+  "identity": {
+    "providerUri": "urn:autogov:example:agent-governance:identity:local-demo",
+    "subject": {
+      "digest": "sha256:f081efa350e01deda339a071f6dd2db627a7422dd2a70f9aa06d4dac9c153744",
+      "id": "redacted:non-agt-fixture-workload"
+    },
+    "subjectKind": "workload"
+  },
+  "runtime": {
+    "artifact": {
+      "digest": "sha256:b4f01ba0a9f3e05c553571f9593ad29a230d5b0b6971f763a26fb6157ae55c91",
+      "uri": "urn:autogov:example:agent-governance:non-agt:runtime:1.0.0"
+    },
+    "name": "toy-runtime",
+    "version": "1.0.0"
+  },
+  "runtimePolicy": {
+    "artifact": {
+      "digest": "sha256:874d825f3cad0134979cc8291d5b045928dfa19d26012bf0db0d228371a31bf9",
+      "uri": "urn:autogov:example:agent-governance:non-agt:runtime-policy:write-marker"
+    },
+    "count": 1,
+    "engine": "toy-json-rules",
+    "loaded": true
+  },
+  "schemaVersion": "0.1"
+}

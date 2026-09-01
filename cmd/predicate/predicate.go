@@ -6,7 +6,7 @@ import "github.com/spf13/cobra"
 var PredicateCmd = &cobra.Command{
 	Use:   "predicate",
 	Short: "Generate attestation predicates",
-	Long:  "Generate attestation predicates for metadata, dependency scan, test-result, code-scan, and source-review attestations.",
+	Long:  "Generate attestation predicates for metadata, dependency scan, test-result, code-scan, source-review, and agent-governance-deployment attestations.",
 	// a no-op RunE makes this parent runnable so NoArgs is enforced; otherwise
 	// cobra prints help and exits 0 for an unknown subcommand (see verify.go).
 	Args: cobra.NoArgs,
@@ -19,4 +19,5 @@ func init() {
 	PredicateCmd.AddCommand(testResultCmd)
 	PredicateCmd.AddCommand(codeScanCmd)
 	PredicateCmd.AddCommand(sourceReviewCmd)
+	PredicateCmd.AddCommand(agentGovernanceDeploymentCmd)
 }

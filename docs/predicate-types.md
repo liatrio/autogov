@@ -17,6 +17,7 @@ The tool recognizes all standard in-toto attestation framework predicate types:
 | `https://autogov.dev/attestation/metadata/v1` | AutoGov Metadata | Custom autogov metadata with artifact/workflow/compliance details |
 | `https://autogov.dev/attestation/code-scan/v0.1` | AutoGov Code Scan | Custom autogov static-analysis (SARIF) summary by level and security-severity |
 | `https://autogov.dev/attestation/source-review/v0.2` | AutoGov Source Review | Custom autogov PR-approval evidence (approvers, distinct approvals, changes-requested) plus fail-closed SLSA Source-L3 continuity for the source revision |
+| `https://autogov.dev/attestation/agent-governance-deployment/v0.1` | AutoGov Agent Governance Deployment | Custom autogov agent-governance deployment evidence binding an agent artifact to immutable runtime, adapter, runtime-policy, enforcement, identity, audit, and bounded conformance evidence (experimental; see `examples/agent-governance/`) |
 | `https://in-toto.io/attestation/scai/v0.3` | SCAI Report | Software supply chain attribute integrity assertions |
 | `https://in-toto.io/attestation/runtime-trace/v0.1` | Runtime Trace | Runtime traces of supply chain operations |
 | `https://in-toto.io/attestation/release/v0.1` | Release | Release version and artifact hash linkage |

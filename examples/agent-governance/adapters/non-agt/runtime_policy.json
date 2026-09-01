@@ -1,0 +1,22 @@
+{
+  "name": "toy-write-marker-policy",
+  "default_action": "deny",
+  "rules": [
+    {
+      "name": "allow-sanctioned-write-marker",
+      "tool_name": "write-marker",
+      "field": "purpose",
+      "equals": "sanctioned-write",
+      "action": "allow",
+      "priority": 10
+    },
+    {
+      "name": "deny-blocked-write-marker",
+      "tool_name": "write-marker",
+      "field": "purpose",
+      "equals": "blocked-write",
+      "action": "deny",
+      "priority": 10
+    }
+  ]
+}

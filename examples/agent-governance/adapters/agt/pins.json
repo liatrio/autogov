@@ -1,0 +1,23 @@
+{
+  "package": "agent-governance-toolkit-core",
+  "version": "4.1.0",
+  "python": "3.13",
+  "wheel": {
+    "filename": "agent_governance_toolkit_core-4.1.0-py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/e2/39/9cd208a12e431307737893d5289d0290286c7c9084396ee96421fc27d188/agent_governance_toolkit_core-4.1.0-py3-none-any.whl",
+    "sha256": "e14a09eceaa88d3f5d572b09643138d95b1d6c349a6e23e5b222f3c0192cec1f"
+  },
+  "sourceTag": "v4.1.0",
+  "sourceTagCommit": "0de71ca6c95cf8b9b975ac96f48eaa7826bbe258",
+  "sbom": {
+    "cyclonedx": {
+      "asset": "sbom.cdx.json",
+      "sha256": "07b5387905a780d39a3fbd88b9949cf7e1139c61e602ba58178f77797b886cb9"
+    },
+    "spdx": {
+      "asset": "sbom.spdx.json",
+      "sha256": "fdc1d9632e3c83a1682216573967ee3f0ed2e0fd91e941b46992f03aa837c692"
+    }
+  },
+  "provenanceGap": "the AGT v4.1.0 release workflow attests the source archive and SBOM assets; the PyPI wheel itself is not directly attested. this gap is recorded as-is and must never be upgraded into a verified wheel-provenance claim."
+}

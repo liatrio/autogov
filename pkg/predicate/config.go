@@ -26,6 +26,9 @@ var embeddedCodeScanSchema string
 //go:embed schemas/source-review-schema.json
 var embeddedSourceReviewSchema string
 
+//go:embed schemas/agent-governance-deployment-schema.json
+var embeddedAgentGovernanceDeploymentSchema string
+
 // PolicyRepo represents policy repository configuration.
 type PolicyRepo struct {
 	Owner string
@@ -65,6 +68,8 @@ func getEmbeddedSchema(schemaName string) string {
 		return embeddedCodeScanSchema
 	case "source-review-schema.json":
 		return embeddedSourceReviewSchema
+	case "agent-governance-deployment-schema.json":
+		return embeddedAgentGovernanceDeploymentSchema
 	default:
 		return ""
 	}
@@ -114,7 +119,13 @@ func ValidateJSON(data []byte, schemaName string) error {
 	if err != nil {
 		return err
 	}
+	return validateJSONAgainstSchema(data, schemaContent)
+}
 
+// validateJSONAgainstSchema validates JSON data against the given schema
+// content. When the schema wraps a full in-toto Statement, its predicate
+// object is extracted so predicate bodies validate directly.
+func validateJSONAgainstSchema(data []byte, schemaContent string) error {
 	var schema map[string]interface{}
 	if err := json.Unmarshal([]byte(schemaContent), &schema); err != nil {
 		return fmt.Errorf("failed to parse schema: %w", err)
@@ -124,6 +135,13 @@ func ValidateJSON(data []byte, schemaName string) error {
 	if props, ok := schema["properties"].(map[string]interface{}); ok {
 		if predicateObj, ok := props["predicate"].(map[string]interface{}); ok {
 			predicateSchema = predicateObj
+			// carry shared definitions into the extracted predicate schema so
+			// $ref pointers (e.g. #/definitions/digest) keep resolving
+			if defs, ok := schema["definitions"]; ok {
+				if _, exists := predicateSchema["definitions"]; !exists {
+					predicateSchema["definitions"] = defs
+				}
+			}
 		}
 	}
 
@@ -174,4 +192,12 @@ func ValidateCodeScan(data []byte) error {
 // ValidateSourceReview validates source-review attestation data against its schema.
 func ValidateSourceReview(data []byte) error {
 	return ValidateJSON(data, "source-review-schema.json")
+}
+
+// ValidateAgentGovernanceDeployment validates agent-governance deployment
+// predicate data against the embedded schema only. The experimental spike
+// schema deliberately does not live in the policy library, so no remote
+// fetch is attempted and validation stays deterministic and offline.
+func ValidateAgentGovernanceDeployment(data []byte) error {
+	return validateJSONAgainstSchema(data, embeddedAgentGovernanceDeploymentSchema)
 }
