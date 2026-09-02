@@ -11,8 +11,11 @@ governed tool, emit the same runtime-neutral JSON evidence contract, and are
 enforced through Auto Gov's **existing** offline path:
 
 ```text
-producer evidence JSON
-  -> autogov predicate agent-governance-deployment   (deterministic predicate body)
+producer evidence JSON (unbound test-result digest)
+  -> demo/signing helper normalizes evidence, builds the standard test-result
+     payload, and binds its exact payload digest into the deployment evidence
+  -> autogov predicate agent-governance-deployment   (deterministic predicate body;
+     the demo also exercises this real CLI after the evidence is complete)
   -> signed in-toto deployment statement + separately signed standard
      test-result statement (demo signing helper, local demonstration CA)
   -> autogov offline (Sigstore verification)
@@ -52,6 +55,10 @@ the allowed, denied, bypassed, and no-policy cases — plus a failing
   source archive and SBOM assets; the PyPI wheel itself is not directly
   attested. That gap is recorded in `adapters/agt/pins.json` and is never
   upgraded into a verified wheel-provenance claim.
+- **Identifier, not a hosted schema.** The custom predicate-type URI is an
+  identifier in an in-toto statement; it is not fetched or dereferenced. The
+  embedded schema is checked in at
+  `pkg/predicate/schemas/agent-governance-deployment-schema.json`.
 
 ## layout
 
@@ -89,7 +96,14 @@ Re-verify all pins against their official sources (network required):
 ```
 
 A mismatch or missing artifact is a hard stop — never substitute `latest`,
-`main`, or a 5.0/ACS artifact.
+`main`, or a 5.0/ACS artifact. `setup.sh` installs the exact locally verified
+core wheel first, records that wheel's identity in the isolated venv, and the
+producer rechecks the receipt, hashes installed core files against `RECORD`
+from that verified wheel, isolates bytecode, and binds core imports to those
+verified files before emitting evidence. Hash-locked transitive wheels are
+still trusted through pip's `--require-hashes` installation; the producer does
+not independently rehash or import-bind their installed files, so that
+transitive provenance limitation remains explicit.
 
 ## run the demonstration
 
@@ -108,14 +122,16 @@ The demo prints one row per case. Expected: `PASSED`, `PASSED`, `FAILED`,
 `FAILED` per producer with exit code 0 for the two admissible cases and a
 non-zero enforcing exit (after the failed VSA JSON is written) for the rest;
 the `unknown-outcome*` negative also fails. The demo exits non-zero if any
-observed result differs. Pass `-workdir <dir> -keep` to inspect the signed
-bundles, trusted root, predicate bodies, and VSA JSON files; by default the
-temporary working directory is removed on exit.
+observed result differs. Pass `-workdir <dir>` to create or reuse a retained
+directory for the signed bundles, trusted root, predicate bodies, and VSA JSON
+files. By default the temporary working directory is removed on exit; pass
+`-keep` only to retain that automatically created temporary directory.
 
-Equivalent focused tests (no binary needed):
+Equivalent focused tests (no prebuilt binary needed; the demo test builds an
+isolated binary itself):
 
 ```bash
-go test ./pkg/predicate ./pkg/attestations ./cmd/predicate ./pkg/offline ./pkg/vsa ./examples/agent-governance/demokit
+go test ./pkg/predicate ./pkg/attestations ./cmd/predicate ./pkg/offline ./pkg/vsa ./examples/agent-governance/demokit ./examples/agent-governance/policy ./examples/agent-governance/cmd/demo
 ```
 
 Repository-wide verification:
@@ -130,9 +146,11 @@ task build
 ## regenerating producer evidence
 
 The evidence under `fixtures/evidence/` is committed and deterministic
-(timestamps are pinned by each harness), and
-`demokit/fixtures_test.go` fails if it drifts from the committed fixture
-bytes. To regenerate:
+(timestamps are pinned by each harness). `demokit/fixtures_test.go` verifies
+that the committed evidence and redacted records bind the committed fixture
+files by digest; it does not execute either producer or prove a regenerated
+file byte-for-byte. After regeneration, run the focused tests and review the
+fixture diff. To regenerate:
 
 ```bash
 # non-AGT producer (python 3 stdlib only)
@@ -186,8 +204,8 @@ stronger state than its evidence supports.
 
 ## cleanup
 
-- The demo's working directory is temporary and removed on exit (unless
-  `-keep`).
+- The demo's automatically created working directory is removed on exit unless
+  `-keep` is set. A caller-supplied `-workdir` is always retained.
 - Producer harnesses remove their own `write-marker` temporary directories.
 - The AGT fixture is fully contained in
   `examples/agent-governance/adapters/agt/.venv` and `.wheels`; delete those

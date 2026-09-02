@@ -203,6 +203,9 @@ func logVerificationSummary(result *VerificationResult) {
 // bundleToOPA converts a verified attestation's bundle into the OPA DSSE map
 // shape, returning false when the bundle has no usable envelope.
 func bundleToOPA(b *bundle.Bundle) (map[string]interface{}, bool) {
+	if b == nil || b.Bundle == nil {
+		return nil, false
+	}
 	envelope, err := b.Envelope()
 	if err != nil || envelope == nil {
 		return nil, false
@@ -219,39 +222,49 @@ func bundleToOPA(b *bundle.Bundle) (map[string]interface{}, bool) {
 // list, VSA subjects, OPA bundle inputs, and the input-attestation resource
 // descriptors that bind each verified statement's exact payload digest into
 // the generated VSA (standard SLSA VSA inputAttestations).
-func buildVSAInputs(result *VerificationResult, bundles []*bundle.Bundle) (attestationTypes []string, vsaSubjects []vsa.VSASubject, bundlesForOPA []map[string]interface{}, inputAttestations []vsa.ResourceDescriptor) {
+func buildVSAInputs(result *VerificationResult, bundles []*bundle.Bundle) (attestationTypes []string, vsaSubjects []vsa.VSASubject, bundlesForOPA []map[string]interface{}, inputAttestations []vsa.ResourceDescriptor, err error) {
 	// builds VSA subjects from verified attestations and convert for OPA
 	subjectsMap := make(map[string]vsa.VSASubject)
 
 	for i, attestation := range result.Attestations {
-		if attestation.Verified && attestation.Subject != nil {
-			attestationTypes = append(attestationTypes, attestation.Type)
+		if !attestation.Verified {
+			continue
+		}
+		if attestation.Subject == nil {
+			return nil, nil, nil, nil, fmt.Errorf("verified attestation %d has no subject", i)
+		}
+		if i >= len(bundles) {
+			return nil, nil, nil, nil, fmt.Errorf("verified attestation %d has no matching bundle", i)
+		}
 
-			// creates VSA subject from attestation subject
-			subjectKey := attestation.Subject.Name
-			if existing, ok := subjectsMap[subjectKey]; ok {
-				// merges digests if subject already exists
-				for alg, digest := range attestation.Subject.Digest {
-					existing.Digest[alg] = digest
-				}
-				subjectsMap[subjectKey] = existing
-			} else {
-				subjectsMap[subjectKey] = vsa.VSASubject{
-					URI:    attestation.Subject.Name,
-					Digest: attestation.Subject.Digest,
-				}
+		// each VSA fact is admitted atomically: a verified result must have a
+		// usable OPA envelope and a self-consistent statement descriptor before
+		// its type/subject can affect the generated VSA.
+		opaBundle, opaOK := bundleToOPA(bundles[i])
+		descriptor, descriptorOK := bundleInputDescriptor(bundles[i])
+		if !opaOK {
+			return nil, nil, nil, nil, fmt.Errorf("verified attestation %d cannot be represented for policy evaluation", i)
+		}
+		if !descriptorOK {
+			return nil, nil, nil, nil, fmt.Errorf("verified attestation %d cannot be bound into VSA inputs", i)
+		}
+
+		attestationTypes = append(attestationTypes, attestation.Type)
+		bundlesForOPA = append(bundlesForOPA, opaBundle)
+		inputAttestations = append(inputAttestations, descriptor)
+
+		// creates VSA subject from attestation subject
+		subjectKey := attestation.Subject.Name
+		if existing, ok := subjectsMap[subjectKey]; ok {
+			// merges digests if subject already exists
+			for alg, digest := range attestation.Subject.Digest {
+				existing.Digest[alg] = digest
 			}
-
-			// processes bundles for OPA
-			if i < len(bundles) {
-				if opaBundle, ok := bundleToOPA(bundles[i]); ok {
-					bundlesForOPA = append(bundlesForOPA, opaBundle)
-				}
-				// bind the verified statement's exact DSSE payload digest so
-				// the VSA records which signed input statements it evaluated
-				if descriptor, ok := bundleInputDescriptor(bundles[i]); ok {
-					inputAttestations = append(inputAttestations, descriptor)
-				}
+			subjectsMap[subjectKey] = existing
+		} else {
+			subjectsMap[subjectKey] = vsa.VSASubject{
+				URI:    attestation.Subject.Name,
+				Digest: attestation.Subject.Digest,
 			}
 		}
 	}
@@ -261,19 +274,23 @@ func buildVSAInputs(result *VerificationResult, bundles []*bundle.Bundle) (attes
 		vsaSubjects = append(vsaSubjects, subject)
 	}
 
-	return attestationTypes, vsaSubjects, bundlesForOPA, inputAttestations
+	return attestationTypes, vsaSubjects, bundlesForOPA, inputAttestations, nil
 }
 
 // bundleInputDescriptor builds the VSA inputAttestations descriptor for one
-// verified bundle: its predicate type URI plus the SHA-256 of the exact
-// in-toto statement bytes in the DSSE payload.
+// verified bundle: a stable URI identifying the exact in-toto statement plus
+// the SHA-256 of its DSSE payload bytes. predicate type remains a type, not a
+// resource locator, and is recorded separately in the VSA verification facts.
 //
-// Both halves are read from the same bundle on purpose. Callers pair an
-// attestation result with a bundle by slice index, and the multi-file
-// directory path can hand those two slices out of step, so taking the type
-// from the caller's attestation would let a descriptor bind one statement's
-// type to another statement's bytes.
+// the payload is parsed to require a typed in-toto statement, while both the
+// resource URI and digest are derived from those same bytes. callers currently
+// pair attestation results and bundles by slice index; making the descriptor
+// self-identifying prevents that separate, pre-existing alignment hazard from
+// cross-wiring the descriptor itself.
 func bundleInputDescriptor(b *bundle.Bundle) (vsa.ResourceDescriptor, bool) {
+	if b == nil || b.Bundle == nil {
+		return vsa.ResourceDescriptor{}, false
+	}
 	envelope, err := b.Envelope()
 	if err != nil || envelope == nil || envelope.Payload == "" {
 		return vsa.ResourceDescriptor{}, false
@@ -289,9 +306,10 @@ func bundleInputDescriptor(b *bundle.Bundle) (vsa.ResourceDescriptor, bool) {
 		return vsa.ResourceDescriptor{}, false
 	}
 	sum := sha256.Sum256(payload)
+	digest := hex.EncodeToString(sum[:])
 	return vsa.ResourceDescriptor{
-		URI:    statement.PredicateType,
-		Digest: map[string]string{"sha256": hex.EncodeToString(sum[:])},
+		URI:    fmt.Sprintf("urn:attestation:sha256:%s", digest),
+		Digest: map[string]string{"sha256": digest},
 	}, true
 }
 
@@ -354,7 +372,10 @@ func generateOfflineVSA(cmd *cobra.Command, f runCommandFlags, artifactPath stri
 	bundles := verifier.Bundles()
 
 	// attestation types and create VSA subjects (also converted for OPA)
-	attestationTypes, vsaSubjects, bundlesForOPA, inputAttestations := buildVSAInputs(result, bundles)
+	attestationTypes, vsaSubjects, bundlesForOPA, inputAttestations, err := buildVSAInputs(result, bundles)
+	if err != nil {
+		return fmt.Errorf("failed to build coherent VSA inputs: %w", err)
+	}
 
 	// uses blob path or digest for main subject if no attestation subjects
 	if len(vsaSubjects) == 0 {

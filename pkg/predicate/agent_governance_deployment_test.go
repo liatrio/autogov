@@ -216,6 +216,42 @@ func TestAgentGovernanceDeploymentCaseOrdering(t *testing.T) {
 	}
 }
 
+func TestAgentGovernanceDeploymentGenerateDeterministicCollectionsAndExtensions(t *testing.T) {
+	buildEquivalent := func(reverse bool) *AgentGovernanceDeployment {
+		d := validAgentGovernanceDeployment()
+		denied := validAllowedCase()
+		denied.ID = "denied-action-001"
+		denied.Kind = AgentGovernanceCaseDeniedAction
+		denied.Decision.Verdict = AgentGovernanceVerdictDeny
+		denied.Outcome.Result = AgentGovernanceResultBlocked
+		denied.TestResult.TestID = denied.ID
+		if reverse {
+			d.Conformance.Cases = []AgentGovernanceCase{denied, validAllowedCase()}
+			d.Enforcement.RequiredInterventionPoints = []string{"tool.z", "tool.pre"}
+			d.Enforcement.ObservedInterventionPoints = []string{"tool.z", "tool.pre"}
+			d.Extensions = map[string]json.RawMessage{
+				"https://example.com/extensions/a": json.RawMessage(`{"b":2,"a":1}`),
+				"https://example.com/extensions/b": json.RawMessage(`[{"z":0,"a":1}]`),
+			}
+		} else {
+			d.Conformance.Cases = []AgentGovernanceCase{validAllowedCase(), denied}
+			d.Enforcement.RequiredInterventionPoints = []string{"tool.pre", "tool.z"}
+			d.Enforcement.ObservedInterventionPoints = []string{"tool.pre", "tool.z"}
+			d.Extensions = map[string]json.RawMessage{
+				"https://example.com/extensions/b": json.RawMessage(`[{"a":1,"z":0}]`),
+				"https://example.com/extensions/a": json.RawMessage(`{"a":1,"b":2}`),
+			}
+		}
+		return d
+	}
+
+	left := mustGenerate(t, buildEquivalent(false))
+	right := mustGenerate(t, buildEquivalent(true))
+	if !bytes.Equal(left, right) {
+		t.Errorf("equivalent shuffled collections/extensions produced different bytes:\n%s\n---\n%s", left, right)
+	}
+}
+
 func TestAgentGovernanceDeploymentSemanticRejections(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -251,6 +287,11 @@ func TestAgentGovernanceDeploymentSemanticRejections(t *testing.T) {
 			name:    "non-allowlisted artifact scheme",
 			mutate:  func(d *AgentGovernanceDeployment) { d.Runtime.Artifact.URI = "ftp://example.com/runtime" },
 			wantErr: "scheme",
+		},
+		{
+			name:    "authority-less artifact URI",
+			mutate:  func(d *AgentGovernanceDeployment) { d.Runtime.Artifact.URI = "https:runtime" },
+			wantErr: "authority",
 		},
 		{
 			name: "duplicate case ids",
@@ -294,6 +335,13 @@ func TestAgentGovernanceDeploymentSemanticRejections(t *testing.T) {
 				d.Conformance.Cases[0].Decision.ObservedAt = "2026-08-26T19:59:59Z"
 			},
 			wantErr: "within the case interval",
+		},
+		{
+			name: "fractional observedAt cannot be truncated into interval",
+			mutate: func(d *AgentGovernanceDeployment) {
+				d.Conformance.Cases[0].Decision.ObservedAt = "2026-08-26T20:00:01.500Z"
+			},
+			wantErr: "fractional seconds",
 		},
 		{
 			name: "unknown verdict with observed state",
@@ -343,6 +391,16 @@ func TestAgentGovernanceDeploymentSemanticRejections(t *testing.T) {
 			wantErr: "allowed-action contradicts",
 		},
 		{
+			name: "denied-action contradicts observed allow",
+			mutate: func(d *AgentGovernanceDeployment) {
+				c := &d.Conformance.Cases[0]
+				c.Kind = AgentGovernanceCaseDeniedAction
+				c.Decision.Verdict = AgentGovernanceVerdictAllow
+				c.Outcome.Result = AgentGovernanceResultBlocked
+			},
+			wantErr: "denied-action contradicts",
+		},
+		{
 			name: "no-policy-loaded contradicts loaded policy",
 			mutate: func(d *AgentGovernanceDeployment) {
 				c := &d.Conformance.Cases[0]
@@ -372,11 +430,39 @@ func TestAgentGovernanceDeploymentSemanticRejections(t *testing.T) {
 			wantErr: "control characters",
 		},
 		{
+			name: "unicode control characters in name",
+			mutate: func(d *AgentGovernanceDeployment) {
+				d.Runtime.Name = "bad\u0085name"
+			},
+			wantErr: "control characters",
+		},
+		{
 			name: "invalid redacted reference",
 			mutate: func(d *AgentGovernanceDeployment) {
 				d.Identity.Subject.ID = "workload-1"
 			},
 			wantErr: "identity.subject.id",
+		},
+		{
+			name: "invalid percent escape in artifact URI",
+			mutate: func(d *AgentGovernanceDeployment) {
+				d.Runtime.Artifact.URI = "urn:%zz"
+			},
+			wantErr: "percent-encoding",
+		},
+		{
+			name: "malformed bracketed artifact authority",
+			mutate: func(d *AgentGovernanceDeployment) {
+				d.Runtime.Artifact.URI = "https://[broken"
+			},
+			wantErr: "absolute URI",
+		},
+		{
+			name: "uppercase artifact URI scheme",
+			mutate: func(d *AgentGovernanceDeployment) {
+				d.Runtime.Artifact.URI = "HTTPS://registry.example/runtime"
+			},
+			wantErr: "lowercase",
 		},
 		{
 			name: "extensions too many keys",
@@ -412,6 +498,56 @@ func TestAgentGovernanceDeploymentSemanticRejections(t *testing.T) {
 				}
 			},
 			wantErr: "4096",
+		},
+		{
+			name: "extensions total value size too large",
+			mutate: func(d *AgentGovernanceDeployment) {
+				d.Extensions = map[string]json.RawMessage{}
+				for i := 0; i < 5; i++ {
+					d.Extensions[fmt.Sprintf("https://example.com/ext/%d", i)] = json.RawMessage(`"` + strings.Repeat("x", 3300) + `"`)
+				}
+			},
+			wantErr: "16384",
+		},
+		{
+			name: "extensions object too wide",
+			mutate: func(d *AgentGovernanceDeployment) {
+				members := make([]string, 17)
+				for i := range members {
+					members[i] = fmt.Sprintf(`"k%d":%d`, i, i)
+				}
+				d.Extensions = map[string]json.RawMessage{
+					"https://example.com/ext": json.RawMessage(`{` + strings.Join(members, ",") + `}`),
+				}
+			},
+			wantErr: "16 members",
+		},
+		{
+			name: "extensions array too wide",
+			mutate: func(d *AgentGovernanceDeployment) {
+				d.Extensions = map[string]json.RawMessage{
+					"https://example.com/ext": json.RawMessage(`[` + strings.Repeat("0,", 16) + `0]`),
+				}
+			},
+			wantErr: "16 items",
+		},
+		{
+			name: "extensions key too long",
+			mutate: func(d *AgentGovernanceDeployment) {
+				d.Extensions = map[string]json.RawMessage{
+					"https://example.com/" + strings.Repeat("x", 240): json.RawMessage(`1`),
+				}
+			},
+			wantErr: "256 bytes",
+		},
+		{
+			name: "extensions malformed raw JSON",
+			mutate: func(d *AgentGovernanceDeployment) {
+				d.Extensions = map[string]json.RawMessage{
+					"https://example.com/ext": json.RawMessage(`{"broken":`),
+				}
+			},
+			wantErr: "valid JSON",
 		},
 	}
 
@@ -462,6 +598,91 @@ func TestParseAgentGovernanceEvidenceRejectsAggregateClaims(t *testing.T) {
 	}
 }
 
+// producer evidence is decoded before the signing helper fills the one
+// deferred linkage field (testResult.statementDigest). every other required
+// member must be present: Go's zero values must not fabricate a no-policy
+// observation when a producer omitted count or loaded.
+func TestParseAgentGovernanceEvidenceRejectsMissingRequiredMembers(t *testing.T) {
+	base := validAgentGovernanceDeployment()
+	raw, err := json.Marshal(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, field := range []string{"count", "loaded"} {
+		t.Run("runtimePolicy."+field, func(t *testing.T) {
+			var body map[string]interface{}
+			if err := json.Unmarshal(raw, &body); err != nil {
+				t.Fatal(err)
+			}
+			delete(body["runtimePolicy"].(map[string]interface{}), field)
+			mutated, err := json.Marshal(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ParseAgentGovernanceEvidence(mutated); err == nil {
+				t.Errorf("missing runtimePolicy.%s was accepted", field)
+			}
+		})
+	}
+
+	t.Run("null runtimePolicy facts", func(t *testing.T) {
+		var body map[string]interface{}
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Fatal(err)
+		}
+		policy := body["runtimePolicy"].(map[string]interface{})
+		policy["count"] = nil
+		policy["loaded"] = nil
+		mutated, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ParseAgentGovernanceEvidence(mutated); err == nil {
+			t.Error("null runtimePolicy facts were decoded as fabricated zero values")
+		}
+	})
+
+	t.Run("null required array", func(t *testing.T) {
+		var body map[string]interface{}
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Fatal(err)
+		}
+		body["enforcement"].(map[string]interface{})["observedInterventionPoints"] = nil
+		mutated, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ParseAgentGovernanceEvidence(mutated); err == nil {
+			t.Error("null required array was accepted")
+		}
+	})
+}
+
+func TestAgentGovernanceExtensionDepthAllowsFourContainers(t *testing.T) {
+	d := validAgentGovernanceDeployment()
+	d.Extensions = map[string]json.RawMessage{
+		"https://example.com/ext": json.RawMessage(`{"a":{"b":{"c":{"d":1}}}}`),
+	}
+	if _, err := d.Generate(); err != nil {
+		t.Fatalf("four nested extension containers were rejected: %v", err)
+	}
+}
+
+func TestAgentGovernanceValidationDoesNotEchoUnvalidatedCaseID(t *testing.T) {
+	d := validAgentGovernanceDeployment()
+	secret := "untrusted\ncase-id"
+	d.Conformance.Cases[0].ID = secret
+	d.Conformance.Cases[0].TestResult.TestID = secret
+	_, err := d.Generate()
+	if err == nil {
+		t.Fatal("invalid case id was accepted")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("validation error echoed the unvalidated case id: %q", err)
+	}
+}
+
 // the JSON schema independently rejects structural violations.
 func TestAgentGovernanceSchemaRejections(t *testing.T) {
 	valid := mustGenerate(t, validAgentGovernanceDeployment())
@@ -496,6 +717,39 @@ func TestAgentGovernanceSchemaRejections(t *testing.T) {
 			cases := m["conformance"].(map[string]interface{})["cases"].([]interface{})
 			cases[0].(map[string]interface{})["startedAt"] = "2026-08-26 20:00:00"
 		}},
+		{"malformed agent URI", func(m map[string]interface{}) {
+			m["agent"].(map[string]interface{})["uri"] = "not a URI"
+		}},
+		{"hostless https agent URI", func(m map[string]interface{}) {
+			m["agent"].(map[string]interface{})["uri"] = "https:anything"
+		}},
+		{"malformed identity provider URI", func(m map[string]interface{}) {
+			m["identity"].(map[string]interface{})["providerUri"] = "not a URI"
+		}},
+		{"hostless oci identity provider URI", func(m map[string]interface{}) {
+			m["identity"].(map[string]interface{})["providerUri"] = "oci:anything"
+		}},
+		{"hostless https artifact URI", func(m map[string]interface{}) {
+			m["runtime"].(map[string]interface{})["artifact"].(map[string]interface{})["uri"] = "https:runtime"
+		}},
+		{"control character in artifact URI", func(m map[string]interface{}) {
+			m["runtime"].(map[string]interface{})["artifact"].(map[string]interface{})["uri"] = "urn:runtime\x00injected"
+		}},
+		{"invalid percent escape in artifact URI", func(m map[string]interface{}) {
+			m["runtime"].(map[string]interface{})["artifact"].(map[string]interface{})["uri"] = "urn:%zz"
+		}},
+		{"malformed bracketed artifact authority", func(m map[string]interface{}) {
+			m["runtime"].(map[string]interface{})["artifact"].(map[string]interface{})["uri"] = "https://[broken"
+		}},
+		{"uppercase artifact URI scheme", func(m map[string]interface{}) {
+			m["runtime"].(map[string]interface{})["artifact"].(map[string]interface{})["uri"] = "HTTPS://registry.example/runtime"
+		}},
+		{"unicode control character in runtime name", func(m map[string]interface{}) {
+			m["runtime"].(map[string]interface{})["name"] = "runtime\u0085injected"
+		}},
+		{"non-URI extension key", func(m map[string]interface{}) {
+			m["extensions"] = map[string]interface{}{"notauri": map[string]interface{}{}}
+		}},
 		{"over-bound cases array", func(m map[string]interface{}) {
 			conformance := m["conformance"].(map[string]interface{})
 			cases := conformance["cases"].([]interface{})
@@ -510,6 +764,12 @@ func TestAgentGovernanceSchemaRejections(t *testing.T) {
 
 	if err := ValidateAgentGovernanceDeployment(valid); err != nil {
 		t.Fatalf("valid predicate failed schema validation: %v", err)
+	}
+	validPercentEscape := mutate(t, func(m map[string]interface{}) {
+		m["runtime"].(map[string]interface{})["artifact"].(map[string]interface{})["uri"] = "https://registry.example:443/runtime%20artifact"
+	})
+	if err := ValidateAgentGovernanceDeployment(validPercentEscape); err != nil {
+		t.Fatalf("valid percent-encoded artifact URI failed schema validation: %v", err)
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -541,6 +801,23 @@ func TestGenerateAgentGovernanceDeploymentNoPartialFile(t *testing.T) {
 	}
 	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
 		t.Errorf("expected no partial predicate file, stat err = %v", err)
+	}
+
+	// a failed run must also preserve an existing caller-owned output rather
+	// than truncating it before all parsing and validation succeeds.
+	const existing = "previous valid output\n"
+	if err := os.WriteFile(outputPath, []byte(existing), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateAgentGovernanceDeployment(evidencePath, outputPath); err == nil {
+		t.Fatal("expected generation to fail for a malformed digest with an existing output")
+	}
+	unchanged, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(unchanged) != existing {
+		t.Errorf("failed generation changed existing output to %q", unchanged)
 	}
 
 	// and the happy path writes a file that parses

@@ -184,6 +184,14 @@ func ValidateTestResult(data []byte) error {
 	return ValidateJSON(data, "test-result-schema.json")
 }
 
+// validates a standard test-result predicate using
+// the repository-embedded schema only. demonstration artifacts must remain
+// deterministic and offline even when a caller happens to have GitHub
+// credentials configured for the production schema lookup path.
+func ValidateEmbeddedTestResult(data []byte) error {
+	return validateJSONAgainstSchema(data, embeddedTestResultSchema)
+}
+
 // ValidateCodeScan validates code-scan attestation data against its schema.
 func ValidateCodeScan(data []byte) error {
 	return ValidateJSON(data, "code-scan-schema.json")

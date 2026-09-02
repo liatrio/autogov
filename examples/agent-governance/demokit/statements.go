@@ -80,6 +80,19 @@ func BuildCase(evidencePath string) (*BuiltCase, error) {
 	if len(evidence.Conformance.Cases) != 1 {
 		return nil, fmt.Errorf("demo evidence must carry exactly one case, found %d", len(evidence.Conformance.Cases))
 	}
+	if evidence.Conformance.Cases[0].TestResult.StatementDigest != "" {
+		return nil, fmt.Errorf("demo evidence must omit testResult.statementDigest until the signing helper builds the test-result statement")
+	}
+
+	// the producer may use equivalent, non-canonical input encodings. normalize
+	// those facts before deriving the separately signed test-result subject and
+	// annotations. Normalize requires a digest-shaped linkage value, so reserve
+	// a temporary canonical placeholder until the exact payload digest exists.
+	evidence.Conformance.Cases[0].TestResult.StatementDigest = "sha256:" + strings.Repeat("0", 64)
+	if err := evidence.Normalize(); err != nil {
+		return nil, err
+	}
+	evidence.Conformance.Cases[0].TestResult.StatementDigest = ""
 
 	testResultStatement, err := BuildTestResultStatement(evidence, evidence.Conformance.Cases[0])
 	if err != nil {
@@ -193,7 +206,7 @@ func BuildTestResultStatement(evidence *pred.AgentGovernanceDeployment, c pred.A
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal test-result predicate: %w", err)
 	}
-	if err := pred.ValidateTestResult(body); err != nil {
+	if err := pred.ValidateEmbeddedTestResult(body); err != nil {
 		return nil, fmt.Errorf("test-result predicate failed schema validation: %w", err)
 	}
 

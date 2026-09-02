@@ -1,7 +1,9 @@
 package offline
 
 import (
+	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,6 +15,8 @@ import (
 	"github.com/liatrio/autogov/examples/agent-governance/demokit"
 	pred "github.com/liatrio/autogov/pkg/predicate"
 	"github.com/liatrio/autogov/pkg/vsa"
+	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"github.com/spf13/viper"
 )
 
@@ -78,6 +82,40 @@ func signBuiltCase(t *testing.T, signer *demokit.Signer, built *demokit.BuiltCas
 	testResult, err = signer.SignStatement(built.TestResultStatement)
 	if err != nil {
 		t.Fatalf("failed to sign test-result statement: %v", err)
+	}
+	return deployment, testResult
+}
+
+// a trusted signer may issue a hand-built deployment predicate. the offline
+// gate must still reject contract gaps even though signature verification
+// succeeds and the paired test-result remains byte-for-byte linked.
+func signModifiedDeployment(t *testing.T, signer *demokit.Signer, built *demokit.BuiltCase, mutate func(map[string]interface{})) (deployment, testResult []byte) {
+	t.Helper()
+	var body map[string]interface{}
+	if err := json.Unmarshal(built.PredicateBody, &body); err != nil {
+		t.Fatalf("parse predicate body: %v", err)
+	}
+	mutate(body)
+	tamperedBody, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal modified predicate body: %v", err)
+	}
+	statement, err := json.Marshal(demokit.Statement{
+		Type:          demokit.InTotoStatementType,
+		Subject:       []demokit.Subject{{Name: built.AgentName, Digest: map[string]string{"sha256": built.AgentDigestHex}}},
+		PredicateType: pred.AgentGovernanceDeploymentPredicateTypeURI,
+		Predicate:     tamperedBody,
+	})
+	if err != nil {
+		t.Fatalf("marshal modified deployment statement: %v", err)
+	}
+	deployment, err = signer.SignStatement(statement)
+	if err != nil {
+		t.Fatalf("sign modified deployment statement: %v", err)
+	}
+	testResult, err = signer.SignStatement(built.TestResultStatement)
+	if err != nil {
+		t.Fatalf("sign linked test-result statement: %v", err)
 	}
 	return deployment, testResult
 }
@@ -163,7 +201,7 @@ func TestAgentGovernanceFourCaseAdmission(t *testing.T) {
 					if runErr != nil {
 						t.Errorf("enforcing command failed for an admissible case: %v", runErr)
 					}
-					assertVSABindings(t, v, built)
+					assertVSABindings(t, v, built, deployment, testResult)
 				} else {
 					// the enforcing command exits non-zero AFTER writing the
 					// failed VSA JSON
@@ -171,6 +209,13 @@ func TestAgentGovernanceFourCaseAdmission(t *testing.T) {
 						t.Error("enforcing command succeeded for a non-admissible case")
 					}
 					assertViolationsPresent(t, v)
+					wantViolation := map[string]string{
+						"adapter-bypass":   "consequential write-marker action",
+						"no-policy-loaded": "no runtime policy loaded",
+					}[tc.name]
+					if wantViolation != "" && !violationsContain(t, v, wantViolation) {
+						t.Errorf("failed %s row lacks its kind-specific violation %q", tc.name, wantViolation)
+					}
 				}
 			})
 		}
@@ -180,12 +225,132 @@ func TestAgentGovernanceFourCaseAdmission(t *testing.T) {
 	}
 }
 
+func TestAgentGovernanceSignedStatementWithoutPredicateTypeWritesNoVSA(t *testing.T) {
+	signer, err := demokit.NewSigner(agDemoIdentity, agDemoIssuer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	built, err := demokit.BuildCase(agEvidencePath(t, "non-agt", "allowed-action"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	statement, err := json.Marshal(map[string]interface{}{
+		"_type":     demokit.InTotoStatementType,
+		"subject":   []demokit.Subject{{Name: built.AgentName, Digest: map[string]string{"sha256": built.AgentDigestHex}}},
+		"predicate": json.RawMessage(built.PredicateBody),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployment, err := signer.SignStatement(statement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testResult, err := signer.SignStatement(built.TestResultStatement)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	attestations := filepath.Join(dir, "attestations.jsonl")
+	writeBundleLines(t, attestations, deployment, testResult)
+	trustedRoot := filepath.Join(dir, "trusted-root.json")
+	rootJSON, err := signer.TrustedRootJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trustedRoot, rootJSON, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	vsaOut := filepath.Join(dir, "vsa.json")
+	runErr := runAgentGovernanceOffline(t, attestations, trustedRoot, "sha256:"+built.AgentDigestHex, vsaOut)
+	if runErr == nil {
+		t.Fatal("cryptographically valid statement without predicateType produced a VSA")
+	}
+	if !strings.Contains(runErr.Error(), "failed to build coherent VSA inputs") {
+		t.Fatalf("offline error = %v, want coherent VSA input failure", runErr)
+	}
+	if _, statErr := os.Stat(vsaOut); !os.IsNotExist(statErr) {
+		t.Fatalf("VSA output exists after input-construction failure: %v", statErr)
+	}
+}
+
+// the schema permits one to four cases per deployment. exercise two positive
+// cases through signed bundles and the full offline seam so the Rego every-case
+// loop and per-case descriptor pairing cannot become single-case-only by
+// accident.
+func TestAgentGovernanceTwoPositiveCasesAdmission(t *testing.T) {
+	signer, err := demokit.NewSigner(agDemoIdentity, agDemoIssuer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	trustedRoot := filepath.Join(dir, "trusted-root.json")
+	rootJSON, err := signer.TrustedRootJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trustedRoot, rootJSON, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	allowed, err := demokit.BuildCase(agEvidencePath(t, "non-agt", "allowed-action"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied, err := demokit.BuildCase(agEvidencePath(t, "non-agt", "denied-action"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := *allowed.Evidence
+	combined.Conformance.Cases = append(
+		[]pred.AgentGovernanceCase{},
+		allowed.Evidence.Conformance.Cases[0],
+		denied.Evidence.Conformance.Cases[0],
+	)
+	body, err := combined.Generate()
+	if err != nil {
+		t.Fatalf("generate two-case predicate: %v", err)
+	}
+	statement, err := demokit.BuildDeploymentStatement(&combined, body)
+	if err != nil {
+		t.Fatalf("build two-case deployment statement: %v", err)
+	}
+	deployment, err := signer.SignStatement(statement)
+	if err != nil {
+		t.Fatalf("sign two-case deployment: %v", err)
+	}
+	allowedTestResult, err := signer.SignStatement(allowed.TestResultStatement)
+	if err != nil {
+		t.Fatalf("sign allowed test-result: %v", err)
+	}
+	deniedTestResult, err := signer.SignStatement(denied.TestResultStatement)
+	if err != nil {
+		t.Fatalf("sign denied test-result: %v", err)
+	}
+
+	attestations := filepath.Join(dir, "two-positive-cases.jsonl")
+	writeBundleLines(t, attestations, deployment, allowedTestResult, deniedTestResult)
+	vsaOut := filepath.Join(dir, "two-positive-cases-vsa.json")
+	if err := runAgentGovernanceOffline(t, attestations, trustedRoot, "sha256:"+allowed.AgentDigestHex, vsaOut); err != nil {
+		t.Fatalf("two positive signed cases were not admitted: %v", err)
+	}
+	if got := readVSA(t, vsaOut).Predicate.VerificationResult; got != "PASSED" {
+		t.Errorf("two-case VSA = %s, want PASSED", got)
+	}
+}
+
 // assertVSABindings checks that a PASSED VSA binds the signed subject and the
-// exact payload digests of both verified input statements (which transitively
-// bind the runtime policy, adapter, decision, and outcome digests inside the
-// deployment statement).
-func assertVSABindings(t *testing.T, v *vsa.VSA, built *demokit.BuiltCase) {
+// exact payload digests extracted from the actual verified DSSE bundles. it
+// compares the signed deployment body's cross-link with the separate signed
+// test-result payload instead of comparing a builder value with the expression
+// that created it.
+func assertVSABindings(t *testing.T, v *vsa.VSA, built *demokit.BuiltCase, deploymentBundle, testResultBundle []byte) {
 	t.Helper()
+	deploymentStatement := signedBundlePayload(t, deploymentBundle)
+	testResultStatement := signedBundlePayload(t, testResultBundle)
 
 	foundSubject := false
 	for _, s := range v.Subject {
@@ -198,27 +363,98 @@ func assertVSABindings(t *testing.T, v *vsa.VSA, built *demokit.BuiltCase) {
 	}
 
 	wantDigests := map[string]string{
-		pred.AgentGovernanceDeploymentPredicateTypeURI: sha256Hex(built.DeploymentStatement),
-		pred.TestResultPredicateTypeURI:                sha256Hex(built.TestResultStatement),
+		pred.AgentGovernanceDeploymentPredicateTypeURI: sha256Hex(deploymentStatement),
+		pred.TestResultPredicateTypeURI:                sha256Hex(testResultStatement),
 	}
-	for uri, want := range wantDigests {
+	for predicateType, want := range wantDigests {
 		found := false
 		for _, ia := range v.Predicate.InputAttestations {
-			if ia.URI == uri && ia.Digest["sha256"] == want {
+			if ia.URI == "urn:attestation:sha256:"+want && ia.Digest["sha256"] == want {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("VSA inputAttestations do not bind statement %s digest %s (got %+v)", uri, want, v.Predicate.InputAttestations)
+			t.Errorf("VSA inputAttestations do not bind %s statement resource digest %s (got %+v)", predicateType, want, v.Predicate.InputAttestations)
 		}
 	}
 
-	// the test-result statement digest in the VSA equals the deployment
-	// predicate's cross-bound case.testResult.statementDigest
-	wantLink := "sha256:" + sha256Hex(built.TestResultStatement)
-	if got := built.Evidence.Conformance.Cases[0].TestResult.StatementDigest; got != wantLink {
-		t.Errorf("case statementDigest %s does not match signed statement digest %s", got, wantLink)
+	var deployment struct {
+		Predicate struct {
+			Conformance struct {
+				Cases []struct {
+					TestResult struct {
+						StatementDigest string `json:"statementDigest"`
+					} `json:"testResult"`
+				} `json:"cases"`
+			} `json:"conformance"`
+		} `json:"predicate"`
 	}
+	if err := json.Unmarshal(deploymentStatement, &deployment); err != nil {
+		t.Fatalf("signed deployment statement did not parse: %v", err)
+	}
+	if len(deployment.Predicate.Conformance.Cases) != 1 {
+		t.Fatalf("signed deployment has %d cases, want one", len(deployment.Predicate.Conformance.Cases))
+	}
+	wantLink := "sha256:" + sha256Hex(testResultStatement)
+	if got := deployment.Predicate.Conformance.Cases[0].TestResult.StatementDigest; got != wantLink {
+		t.Errorf("signed deployment case statementDigest %s does not match separate signed test-result digest %s", got, wantLink)
+	}
+}
+
+func signedBundlePayload(t *testing.T, signed []byte) []byte {
+	t.Helper()
+	b := &bundle.Bundle{}
+	if err := b.UnmarshalJSON(signed); err != nil {
+		t.Fatalf("signed bundle did not parse: %v", err)
+	}
+	envelope, err := b.Envelope()
+	if err != nil {
+		t.Fatalf("signed bundle has no DSSE envelope: %v", err)
+	}
+	payload, err := base64.StdEncoding.DecodeString(envelope.Payload)
+	if err != nil {
+		t.Fatalf("signed bundle payload did not decode: %v", err)
+	}
+	return payload
+}
+
+// signedLinkageValid evaluates the local gate's linkage rule over payloads
+// extracted from the actual signed bundles. it keeps the portability matrix
+// tied to the same signed evidence bytes later admitted through offline.
+func signedLinkageValid(t *testing.T, deploymentBundle, testResultBundle []byte) bool {
+	t.Helper()
+	policyPath := filepath.Join(agExamplesDir(t), "policy", "agent_governance.rego")
+	module, err := os.ReadFile(policyPath)
+	if err != nil {
+		t.Fatalf("read agent-governance policy: %v", err)
+	}
+	input := []interface{}{
+		map[string]interface{}{
+			"dsseEnvelope": map[string]interface{}{
+				"payload":     base64.StdEncoding.EncodeToString(signedBundlePayload(t, deploymentBundle)),
+				"payloadType": "application/vnd.in-toto+json",
+			},
+		},
+		map[string]interface{}{
+			"dsseEnvelope": map[string]interface{}{
+				"payload":     base64.StdEncoding.EncodeToString(signedBundlePayload(t, testResultBundle)),
+				"payloadType": "application/vnd.in-toto+json",
+			},
+		},
+	}
+	results, err := rego.New(
+		rego.Query(`
+			deployment := data.governance.deployment_statements[0]
+			selected_case := deployment.predicate.conformance.cases[0]
+			data.governance.linkage_valid(deployment, selected_case)
+		`),
+		rego.Module("agent_governance.rego", string(module)),
+		rego.Input(input),
+	).Eval(context.Background())
+	if err != nil {
+		t.Fatalf("evaluate signed linkage: %v", err)
+	}
+	return len(results) == 1
 }
 
 func assertViolationsPresent(t *testing.T, v *vsa.VSA) {
@@ -491,6 +727,99 @@ func TestAgentGovernanceAdversarialEvidenceFailsClosed(t *testing.T) {
 			t.Error("expected an enforcement-facts violation")
 		}
 	})
+
+	// a valid Sigstore signature alone is not an admission decision. exercise
+	// the contract rules with hand-built, separately signed predicate bodies so
+	// future changes cannot turn these load-bearing checks into dead policy.
+	t.Run("signed hand-built contract gaps", func(t *testing.T) {
+		cases := []struct {
+			name      string
+			violation string
+			mutate    func(map[string]interface{})
+		}{
+			{
+				name:      "controlled action class",
+				violation: "controlled tool",
+				mutate: func(body map[string]interface{}) {
+					tool := body["conformance"].(map[string]interface{})["controlledTool"].(map[string]interface{})
+					tool["actionClass"] = "filesystem.write.anything"
+				},
+			},
+			{
+				name:      "adapter runtime binding",
+				violation: "adapter contract version or runtime digest linkage",
+				mutate: func(body map[string]interface{}) {
+					body["adapter"].(map[string]interface{})["runtimeDigest"] = "sha256:" + strings.Repeat("f", 64)
+				},
+			},
+			{
+				name:      "required identity root",
+				violation: "missing required core fields",
+				mutate: func(body map[string]interface{}) {
+					delete(body, "identity")
+				},
+			},
+			{
+				name:      "sparse identity object",
+				violation: "nested core shape",
+				mutate: func(body map[string]interface{}) {
+					body["identity"] = map[string]interface{}{}
+				},
+			},
+			{
+				name:      "invalid default behavior",
+				violation: "default behavior",
+				mutate: func(body map[string]interface{}) {
+					body["enforcement"].(map[string]interface{})["defaultBehavior"] = "permit-all"
+				},
+			},
+			{
+				name:      "inverted timestamps",
+				violation: "case timestamps",
+				mutate: func(body map[string]interface{}) {
+					cases := body["conformance"].(map[string]interface{})["cases"].([]interface{})
+					cases[0].(map[string]interface{})["completedAt"] = "2026-08-26T19:59:59Z"
+				},
+			},
+			{
+				name:      "unexpected aggregate root",
+				violation: "unexpected predicate field",
+				mutate: func(body map[string]interface{}) {
+					body["compliant"] = true
+				},
+			},
+			{
+				name:      "duplicate case id and kind",
+				violation: "duplicate conformance case ids",
+				mutate: func(body map[string]interface{}) {
+					conformance := body["conformance"].(map[string]interface{})
+					cases := conformance["cases"].([]interface{})
+					conformance["cases"] = append(cases, cases[0])
+				},
+			},
+		}
+
+		for _, tc := range cases {
+			tc := tc
+			t.Run(tc.name, func(t *testing.T) {
+				deployment, testResult := signModifiedDeployment(t, signer, built, tc.mutate)
+				attestations := filepath.Join(dir, "hand-built-"+strings.ReplaceAll(tc.name, " ", "-")+".jsonl")
+				writeBundleLines(t, attestations, deployment, testResult)
+				vsaOut := filepath.Join(dir, "hand-built-"+strings.ReplaceAll(tc.name, " ", "-")+"-vsa.json")
+
+				if err := runAgentGovernanceOffline(t, attestations, trustedRoot, "sha256:"+built.AgentDigestHex, vsaOut); err == nil {
+					t.Error("hand-built contract gap was admitted")
+				}
+				v := readVSA(t, vsaOut)
+				if v.Predicate.VerificationResult != "FAILED" {
+					t.Errorf("VSA = %s, want FAILED", v.Predicate.VerificationResult)
+				}
+				if !violationsContain(t, v, tc.violation) {
+					t.Errorf("expected signed hand-built violation containing %q", tc.violation)
+				}
+			})
+		}
+	})
 }
 
 func violationsContain(t *testing.T, v *vsa.VSA, substring string) bool {
@@ -527,26 +856,63 @@ func TestAgentGovernanceRuntimePortabilityProjection(t *testing.T) {
 		CountZero                         bool
 		DecisionState, DecisionVerdict    string
 		OutcomeState, OutcomeResult       string
+		TestResultLinkageValid            bool
+		AdmissionResult                   string
 	}
 
-	project := func(e *pred.AgentGovernanceDeployment) projection {
+	project := func(e *pred.AgentGovernanceDeployment, linkageValid bool, admissionResult string) projection {
 		c := e.Conformance.Cases[0]
 		return projection{
-			ToolName:        e.Conformance.ControlledTool.Name,
-			ActionClass:     e.Conformance.ControlledTool.ActionClass,
-			ToolDigest:      e.Conformance.ControlledTool.Artifact.Digest,
-			Kind:            c.Kind,
-			Mode:            e.Enforcement.Mode,
-			DefaultBehavior: e.Enforcement.DefaultBehavior,
-			Required:        e.Enforcement.RequiredInterventionPoints,
-			Observed:        e.Enforcement.ObservedInterventionPoints,
-			Loaded:          e.RuntimePolicy.Loaded,
-			CountZero:       e.RuntimePolicy.Count == 0,
-			DecisionState:   c.Decision.State,
-			DecisionVerdict: c.Decision.Verdict,
-			OutcomeState:    c.Outcome.State,
-			OutcomeResult:   c.Outcome.Result,
+			ToolName:               e.Conformance.ControlledTool.Name,
+			ActionClass:            e.Conformance.ControlledTool.ActionClass,
+			ToolDigest:             e.Conformance.ControlledTool.Artifact.Digest,
+			Kind:                   c.Kind,
+			Mode:                   e.Enforcement.Mode,
+			DefaultBehavior:        e.Enforcement.DefaultBehavior,
+			Required:               e.Enforcement.RequiredInterventionPoints,
+			Observed:               e.Enforcement.ObservedInterventionPoints,
+			Loaded:                 e.RuntimePolicy.Loaded,
+			CountZero:              e.RuntimePolicy.Count == 0,
+			DecisionState:          c.Decision.State,
+			DecisionVerdict:        c.Decision.Verdict,
+			OutcomeState:           c.Outcome.State,
+			OutcomeResult:          c.Outcome.Result,
+			TestResultLinkageValid: linkageValid,
+			AdmissionResult:        admissionResult,
 		}
+	}
+
+	signer, err := demokit.NewSigner(agDemoIdentity, agDemoIssuer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	trustedRoot := filepath.Join(dir, "trusted-root.json")
+	rootJSON, err := signer.TrustedRootJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trustedRoot, rootJSON, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	admissionProjection := func(t *testing.T, producer, caseName string, built *demokit.BuiltCase) (bool, string) {
+		t.Helper()
+		deployment, testResult := signBuiltCase(t, signer, built)
+		linkageValid := signedLinkageValid(t, deployment, testResult)
+		if !linkageValid {
+			t.Fatal("the local gate could not link the signed deployment and test-result payloads")
+		}
+
+		attestations := filepath.Join(dir, producer+"-"+caseName+"-portability.jsonl")
+		writeBundleLines(t, attestations, deployment, testResult)
+		vsaOut := filepath.Join(dir, producer+"-"+caseName+"-portability-vsa.json")
+		runErr := runAgentGovernanceOffline(t, attestations, trustedRoot, "sha256:"+built.AgentDigestHex, vsaOut)
+		v := readVSA(t, vsaOut)
+		if (v.Predicate.VerificationResult == "PASSED") != (runErr == nil) {
+			t.Errorf("offline exit and VSA result disagree: result=%s error=%v", v.Predicate.VerificationResult, runErr)
+		}
+		return linkageValid, v.Predicate.VerificationResult
 	}
 
 	for _, tc := range agCaseFiles {
@@ -560,9 +926,15 @@ func TestAgentGovernanceRuntimePortabilityProjection(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			left, right := project(nonAGT.Evidence), project(agt.Evidence)
+			leftLinkage, leftAdmission := admissionProjection(t, "non-agt", tc.name, nonAGT)
+			rightLinkage, rightAdmission := admissionProjection(t, "agt", tc.name, agt)
+			left := project(nonAGT.Evidence, leftLinkage, leftAdmission)
+			right := project(agt.Evidence, rightLinkage, rightAdmission)
 			if fmt.Sprintf("%+v", left) != fmt.Sprintf("%+v", right) {
 				t.Errorf("portability projection mismatch:\nnon-agt: %+v\nagt:     %+v", left, right)
+			}
+			if left.AdmissionResult != tc.wantResult {
+				t.Errorf("portability admission result = %s, want %s", left.AdmissionResult, tc.wantResult)
 			}
 
 			// producer-specific identities and evidence digests stay distinct

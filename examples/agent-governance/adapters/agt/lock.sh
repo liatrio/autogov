@@ -12,12 +12,18 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON="${PYTHON:-python3.13}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+shopt -s nullglob
 
 "$PYTHON" -m venv "${TMP}/venv"
 "${TMP}/venv/bin/pip" download --quiet agent-governance-toolkit-core==4.1.0 -d "${TMP}/wheels"
 
 WANT_SHA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["wheel"]["sha256"])' "${HERE}/pins.json")"
-GOT_SHA="$(shasum -a 256 "${TMP}"/wheels/agent_governance_toolkit_core-4.1.0-*.whl | awk '{print $1}')"
+core_wheels=("${TMP}"/wheels/agent_governance_toolkit_core-4.1.0-*.whl)
+if [ "${#core_wheels[@]}" -ne 1 ]; then
+  echo "error: expected exactly one agent-governance-toolkit-core 4.1.0 wheel, found ${#core_wheels[@]}" >&2
+  exit 1
+fi
+GOT_SHA="$(shasum -a 256 "${core_wheels[0]}" | awk '{print $1}')"
 if [ "$GOT_SHA" != "$WANT_SHA" ]; then
   echo "error: resolved core wheel sha256 mismatch (got ${GOT_SHA}, want ${WANT_SHA})" >&2
   exit 1

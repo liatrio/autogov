@@ -14,6 +14,7 @@
 """Non-AGT producer: emits neutral agent-governance deployment evidence."""
 
 import hashlib
+import importlib.util
 import json
 import pathlib
 import sys
@@ -25,16 +26,37 @@ FIXTURES = BASE / "fixtures"
 EVIDENCE_DIR = FIXTURES / "evidence" / "non-agt"
 RECORDS_DIR = EVIDENCE_DIR / "records"
 
-sys.path.insert(0, str(FIXTURES))
-sys.path.insert(0, str(HERE))
 
-import write_marker  # noqa: E402  (fixtures/write_marker.py — the controlled tool)
-from toy_runtime import (  # noqa: E402
-    INTERVENTION_POINT,
-    RUNTIME_NAME,
-    RUNTIME_VERSION,
-    ToyRuntime,
+def load_local_source_module(name: str, path: pathlib.Path):
+    """load one hashed fixture module from its exact source path."""
+    resolved = path.resolve()
+    spec = importlib.util.spec_from_file_location(name, resolved)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"cannot load fixture module from {resolved}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
+    if pathlib.Path(module.__file__).resolve() != resolved:
+        raise SystemExit(f"fixture module origin does not match {resolved}")
+    return module
+
+
+_IMPORT_PYCACHE = tempfile.TemporaryDirectory(prefix="autogov-fixture-pycache-")
+sys.pycache_prefix = _IMPORT_PYCACHE.name
+sys.dont_write_bytecode = True
+
+write_marker = load_local_source_module(
+    "_autogov_fixture_write_marker", FIXTURES / "write_marker.py"
 )
+toy_runtime = load_local_source_module("_autogov_toy_runtime", HERE / "toy_runtime.py")
+INTERVENTION_POINT = toy_runtime.INTERVENTION_POINT
+RUNTIME_NAME = toy_runtime.RUNTIME_NAME
+RUNTIME_VERSION = toy_runtime.RUNTIME_VERSION
+ToyRuntime = toy_runtime.ToyRuntime
 
 PRODUCER = "non-agt"
 ENGINE = "toy-json-rules"

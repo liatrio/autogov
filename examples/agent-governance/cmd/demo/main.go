@@ -46,8 +46,8 @@ var cases = []caseSpec{
 func main() {
 	autogovPath := flag.String("autogov", filepath.Join("bin", "autogov"), "path to the built autogov binary")
 	examplesDir := flag.String("examples", filepath.Join("examples", "agent-governance"), "path to examples/agent-governance")
-	workdir := flag.String("workdir", "", "working directory for signed bundles and VSA output (default: a temp dir)")
-	keep := flag.Bool("keep", false, "keep the working directory instead of removing it")
+	workdir := flag.String("workdir", "", "working directory for signed bundles and VSA output (default: a temp dir; supplied directory is retained)")
+	keep := flag.Bool("keep", false, "keep an automatically created temporary working directory")
 	flag.Parse()
 
 	if err := run(*autogovPath, *examplesDir, *workdir, *keep); err != nil {
@@ -65,16 +65,11 @@ func run(autogovPath, examplesDir, workdir string, keep bool) error {
 		return err
 	}
 
-	if workdir == "" {
-		dir, err := os.MkdirTemp("", "autogov-agentgov-demo-")
-		if err != nil {
-			return err
-		}
-		workdir = dir
-		if !keep {
-			defer func() { _ = os.RemoveAll(dir) }()
-		}
+	workdir, cleanup, err := prepareWorkdir(workdir, keep)
+	if err != nil {
+		return err
 	}
+	defer cleanup()
 	fmt.Printf("working directory: %s\n", workdir)
 
 	signer, err := demokit.NewSigner(demoIdentity, demoIssuer)
@@ -112,6 +107,26 @@ func run(autogovPath, examplesDir, workdir string, keep bool) error {
 	fmt.Println("\nall cases matched: PASSED, PASSED, FAILED, FAILED per producer (plus the failing unknown-outcome negative)")
 	fmt.Println("note: the VSA JSON statements written above are unsigned; VSA signing is outside this spike")
 	return nil
+}
+
+// prepareWorkdir owns cleanup only for the temporary directory it creates.
+// a caller-supplied path is created when necessary and always remains the
+// caller's responsibility, regardless of -keep.
+func prepareWorkdir(workdir string, keep bool) (string, func(), error) {
+	if workdir != "" {
+		if err := os.MkdirAll(workdir, 0o750); err != nil {
+			return "", nil, fmt.Errorf("create working directory %s: %w", workdir, err)
+		}
+		return workdir, func() {}, nil
+	}
+	dir, err := os.MkdirTemp("", "autogov-agentgov-demo-")
+	if err != nil {
+		return "", nil, err
+	}
+	if keep {
+		return dir, func() {}, nil
+	}
+	return dir, func() { _ = os.RemoveAll(dir) }, nil
 }
 
 func runCase(autogovPath, examplesDir, workdir, trustedRootPath string, signer *demokit.Signer, producer string, tc caseSpec) (bool, error) {

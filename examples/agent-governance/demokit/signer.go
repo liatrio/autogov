@@ -44,8 +44,8 @@ type Signer struct {
 	validityEnd   time.Time
 }
 
-// oidcIssuerOID is the Fulcio OIDC issuer certificate extension.
-var oidcIssuerOID = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 1}
+// oidcIssuerV2OID is the current Fulcio OIDC issuer certificate extension.
+var oidcIssuerV2OID = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 8}
 
 // ekuOID is the X.509 Extended Key Usage extension.
 var ekuOID = asn1.ObjectIdentifier{2, 5, 29, 37}
@@ -173,6 +173,10 @@ func (s *Signer) SignStatement(statementJSON []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	issuerExtension, err := asn1.MarshalWithParams(s.issuer, "utf8")
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode Fulcio issuer extension: %w", err)
+	}
 	leafTemplate := &x509.Certificate{
 		SerialNumber:   newSerial(),
 		EmailAddresses: []string{s.identity},
@@ -182,9 +186,9 @@ func (s *Signer) SignStatement(statementJSON []byte) ([]byte, error) {
 		ExtKeyUsage:    []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
 		IsCA:           false,
 		ExtraExtensions: []pkix.Extension{{
-			Id:       oidcIssuerOID,
+			Id:       oidcIssuerV2OID,
 			Critical: false,
-			Value:    []byte(s.issuer),
+			Value:    issuerExtension,
 		}},
 	}
 	leafCert, err := createCert(leafTemplate, s.fulcioIntermediate, &leafKey.PublicKey, s.fulcioIntermediateKey)

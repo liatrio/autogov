@@ -232,6 +232,10 @@ type AgentGovernanceDeployment struct {
 // aggregate verdict (e.g. "passed"/"compliant") can never smuggle into the
 // body, and trailing data is rejected.
 func ParseAgentGovernanceEvidence(data []byte) (*AgentGovernanceDeployment, error) {
+	if err := validateAgentGovernanceEvidencePresence(data); err != nil {
+		return nil, err
+	}
+
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 
@@ -245,6 +249,102 @@ func ParseAgentGovernanceEvidence(data []byte) (*AgentGovernanceDeployment, erro
 		return nil, fmt.Errorf("invalid agent-governance evidence: trailing data after JSON document")
 	}
 	return &d, nil
+}
+
+// validateAgentGovernanceEvidencePresence rejects omitted required members
+// before decoding into Go structs. in particular, a missing false/zero member
+// must not become a fabricated no-policy observation through Go's zero-value
+// decoding. the demonstration signing helper is the sole exception: it adds
+// case.testResult.statementDigest after building the separately signed
+// test-result payload, so that one member may be absent at this boundary.
+func validateAgentGovernanceEvidencePresence(data []byte) error {
+	var value interface{}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return fmt.Errorf("invalid agent-governance evidence: %w", err)
+	}
+
+	var schema map[string]interface{}
+	if err := json.Unmarshal([]byte(embeddedAgentGovernanceDeploymentSchema), &schema); err != nil {
+		return fmt.Errorf("invalid embedded agent-governance schema: %w", err)
+	}
+	properties, ok := schema["properties"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid embedded agent-governance schema: predicate properties missing")
+	}
+	predicateSchema, ok := properties["predicate"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid embedded agent-governance schema: predicate schema missing")
+	}
+	definitions, _ := schema["definitions"].(map[string]interface{})
+	return validateRequiredEvidenceMembers(value, predicateSchema, definitions, "evidence")
+}
+
+func validateRequiredEvidenceMembers(value interface{}, schema, definitions map[string]interface{}, path string) error {
+	if value == nil {
+		return fmt.Errorf("invalid agent-governance evidence: %s must not be null", path)
+	}
+	if ref, ok := schema["$ref"].(string); ok {
+		const definitionsPrefix = "#/definitions/"
+		if !strings.HasPrefix(ref, definitionsPrefix) {
+			return fmt.Errorf("invalid embedded agent-governance schema: unsupported reference %q", ref)
+		}
+		resolved, ok := definitions[strings.TrimPrefix(ref, definitionsPrefix)].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("invalid embedded agent-governance schema: unresolved reference %q", ref)
+		}
+		return validateRequiredEvidenceMembers(value, resolved, definitions, path)
+	}
+
+	switch schema["type"] {
+	case "object":
+		object, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("invalid agent-governance evidence: %s must be an object", path)
+		}
+		required, _ := schema["required"].([]interface{})
+		for _, rawName := range required {
+			name, ok := rawName.(string)
+			if !ok {
+				return fmt.Errorf("invalid embedded agent-governance schema: non-string required member")
+			}
+			if _, present := object[name]; !present && !deferredEvidenceMember(path, name) {
+				return fmt.Errorf("invalid agent-governance evidence: missing required member %s.%s", path, name)
+			}
+		}
+		properties, _ := schema["properties"].(map[string]interface{})
+		for name, rawChildSchema := range properties {
+			child, present := object[name]
+			if !present {
+				continue
+			}
+			childSchema, ok := rawChildSchema.(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("invalid embedded agent-governance schema: invalid schema for %s.%s", path, name)
+			}
+			if err := validateRequiredEvidenceMembers(child, childSchema, definitions, path+"."+name); err != nil {
+				return err
+			}
+		}
+	case "array":
+		array, ok := value.([]interface{})
+		if !ok {
+			return fmt.Errorf("invalid agent-governance evidence: %s must be an array", path)
+		}
+		itemSchema, ok := schema["items"].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("invalid embedded agent-governance schema: items schema missing for %s", path)
+		}
+		for i, item := range array {
+			if err := validateRequiredEvidenceMembers(item, itemSchema, definitions, fmt.Sprintf("%s[%d]", path, i)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func deferredEvidenceMember(path, name string) bool {
+	return name == "statementDigest" && strings.HasSuffix(path, ".testResult")
 }
 
 // Normalize brings the predicate into canonical form before validation and
@@ -368,14 +468,19 @@ func normalizeAgentGovernanceDigest(digest string) (string, error) {
 	return strings.ToLower(digest), nil
 }
 
-// normalizeAgentGovernanceTimestamp parses an RFC3339 timestamp, converts it to
-// UTC, truncates to whole seconds, and re-emits it canonically.
+// normalizeAgentGovernanceTimestamp parses an RFC3339 timestamp, requires an
+// exact whole second, converts it to UTC, and re-emits it canonically. a
+// fractional input must not be truncated because that could move an observed
+// event inside a bounded case interval.
 func normalizeAgentGovernanceTimestamp(ts string) (string, error) {
 	parsed, err := time.Parse(time.RFC3339, ts)
 	if err != nil {
 		return "", fmt.Errorf("invalid timestamp: must be RFC3339 (canonical form %s)", agentGovernanceTimestampLayout)
 	}
-	return parsed.UTC().Truncate(time.Second).Format(agentGovernanceTimestampLayout), nil
+	if parsed.Nanosecond() != 0 {
+		return "", fmt.Errorf("invalid timestamp: fractional seconds are not allowed (canonical form %s)", agentGovernanceTimestampLayout)
+	}
+	return parsed.UTC().Format(agentGovernanceTimestampLayout), nil
 }
 
 // dedupeSortStrings deduplicates and bytewise-sorts a string slice, returning
@@ -555,14 +660,14 @@ func (d *AgentGovernanceDeployment) validateConformance() error {
 	for i := range d.Conformance.Cases {
 		c := &d.Conformance.Cases[i]
 		if _, dup := seenIDs[c.ID]; dup {
-			return fmt.Errorf("conformance.cases: duplicate case id %q", c.ID)
+			return fmt.Errorf("conformance.cases[%d].id: duplicate case id", i)
 		}
 		seenIDs[c.ID] = struct{}{}
 		if _, dup := seenKinds[c.Kind]; dup {
-			return fmt.Errorf("conformance.cases: duplicate case kind %q", c.Kind)
+			return fmt.Errorf("conformance.cases[%d].kind: duplicate case kind", i)
 		}
 		seenKinds[c.Kind] = struct{}{}
-		if err := d.validateCase(c); err != nil {
+		if err := d.validateCase(i, c); err != nil {
 			return err
 		}
 	}
@@ -571,8 +676,8 @@ func (d *AgentGovernanceDeployment) validateConformance() error {
 
 // validateCase enforces the per-case field, conditional-member, interval, and
 // contradiction rules.
-func (d *AgentGovernanceDeployment) validateCase(c *AgentGovernanceCase) error {
-	label := fmt.Sprintf("conformance.cases[id=%s]", c.ID)
+func (d *AgentGovernanceDeployment) validateCase(index int, c *AgentGovernanceCase) error {
+	label := fmt.Sprintf("conformance.cases[%d]", index)
 	if err := validateAgentGovernanceID(label+".id", c.ID); err != nil {
 		return err
 	}
@@ -761,11 +866,11 @@ func (d *AgentGovernanceDeployment) validateExtensions() error {
 
 // validateExtensionDepth bounds extension nesting depth (4) and container size (16).
 func validateExtensionDepth(v interface{}, depth int) error {
-	if depth > 4 {
-		return fmt.Errorf("extensions: nesting depth exceeds 4")
-	}
 	switch t := v.(type) {
 	case map[string]interface{}:
+		if depth > 4 {
+			return fmt.Errorf("extensions: nesting depth exceeds 4")
+		}
 		if len(t) > 16 {
 			return fmt.Errorf("extensions: object exceeds 16 members")
 		}
@@ -775,6 +880,9 @@ func validateExtensionDepth(v interface{}, depth int) error {
 			}
 		}
 	case []interface{}:
+		if depth > 4 {
+			return fmt.Errorf("extensions: nesting depth exceeds 4")
+		}
 		if len(t) > 16 {
 			return fmt.Errorf("extensions: array exceeds 16 items")
 		}
@@ -826,14 +934,30 @@ func validateAbsoluteURI(label, value string, schemes []string) error {
 	if err := validateBoundedText(label, value, 2048); err != nil {
 		return err
 	}
+	for i := 0; i < len(value); i++ {
+		if value[i] != '%' {
+			continue
+		}
+		if i+2 >= len(value) || !isHexByte(value[i+1]) || !isHexByte(value[i+2]) {
+			return fmt.Errorf("%s: contains invalid URI percent-encoding", label)
+		}
+		i += 2
+	}
 	parsed, err := url.Parse(value)
 	if err != nil || !parsed.IsAbs() {
 		return fmt.Errorf("%s: must be an absolute URI", label)
+	}
+	if (parsed.Scheme == "https" || parsed.Scheme == "oci") && parsed.Host == "" {
+		return fmt.Errorf("%s: URI scheme %q requires an authority", label, parsed.Scheme)
 	}
 	if schemes != nil && !slices.Contains(schemes, parsed.Scheme) {
 		return fmt.Errorf("%s: URI scheme must be one of %s", label, strings.Join(schemes, ", "))
 	}
 	return nil
+}
+
+func isHexByte(value byte) bool {
+	return value >= '0' && value <= '9' || value >= 'a' && value <= 'f' || value >= 'A' && value <= 'F'
 }
 
 // validateCanonicalDigest requires the canonical lowercase sha256:<64-hex> form.
@@ -857,6 +981,10 @@ func validateAgentGovernanceID(label, value string) error {
 func validateArtifactReference(label string, ref AgentGovernanceArtifactReference) error {
 	if err := validateAbsoluteURI(label+".uri", ref.URI, []string{"https", "oci", "urn"}); err != nil {
 		return err
+	}
+	schemeEnd := strings.IndexByte(ref.URI, ':')
+	if schemeEnd < 0 || ref.URI[:schemeEnd] != strings.ToLower(ref.URI[:schemeEnd]) {
+		return fmt.Errorf("%s.uri: artifact URI scheme must be lowercase", label)
 	}
 	return validateCanonicalDigest(label+".digest", ref.Digest)
 }

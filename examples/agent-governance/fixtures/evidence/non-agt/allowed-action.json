@@ -1,7 +1,7 @@
 {
   "adapter": {
     "artifact": {
-      "digest": "sha256:f6eb309966f04592b098bf8a7479f5841b99e11599d88c8861792606ff454304",
+      "digest": "sha256:87531b9e783dd7f0b050ab9736b8f337e59ae58dedd4276527b562cb3bc418c0",
       "uri": "urn:autogov:example:agent-governance:non-agt:adapter:0.1"
     },
     "contractVersion": "0.1",
