@@ -1,0 +1,346 @@
+{
+  "schemaVersion": "1",
+  "baselineCommit": "c11a1b0fbe02de266ba11963abedd0d07f427be9",
+  "entries": [
+    {
+      "kind": "frozen-input",
+      "name": "adapters/agt/lock.sh",
+      "sha256": "d5ecb1ce135e7b5fdcd72811d85bde8f53c81c615c8c3d2de49637531ebeece1"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "adapters/agt/pins.json",
+      "sha256": "a2bb8657e33b238d7c131838e87aa4322755ec04775e7eebe75e2f131d1d17c8"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "adapters/agt/producer.py",
+      "sha256": "d5c917e305d42c3b7f59c42a54a04b43a2ab40f6d1bcb81d9f931d20b2dbe626"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "adapters/agt/requirements.lock.txt",
+      "sha256": "c6f5fc91388d8fa2ccfad6503a2082e5ac94b646e2df9aa1beb34f7b2103f646"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "adapters/agt/runtime_policy.yaml",
+      "sha256": "5444ca7781cce3bed4236ee405c7fc0d2db9fe086f9e8d99c5bbaa1fcf5dec6c"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "adapters/agt/setup.sh",
+      "sha256": "52d57e1de86e3467659ad158f0086e826732cb1dee988120aea40feeca26390a"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "adapters/agt/verify_pins.sh",
+      "sha256": "56ea0c69c809fc8c1fa20d08368a48b84856ac6fb4745fc05edaa785796941e7"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "adapters/non-agt/producer.py",
+      "sha256": "87531b9e783dd7f0b050ab9736b8f337e59ae58dedd4276527b562cb3bc418c0"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "adapters/non-agt/runtime_policy.json",
+      "sha256": "874d825f3cad0134979cc8291d5b045928dfa19d26012bf0db0d228371a31bf9"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "adapters/non-agt/toy_runtime.py",
+      "sha256": "b4f01ba0a9f3e05c553571f9593ad29a230d5b0b6971f763a26fb6157ae55c91"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/agent/agent-image.txt",
+      "sha256": "57273906dbc9eb12e7a400158a8a73bc8fd3a499a0c6508119935786d4a71e10"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/adapter-bypass.json",
+      "sha256": "5199cac24873f4d83819571805b93e5d0485eb2801240e2aa643f67118d35225"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/allowed-action.json",
+      "sha256": "82b8541ddac77b4f75e12e26d1d5b81a720eeea115cef00ac7f18d8c03f5a8d0"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/denied-action.json",
+      "sha256": "fdb3294a73a698892863b94811f9cc4cea746cc4bcdb84483b470e5a9c6c8e9b"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/no-policy-loaded.json",
+      "sha256": "aa46594848e1d8a5c19fe3052c08bc781fe8ae7a8021149880fc1af3e7920aff"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/records/agt-adapter-bypass-001-outcome.json",
+      "sha256": "201326c6d914bf8e5265891dadbdb4135f3e941d5cfedb79f772f39066624846"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/records/agt-allowed-action-001-decision.json",
+      "sha256": "e6c775769c89d4a0407fab490801cf1debe5fbf5cd3d6815d0e25ac91d0939ef"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/records/agt-allowed-action-001-outcome.json",
+      "sha256": "ee650f1991093ce1b356260c98df66d38a20b454a4973d750062cb4f5b81d57a"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/records/agt-denied-action-001-decision.json",
+      "sha256": "3e6c47b32e95141b9279505d5a4f5c115581f96c8ab1f1346afffa82119fabd6"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/records/agt-denied-action-001-outcome.json",
+      "sha256": "d3e5f836b214fc59fc28a2851e967622ee3d623bec405210de26a63846200fba"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/records/agt-no-policy-loaded-001-decision.json",
+      "sha256": "bb5467d7c40367f1f3812a6de9f4ae297b444ce1f272c3d873b74286f8579c34"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/records/agt-no-policy-loaded-001-outcome.json",
+      "sha256": "1f909b5d5eab2870cc80c8f45eef5ec9508e107c3ff8919f158928a4e7169891"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/records/agt-unknown-outcome-001-decision.json",
+      "sha256": "e2cd09d891b645a1e0cfeba2492b8c85b486b6f62e3f565fc47634e5c3f40450"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/records/audit-config.json",
+      "sha256": "1fd1480f33008e2e5cc18b6da4b3c98b78515ee7134f0cf231e6c156e3af5ff8"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/records/audit-sink.json",
+      "sha256": "07de349e69cd4ef61f7afb911076f557579ea81c4256b1e8b14c4956959f6b4c"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/records/identity.json",
+      "sha256": "840fa317bfd49aa5eef27d1969c0a0bf32dfda3016cb1441b2e1d6df0a10c0b7"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/records/no-policy.json",
+      "sha256": "e5c6eb3b3fe9e15461ce9cb074fff8cd96854bf83a721bec17d9ae13ca4b36be"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/agt/unknown-outcome.json",
+      "sha256": "c2cace0256a1c2b539290b4a08db99478619905b1cfb4ba06b62fff12e231a20"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/adapter-bypass.json",
+      "sha256": "4b78c4577cb0a85f8cc7881baf3996f381c5a6f2bf2efe9e3df7c97c1f7d7dfc"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/allowed-action.json",
+      "sha256": "9858d7c8943113bd0375af5731547ee1f3ae93af8dd5bda7d335a88d6f0942fd"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/denied-action.json",
+      "sha256": "91f9072f3e6af97cf62312071a699c9194ebf4fa515a9e4a978668b2f79d210c"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/no-policy-loaded.json",
+      "sha256": "d311db6f481b7cb0faf46ea9d84dd06430d672b0962b3714ecf292c96c43e136"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/records/audit-config.json",
+      "sha256": "1fd1480f33008e2e5cc18b6da4b3c98b78515ee7134f0cf231e6c156e3af5ff8"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/records/audit-sink.json",
+      "sha256": "511e0fcfe0be437ac8c101f2cc47f4ed88a1440173465382e43da471bb7bffb1"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/records/identity.json",
+      "sha256": "f081efa350e01deda339a071f6dd2db627a7422dd2a70f9aa06d4dac9c153744"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/records/no-policy.json",
+      "sha256": "aae65a9d94f767497506044aba4621b84d4bc8f21b248f6f40215cc2aa474180"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/records/non-agt-adapter-bypass-001-outcome.json",
+      "sha256": "4b750a433009e363488ab135e9f7403ee0a257fd4f4e61f0330f6f6192f1300c"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/records/non-agt-allowed-action-001-decision.json",
+      "sha256": "cb03a0748065dc4491c0d3850ab4a34c65836e6f77bd0f89bb4b5d998b83230d"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/records/non-agt-allowed-action-001-outcome.json",
+      "sha256": "93c1a7469d49d681cafe0cbb8acec94d5ab67295c7f62ee9eb58f847612bee01"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/records/non-agt-denied-action-001-decision.json",
+      "sha256": "bd599a997616b4f77ad4e79affc321d82e81f7fe1e88998808bb0e0996e1ad58"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/records/non-agt-denied-action-001-outcome.json",
+      "sha256": "e553dd10db7f4d0b2077ba27af4451793661d2bf6ca3e76d8b6f630f0d957189"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/records/non-agt-no-policy-loaded-001-decision.json",
+      "sha256": "37704e0639fb2cb43b8b902e13a74597450ff0541c86fb695ee3d6fe8b541d76"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/records/non-agt-no-policy-loaded-001-outcome.json",
+      "sha256": "6dd225d45a3124bfbca6bfa4e59b920e1e5d880622ece2db0a6e50a8fdecd4bd"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/records/non-agt-unknown-outcome-001-decision.json",
+      "sha256": "5dcc3f6d8a9ffaa09e1ffc2407a62d8b162aa91c6ec0eb62604fdc7f7a3a9c69"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/evidence/non-agt/unknown-outcome.json",
+      "sha256": "a32cd615ce14b7f5cdfe9dc239766db8049ccfbaee99b9f2287753b47bc10b36"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "fixtures/write_marker.py",
+      "sha256": "9df776a3bb10bd24bb1693b274a49a1a0e3e74b391d24171f35fc88d77e0b8da"
+    },
+    {
+      "kind": "frozen-input",
+      "name": "policy/agent_governance.rego",
+      "sha256": "a2892f5c69972711bbb0febd6d0775969c78a36e3c51c27b761a9ea692e116a0"
+    },
+    {
+      "kind": "policy-bundle",
+      "name": "policy",
+      "sha256": "35ba8fe7713f95c77800f086f3e0af2b7034446770375a52a84debffed2963b6"
+    },
+    {
+      "kind": "predicate-body",
+      "name": "agt/adapter-bypass.json",
+      "sha256": "3284b34ba758de3f8cf05dea434d13b10d1cf008f27320768cb82300f977899f"
+    },
+    {
+      "kind": "predicate-body",
+      "name": "agt/allowed-action.json",
+      "sha256": "5d90d891e8f965da6851835725883166e432afa53f4418bda98ce0fb766a8a79"
+    },
+    {
+      "kind": "predicate-body",
+      "name": "agt/denied-action.json",
+      "sha256": "1a1c7d2944ce8ebc023a43168cc6c7653f8189ad947cb38603c396435aced055"
+    },
+    {
+      "kind": "predicate-body",
+      "name": "agt/no-policy-loaded.json",
+      "sha256": "787158b666378ee68a2486fb9014cf7abdd2414651e23959e488d40ec4a370de"
+    },
+    {
+      "kind": "predicate-body",
+      "name": "agt/unknown-outcome.json",
+      "sha256": "89ec37548761f4d10d3eb6c98784c627a3910c0165288d145aa66088bc3f9922"
+    },
+    {
+      "kind": "predicate-body",
+      "name": "non-agt/adapter-bypass.json",
+      "sha256": "267071ef09cb6203e2e932ebe95178706a5511f8c017e7703e5adee2850a58ed"
+    },
+    {
+      "kind": "predicate-body",
+      "name": "non-agt/allowed-action.json",
+      "sha256": "4e5476f1548383b791df12782968c3a34e42961011b01a1d62926b0512a4510c"
+    },
+    {
+      "kind": "predicate-body",
+      "name": "non-agt/denied-action.json",
+      "sha256": "2fc475012da766adb61c4359f44b6f97e515802de76e07c3944d76060287a238"
+    },
+    {
+      "kind": "predicate-body",
+      "name": "non-agt/no-policy-loaded.json",
+      "sha256": "513b51b82f68f94f6107dd4f948ab0be65b39c7328924eebeb4a78c5aa0011e4"
+    },
+    {
+      "kind": "predicate-body",
+      "name": "non-agt/unknown-outcome.json",
+      "sha256": "bd25a660fb715338d6c5f30b266d446a835c9d979a0a298db7cb09671518ad5a"
+    },
+    {
+      "kind": "test-result-statement",
+      "name": "agt/adapter-bypass.json",
+      "sha256": "037952ee5b880f75ea57ff359e7aaa5030512a94b2f691156776ab8abe292f75"
+    },
+    {
+      "kind": "test-result-statement",
+      "name": "agt/allowed-action.json",
+      "sha256": "60ea6f68fc5344eec79b301d428e866b14aca7a18bf9d5971b5c97d241c83b67"
+    },
+    {
+      "kind": "test-result-statement",
+      "name": "agt/denied-action.json",
+      "sha256": "0f35eec37d8c9656a26422afb0f2fe225fb1285479c37524e7b1c6c2d3b40a80"
+    },
+    {
+      "kind": "test-result-statement",
+      "name": "agt/no-policy-loaded.json",
+      "sha256": "987773cce948c2b39dfbf3f924dbde96eaa2fbe08fa6a450f8f27205c748ecb3"
+    },
+    {
+      "kind": "test-result-statement",
+      "name": "agt/unknown-outcome.json",
+      "sha256": "166deddb1b960291772a6eceea91435a359e38c47082b743025f1b604b36abc1"
+    },
+    {
+      "kind": "test-result-statement",
+      "name": "non-agt/adapter-bypass.json",
+      "sha256": "bc318c33a55151476ef283030a58c68e3557eb30cf77cbc36035f4e43743dcdd"
+    },
+    {
+      "kind": "test-result-statement",
+      "name": "non-agt/allowed-action.json",
+      "sha256": "c635325d8a0bff834f77a3750f1bf5614bd94029596d7d35f71ab1df9af48f4f"
+    },
+    {
+      "kind": "test-result-statement",
+      "name": "non-agt/denied-action.json",
+      "sha256": "8a5927042fb12f25b61f089f93cc8a269168ee0bc964edeafe3d38be7a9009ca"
+    },
+    {
+      "kind": "test-result-statement",
+      "name": "non-agt/no-policy-loaded.json",
+      "sha256": "1251c23904cce10f386e6cfb21e289989e9fe71cf50d45bb4251c0ae958f7dab"
+    },
+    {
+      "kind": "test-result-statement",
+      "name": "non-agt/unknown-outcome.json",
+      "sha256": "6631213608fe3a38a1bbbe8f8091ef73d461525655987274084c5289c3ca0d9f"
+    }
+  ]
+}
