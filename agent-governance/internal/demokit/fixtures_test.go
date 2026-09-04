@@ -13,18 +13,18 @@ import (
 	"strings"
 	"testing"
 
-	pred "github.com/liatrio/autogov/pkg/predicate"
+	pred "github.com/liatrio/autogov/agent-governance/internal/evidence"
 )
 
 const agtCoreWheelSHA256 = "e14a09eceaa88d3f5d572b09643138d95b1d6c349a6e23e5b222f3c0192cec1f"
 
 // the committed producer evidence must stay bound to the committed fixture
 // bytes: if a producer, runtime, policy, or the controlled tool changes, the
-// evidence has to be regenerated (see examples/agent-governance/README.md).
+// evidence has to be regenerated (see agent-governance/README.md).
 
 func baseDir(t *testing.T) string {
 	t.Helper()
-	dir, err := filepath.Abs("..")
+	dir, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -532,5 +532,50 @@ func TestBuildCaseNormalizesBeforeBuildingTestResult(t *testing.T) {
 	annotations := configuration["annotations"].(map[string]interface{})
 	if got := annotations[pred.AgentGovernanceDeploymentPredicateTypeURI+"#correlationId"]; got != "sha256:"+strings.Repeat("b", 64) {
 		t.Errorf("test-result correlation annotation = %q, want normalized lowercase digest", got)
+	}
+}
+
+func TestStatementBuildersRejectIncoherentInputs(t *testing.T) {
+	if _, err := BuildCase(filepath.Join(t.TempDir(), "missing.json")); err == nil {
+		t.Fatal("BuildCase accepted a missing evidence file")
+	}
+
+	evidence := loadEvidence(t, "non-agt", "allowed-action")
+	if _, err := BuildDeploymentStatement(evidence, []byte("{")); err == nil {
+		t.Fatal("deployment statement accepted invalid predicate JSON")
+	}
+	mismatchedBody, err := json.Marshal(map[string]interface{}{
+		"agent": map[string]interface{}{
+			"name":           "different-agent",
+			"artifactDigest": evidence.Agent.ArtifactDigest,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildDeploymentStatement(evidence, mismatchedBody); err == nil {
+		t.Fatal("deployment statement accepted a mismatched subject")
+	}
+
+	baseCase := evidence.Conformance.Cases[0]
+	missingDecisionReference := baseCase
+	missingDecisionReference.Decision.Reference = nil
+	if _, err := BuildTestResultStatement(evidence, missingDecisionReference); err == nil {
+		t.Fatal("test-result accepted an observed decision without a reference")
+	}
+	missingOutcomeReference := baseCase
+	missingOutcomeReference.Outcome.Reference = nil
+	if _, err := BuildTestResultStatement(evidence, missingOutcomeReference); err == nil {
+		t.Fatal("test-result accepted a verified outcome without a reference")
+	}
+	unsupportedOutcome := baseCase
+	unsupportedOutcome.Outcome.State = "unsupported"
+	if _, err := BuildTestResultStatement(evidence, unsupportedOutcome); err == nil {
+		t.Fatal("test-result accepted an unsupported outcome state")
+	}
+
+	unknown := loadEvidence(t, "non-agt", "unknown-outcome")
+	if _, err := BuildTestResultStatement(unknown, unknown.Conformance.Cases[0]); err != nil {
+		t.Fatalf("unknown outcome did not produce its bounded WARNED test result: %v", err)
 	}
 }

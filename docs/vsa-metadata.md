@@ -63,7 +63,10 @@ This additive binding applies to all predicate types handled by the offline
 path. The resource URI identifies one immutable statement; it is not the
 statement's `predicateType` and is not a schema URL. Predicate types continue
 to contribute separately to the VSA's verification facts. Offline VSA output
-remains unsigned.
+remains unsigned. The repository-local [agent-governance companion](../agent-governance/)
+exercises this generic contract with a custom deployment statement and a
+standard test-result statement; AutoGov contains no companion-specific input
+binding code.
 
 ## Metadata Fields
 

@@ -1,4 +1,4 @@
-package predicate
+package evidence
 
 import (
 	"bytes"
@@ -841,21 +841,35 @@ func TestGenerateAgentGovernanceDeploymentNoPartialFile(t *testing.T) {
 	}
 }
 
-// URI lockstep: the pkg/predicate constant, the attestations registry, the
-// embedded schema const, and the docs page must agree on the locked URI.
+func TestGenerateAgentGovernanceDeploymentRejectsOversizedInputBeforeOutput(t *testing.T) {
+	dir := t.TempDir()
+	evidencePath := filepath.Join(dir, "oversized.json")
+	outputPath := filepath.Join(dir, "predicate.json")
+	oversized := bytes.Repeat([]byte(" "), AgentGovernanceMaxPredicateBytes+1)
+	if err := os.WriteFile(evidencePath, oversized, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := GenerateAgentGovernanceDeployment(evidencePath, outputPath)
+	if err == nil || !strings.Contains(err.Error(), "input bound") {
+		t.Fatalf("oversized evidence error = %v, want bounded-input rejection", err)
+	}
+	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+		t.Fatalf("oversized evidence created output: %v", err)
+	}
+	if _, err := ParseAgentGovernanceEvidence(oversized); err == nil {
+		t.Fatal("direct parser accepted oversized evidence")
+	}
+}
+
+// URI lockstep: the self-contained companion constant and embedded schema
+// agree on the locked URI. AutoGov owns its registry/documentation lockstep.
 func TestAgentGovernanceURILockstep(t *testing.T) {
 	const wantURI = "https://autogov.dev/attestation/agent-governance-deployment/v0.1"
 	if AgentGovernanceDeploymentPredicateTypeURI != wantURI {
-		t.Errorf("pkg/predicate constant = %q, want %q", AgentGovernanceDeploymentPredicateTypeURI, wantURI)
+		t.Errorf("companion predicate constant = %q, want %q", AgentGovernanceDeploymentPredicateTypeURI, wantURI)
 	}
 	if !strings.Contains(embeddedAgentGovernanceDeploymentSchema, `"const": "`+wantURI+`"`) {
 		t.Error("embedded schema does not lock the predicateType const to the URI")
-	}
-	docs, err := os.ReadFile(filepath.Join("..", "..", "docs", "predicate-types.md"))
-	if err != nil {
-		t.Fatalf("failed to read docs/predicate-types.md: %v", err)
-	}
-	if !strings.Contains(string(docs), wantURI) {
-		t.Error("docs/predicate-types.md does not document the locked URI")
 	}
 }

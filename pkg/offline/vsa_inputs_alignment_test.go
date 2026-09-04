@@ -9,19 +9,36 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/liatrio/autogov/examples/agent-governance/demokit"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 )
+
+const (
+	offlineTestIdentity = "offline-test@autogov.local"
+	offlineTestIssuer   = "https://test.autogov.local/oidc"
+	inTotoStatementType = "https://in-toto.io/Statement/v1"
+)
+
+type offlineTestStatement struct {
+	Type          string               `json:"_type"`
+	Subject       []offlineTestSubject `json:"subject"`
+	PredicateType string               `json:"predicateType,omitempty"`
+	Predicate     json.RawMessage      `json:"predicate"`
+}
+
+type offlineTestSubject struct {
+	Name   string            `json:"name"`
+	Digest map[string]string `json:"digest"`
+}
 
 // buildVSAInputs pairs result.Attestations[i] with bundles[i] by index. This
 // probes whether the real verification paths can hand it two slices whose
 // indices do not correspond.
 
-func alignmentSignedStatement(t *testing.T, signer *demokit.Signer, name, digestHex, predicateType string) (statement, signed []byte) {
+func alignmentSignedStatement(t *testing.T, signer *offlineTestSigner, name, digestHex, predicateType string) (statement, signed []byte) {
 	t.Helper()
-	statement, err := json.Marshal(demokit.Statement{
-		Type:          demokit.InTotoStatementType,
-		Subject:       []demokit.Subject{{Name: name, Digest: map[string]string{"sha256": digestHex}}},
+	statement, err := json.Marshal(offlineTestStatement{
+		Type:          inTotoStatementType,
+		Subject:       []offlineTestSubject{{Name: name, Digest: map[string]string{"sha256": digestHex}}},
 		PredicateType: predicateType,
 		Predicate:     json.RawMessage(`{}`),
 	})
@@ -33,6 +50,23 @@ func alignmentSignedStatement(t *testing.T, signer *demokit.Signer, name, digest
 		t.Fatal(err)
 	}
 	return statement, signed
+}
+
+func writeBundleLines(t *testing.T, path string, bundles ...[]byte) {
+	t.Helper()
+	var contents strings.Builder
+	for _, signed := range bundles {
+		contents.Write(signed)
+		contents.WriteByte('\n')
+	}
+	if err := os.WriteFile(path, []byte(contents.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func writeFileDigest(t *testing.T, path, content string) string {
@@ -49,7 +83,7 @@ func writeFileDigest(t *testing.T, path, content string) string {
 // that every emitted inputAttestations descriptor is self-consistent: its
 // resource URI and digest must identify the same verified statement bytes.
 func TestBuildVSAInputsAlignmentMultiFileDirectory(t *testing.T) {
-	signer, err := demokit.NewSigner(agDemoIdentity, agDemoIssuer)
+	signer, err := newOfflineTestSigner(offlineTestIdentity, offlineTestIssuer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,10 +117,10 @@ func TestBuildVSAInputsAlignmentMultiFileDirectory(t *testing.T) {
 	}
 
 	ov, err := NewOfflineVerifier(trustedRoot, VerifyOptions{
-		CertIdentity:       agDemoIdentity,
-		CertOIDCIssuer:     agDemoIssuer,
+		CertIdentity:       offlineTestIdentity,
+		CertOIDCIssuer:     offlineTestIssuer,
 		Quiet:              true,
-		AcceptedIdentities: []string{agDemoIdentity},
+		AcceptedIdentities: []string{offlineTestIdentity},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -111,9 +145,18 @@ func TestBuildVSAInputsAlignmentMultiFileDirectory(t *testing.T) {
 		sha256Hex(stmtB): {},
 	}
 
-	_, _, _, inputAttestations, err := buildVSAInputs(result, ov.Bundles())
+	attestationTypes, _, _, inputAttestations, err := buildVSAInputs(result, ov.Bundles())
 	if err != nil {
 		t.Fatalf("build VSA inputs: %v", err)
+	}
+	gotTypes := make(map[string]bool, len(attestationTypes))
+	for _, predicateType := range attestationTypes {
+		gotTypes[predicateType] = true
+	}
+	for _, want := range []string{typeA, typeB} {
+		if !gotTypes[want] {
+			t.Errorf("verified custom predicate types = %v, missing %q", attestationTypes, want)
+		}
 	}
 	if len(inputAttestations) == 0 {
 		t.Fatal("no inputAttestations were produced")
@@ -160,7 +203,7 @@ func TestResolveFilesToProcessExpandsDirectory(t *testing.T) {
 }
 
 func TestBundleInputDescriptorUsesStatementResourceURN(t *testing.T) {
-	signer, err := demokit.NewSigner(agDemoIdentity, agDemoIssuer)
+	signer, err := newOfflineTestSigner(offlineTestIdentity, offlineTestIssuer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +237,7 @@ func TestBundleInputDescriptorUsesStatementResourceURN(t *testing.T) {
 }
 
 func TestBundleInputDescriptorRejectsIncompletePayloads(t *testing.T) {
-	signer, err := demokit.NewSigner(agDemoIdentity, agDemoIssuer)
+	signer, err := newOfflineTestSigner(offlineTestIdentity, offlineTestIssuer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,8 +265,8 @@ func TestBundleInputDescriptorRejectsIncompletePayloads(t *testing.T) {
 	}
 
 	missingPredicateType, err := json.Marshal(map[string]interface{}{
-		"_type":     demokit.InTotoStatementType,
-		"subject":   []demokit.Subject{{Name: "artifact", Digest: map[string]string{"sha256": strings.Repeat("c", 64)}}},
+		"_type":     inTotoStatementType,
+		"subject":   []offlineTestSubject{{Name: "artifact", Digest: map[string]string{"sha256": strings.Repeat("c", 64)}}},
 		"predicate": map[string]interface{}{},
 	})
 	if err != nil {
@@ -285,7 +328,7 @@ func TestBundleInputDescriptorRejectsIncompletePayloads(t *testing.T) {
 }
 
 func TestBuildVSAInputsRejectsVerifiedRowsWithoutDescriptors(t *testing.T) {
-	signer, err := demokit.NewSigner(agDemoIdentity, agDemoIssuer)
+	signer, err := newOfflineTestSigner(offlineTestIdentity, offlineTestIssuer)
 	if err != nil {
 		t.Fatal(err)
 	}

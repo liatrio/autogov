@@ -1,4 +1,4 @@
-package offline
+package integration
 
 import (
 	"context"
@@ -8,16 +8,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/liatrio/autogov/examples/agent-governance/demokit"
-	pred "github.com/liatrio/autogov/pkg/predicate"
-	"github.com/liatrio/autogov/pkg/vsa"
+	"github.com/liatrio/autogov/agent-governance/internal/demokit"
+	pred "github.com/liatrio/autogov/agent-governance/internal/evidence"
 	"github.com/open-policy-agent/opa/v1/rego"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
-	"github.com/spf13/viper"
 )
 
 // integration proof for the agent-governance evidence spike: separately
@@ -46,9 +45,51 @@ var agCaseFiles = []struct {
 	{"no-policy-loaded", "FAILED"},
 }
 
-func agExamplesDir(t *testing.T) string {
+var autogovBinary string
+
+type vsaDocument struct {
+	Subject   []resourceDescriptor `json:"subject"`
+	Predicate struct {
+		InputAttestations  []resourceDescriptor `json:"inputAttestations"`
+		VerificationResult string               `json:"verificationResult"`
+	} `json:"predicate"`
+	Metadata map[string]interface{} `json:"metadata"`
+}
+
+type resourceDescriptor struct {
+	URI    string            `json:"uri"`
+	Digest map[string]string `json:"digest"`
+}
+
+func TestMain(m *testing.M) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "resolve repository root:", err)
+		os.Exit(1)
+	}
+	buildDir, err := os.MkdirTemp("", "agent-governance-integration-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "create integration build directory:", err)
+		os.Exit(1)
+	}
+	autogovBinary = filepath.Join(buildDir, "autogov")
+	build := exec.Command("go", "build", "-o", autogovBinary, ".")
+	build.Dir = repoRoot
+	if output, buildErr := build.CombinedOutput(); buildErr != nil {
+		fmt.Fprintf(os.Stderr, "build AutoGov for black-box tests: %v\n%s", buildErr, output)
+		os.Exit(1)
+	}
+	code := m.Run()
+	if removeErr := os.RemoveAll(buildDir); removeErr != nil && code == 0 {
+		fmt.Fprintln(os.Stderr, "remove integration build directory:", removeErr)
+		code = 1
+	}
+	os.Exit(code)
+}
+
+func agCompanionDir(t *testing.T) string {
 	t.Helper()
-	dir, err := filepath.Abs(filepath.Join("..", "..", "examples", "agent-governance"))
+	dir, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +97,7 @@ func agExamplesDir(t *testing.T) string {
 }
 
 func agEvidencePath(t *testing.T, producer, name string) string {
-	return filepath.Join(agExamplesDir(t), "fixtures", "evidence", producer, name+".json")
+	return filepath.Join(agCompanionDir(t), "fixtures", "evidence", producer, name+".json")
 }
 
 // writeBundleLines writes signed bundles as a JSONL attestations file.
@@ -124,37 +165,33 @@ func signModifiedDeployment(t *testing.T, signer *demokit.Signer, built *demokit
 // local opt-in policy bundle and enforcing exit behavior.
 func runAgentGovernanceOffline(t *testing.T, attestationsPath, trustedRootPath, imageDigest, vsaOutput string) error {
 	t.Helper()
-	// reset cross-run viper state used by the offline->VSA seam
-	viper.Set("offline-attestations", nil)
-
-	cmd := createTestCmd()
-	for flag, value := range map[string]string{
-		"attestations":         attestationsPath,
-		"trusted-root":         trustedRootPath,
-		"cert-identity":        agDemoIdentity,
-		"cert-issuer":          agDemoIssuer,
-		"image-digest":         imageDigest,
-		"vsa-output":           vsaOutput,
-		"policy-uri":           "https://github.com/liatrio/autogov/examples/agent-governance/policy",
-		"policy-bundle-path":   filepath.Join(agExamplesDir(t), "policy"),
-		"generate-vsa":         "true",
-		"fail-on-policy-error": "true",
-		"quiet":                "true",
-	} {
-		if err := cmd.Flags().Set(flag, value); err != nil {
-			t.Fatalf("failed to set flag %s: %v", flag, err)
-		}
+	cmd := exec.Command(autogovBinary, "offline",
+		"--attestations", attestationsPath,
+		"--trusted-root", trustedRootPath,
+		"--cert-identity", agDemoIdentity,
+		"--cert-issuer", agDemoIssuer,
+		"--image-digest", imageDigest,
+		"--vsa-output", vsaOutput,
+		"--policy-uri", "https://github.com/liatrio/autogov/agent-governance/policy",
+		"--policy-bundle-path", filepath.Join(agCompanionDir(t), "policy"),
+		"--generate-vsa",
+		"--fail-on-policy-error",
+		"--quiet",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("autogov offline: %w\n%s", err, output)
 	}
-	return RunCommand(cmd, []string{})
+	return nil
 }
 
-func readVSA(t *testing.T, path string) *vsa.VSA {
+func readVSA(t *testing.T, path string) *vsaDocument {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("expected VSA JSON at %s: %v", path, err)
 	}
-	var v vsa.VSA
+	var v vsaDocument
 	if err := json.Unmarshal(data, &v); err != nil {
 		t.Fatalf("VSA JSON did not parse: %v", err)
 	}
@@ -347,7 +384,7 @@ func TestAgentGovernanceTwoPositiveCasesAdmission(t *testing.T) {
 // compares the signed deployment body's cross-link with the separate signed
 // test-result payload instead of comparing a builder value with the expression
 // that created it.
-func assertVSABindings(t *testing.T, v *vsa.VSA, built *demokit.BuiltCase, deploymentBundle, testResultBundle []byte) {
+func assertVSABindings(t *testing.T, v *vsaDocument, built *demokit.BuiltCase, deploymentBundle, testResultBundle []byte) {
 	t.Helper()
 	deploymentStatement := signedBundlePayload(t, deploymentBundle)
 	testResultStatement := signedBundlePayload(t, testResultBundle)
@@ -423,7 +460,7 @@ func signedBundlePayload(t *testing.T, signed []byte) []byte {
 // tied to the same signed evidence bytes later admitted through offline.
 func signedLinkageValid(t *testing.T, deploymentBundle, testResultBundle []byte) bool {
 	t.Helper()
-	policyPath := filepath.Join(agExamplesDir(t), "policy", "agent_governance.rego")
+	policyPath := filepath.Join(agCompanionDir(t), "policy", "agent_governance.rego")
 	module, err := os.ReadFile(policyPath)
 	if err != nil {
 		t.Fatalf("read agent-governance policy: %v", err)
@@ -457,7 +494,7 @@ func signedLinkageValid(t *testing.T, deploymentBundle, testResultBundle []byte)
 	return len(results) == 1
 }
 
-func assertViolationsPresent(t *testing.T, v *vsa.VSA) {
+func assertViolationsPresent(t *testing.T, v *vsaDocument) {
 	t.Helper()
 	eval, ok := v.Metadata["autogov.policy.evaluation"].(map[string]interface{})
 	if !ok {
@@ -822,7 +859,7 @@ func TestAgentGovernanceAdversarialEvidenceFailsClosed(t *testing.T) {
 	})
 }
 
-func violationsContain(t *testing.T, v *vsa.VSA, substring string) bool {
+func violationsContain(t *testing.T, v *vsaDocument, substring string) bool {
 	t.Helper()
 	eval, ok := v.Metadata["autogov.policy.evaluation"].(map[string]interface{})
 	if !ok {

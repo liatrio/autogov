@@ -3,6 +3,7 @@ package demokit
 import (
 	"crypto/x509"
 	"encoding/asn1"
+	"encoding/json"
 	"testing"
 
 	protobundle "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
@@ -54,5 +55,29 @@ func TestSignerUsesFulcioIssuerV2DERString(t *testing.T) {
 	}
 	if got != issuer {
 		t.Errorf("issuer v2 extension = %q, want %q", got, issuer)
+	}
+}
+
+func TestSignerExportsTrustedRootJSON(t *testing.T) {
+	signer, err := NewSigner("agent-governance-demo@autogov.local", "https://demo.autogov.local/oidc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := signer.TrustedRootJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(data) {
+		t.Fatal("trusted root output is not valid JSON")
+	}
+	var document map[string]interface{}
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"certificateAuthorities", "timestampAuthorities"} {
+		values, ok := document[field].([]interface{})
+		if !ok || len(values) == 0 {
+			t.Errorf("trusted root %s = %#v, want a non-empty array", field, document[field])
+		}
 	}
 }

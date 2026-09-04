@@ -2,6 +2,7 @@ version: '3'
 
 vars:
   BINARY_NAME: autogov
+  AGENT_GOVERNANCE_BINARY_NAME: agent-governance-evidence
   BINARY_DIR: bin
   VERSION:
     sh: echo "${VERSION:-$(git describe --tags --always --dirty)}"
@@ -30,6 +31,29 @@ tasks:
       - CGO_ENABLED=0 go build -trimpath -ldflags "{{.LDFLAGS}}" -o {{.BINARY_DIR}}/{{.BINARY_NAME}} .
     generates:
       - "{{.BINARY_DIR}}/{{.BINARY_NAME}}"
+
+  agent-governance-build:
+    desc: Build the repository-local agent-governance evidence companion
+    cmds:
+      - echo "Building {{.AGENT_GOVERNANCE_BINARY_NAME}}"
+      - mkdir -p {{.BINARY_DIR}}
+      - CGO_ENABLED=0 go build -trimpath -o {{.BINARY_DIR}}/{{.AGENT_GOVERNANCE_BINARY_NAME}} ./agent-governance/cmd/agent-governance-evidence
+    generates:
+      - "{{.BINARY_DIR}}/{{.AGENT_GOVERNANCE_BINARY_NAME}}"
+
+  agent-governance-test:
+    desc: Test the companion, artifact boundary, and generic AutoGov evidence seam
+    cmds:
+      - go run ./agent-governance/cmd/checkpoint -root ./agent-governance -verify
+      - go test -count=1 ./agent-governance/... ./cmd/predicate ./pkg/attestations ./pkg/offline
+
+  agent-governance-demo:
+    desc: Run the signed agent-governance companion demonstration
+    deps:
+      - build
+      - agent-governance-build
+    cmds:
+      - go run ./agent-governance/cmd/demo --autogov {{.BINARY_DIR}}/{{.BINARY_NAME}} --agent-governance-evidence {{.BINARY_DIR}}/{{.AGENT_GOVERNANCE_BINARY_NAME}} --companion ./agent-governance
 
   test:
     desc: Run tests with coverage

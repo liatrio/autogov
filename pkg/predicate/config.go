@@ -26,9 +26,6 @@ var embeddedCodeScanSchema string
 //go:embed schemas/source-review-schema.json
 var embeddedSourceReviewSchema string
 
-//go:embed schemas/agent-governance-deployment-schema.json
-var embeddedAgentGovernanceDeploymentSchema string
-
 // PolicyRepo represents policy repository configuration.
 type PolicyRepo struct {
 	Owner string
@@ -68,8 +65,6 @@ func getEmbeddedSchema(schemaName string) string {
 		return embeddedCodeScanSchema
 	case "source-review-schema.json":
 		return embeddedSourceReviewSchema
-	case "agent-governance-deployment-schema.json":
-		return embeddedAgentGovernanceDeploymentSchema
 	default:
 		return ""
 	}
@@ -184,14 +179,6 @@ func ValidateTestResult(data []byte) error {
 	return ValidateJSON(data, "test-result-schema.json")
 }
 
-// validates a standard test-result predicate using
-// the repository-embedded schema only. demonstration artifacts must remain
-// deterministic and offline even when a caller happens to have GitHub
-// credentials configured for the production schema lookup path.
-func ValidateEmbeddedTestResult(data []byte) error {
-	return validateJSONAgainstSchema(data, embeddedTestResultSchema)
-}
-
 // ValidateCodeScan validates code-scan attestation data against its schema.
 func ValidateCodeScan(data []byte) error {
 	return ValidateJSON(data, "code-scan-schema.json")
@@ -200,12 +187,4 @@ func ValidateCodeScan(data []byte) error {
 // ValidateSourceReview validates source-review attestation data against its schema.
 func ValidateSourceReview(data []byte) error {
 	return ValidateJSON(data, "source-review-schema.json")
-}
-
-// ValidateAgentGovernanceDeployment validates agent-governance deployment
-// predicate data against the embedded schema only. The experimental spike
-// schema deliberately does not live in the policy library, so no remote
-// fetch is attempted and validation stays deterministic and offline.
-func ValidateAgentGovernanceDeployment(data []byte) error {
-	return validateJSONAgainstSchema(data, embeddedAgentGovernanceDeploymentSchema)
 }

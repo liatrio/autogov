@@ -39,19 +39,13 @@ func TestPredicateCommandStructure(t *testing.T) {
 		assert.True(t, found, "depscan subcommand should exist")
 	})
 
-	t.Run("registers agent-governance deployment with required evidence", func(t *testing.T) {
-		cmd, _, err := PredicateCmd.Find([]string{"agent-governance-deployment"})
-		require.NoError(t, err)
-		require.NotNil(t, cmd)
-		assert.Equal(t, "agent-governance-deployment", cmd.Name())
-
-		flag := cmd.Flags().Lookup("evidence-path")
-		require.NotNil(t, flag)
-		wasChanged := flag.Changed
-		flag.Changed = false
-		defer func() { flag.Changed = wasChanged }()
-		assert.Error(t, cmd.ValidateRequiredFlags(), "evidence-path must be enforced by Cobra")
+	t.Run("does not expose companion authoring", func(t *testing.T) {
+		for _, cmd := range PredicateCmd.Commands() {
+			assert.NotEqual(t, "agent-governance-deployment", cmd.Name())
+		}
+		assert.NotContains(t, PredicateCmd.Long, "agent-governance")
 	})
+
 }
 
 func TestMetadataCommandFlags(t *testing.T) {

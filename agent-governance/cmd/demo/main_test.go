@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,7 +57,7 @@ func TestPrepareWorkdirKeepsAutomaticTemporaryDirectoryWhenRequested(t *testing.
 // deterministic library output before it signs every case. run that exact
 // boundary in the ordinary Go suite so the check is not manual-only.
 func TestDemoExercisesCLIAndLibraryBoundary(t *testing.T) {
-	root, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +67,28 @@ func TestDemoExercisesCLIAndLibraryBoundary(t *testing.T) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build demo binary: %v\n%s", err, output)
 	}
-	if err := run(binary, filepath.Join(root, "examples", "agent-governance"), filepath.Join(t.TempDir(), "demo-output"), false); err != nil {
+	evidenceBinary := filepath.Join(t.TempDir(), "agent-governance-evidence")
+	buildEvidence := exec.Command("go", "build", "-o", evidenceBinary, "./agent-governance/cmd/agent-governance-evidence")
+	buildEvidence.Dir = root
+	if output, err := buildEvidence.CombinedOutput(); err != nil {
+		t.Fatalf("build companion evidence binary: %v\n%s", err, output)
+	}
+	if err := run(binary, evidenceBinary, filepath.Join(root, "agent-governance"), filepath.Join(t.TempDir(), "demo-output"), false); err != nil {
 		t.Fatal(err)
+	}
+	if err := run(t.TempDir(), evidenceBinary, filepath.Join(root, "agent-governance"), filepath.Join(t.TempDir(), "bad-autogov-output"), false); err == nil {
+		t.Fatal("expected a non-executable AutoGov path to fail without panicking")
+	}
+}
+
+func TestRunCLIRejectsHelpAndPositionalArgumentsBeforeDemo(t *testing.T) {
+	if err := runCLI([]string{"--help"}); !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("help error = %v, want flag.ErrHelp", err)
+	}
+	if err := runCLI([]string{"unexpected"}); err == nil {
+		t.Fatal("expected positional argument to fail")
+	}
+	if err := runCLI([]string{"--autogov", filepath.Join(t.TempDir(), "missing")}); err == nil {
+		t.Fatal("expected a missing AutoGov binary to fail")
 	}
 }

@@ -1,42 +1,54 @@
-package predicate
+// Command agent-governance-evidence authors the experimental v0.1 deployment
+// predicate body from one runtime-produced JSON evidence document.
+package main
 
 import (
-	pred "github.com/liatrio/autogov/pkg/predicate"
-	"github.com/spf13/cobra"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/liatrio/autogov/agent-governance/internal/evidence"
 )
 
-var agentGovernanceDeploymentCmd = &cobra.Command{
-	Use:   "agent-governance-deployment",
-	Short: "Generate an agent-governance deployment attestation predicate from evidence JSON",
-	Long: `Generate the predicate body for the experimental runtime-neutral
-agent-governance deployment attestation
-(https://autogov.dev/attestation/agent-governance-deployment/v0.1).
-
-The command reads one normalized evidence JSON document emitted by a runtime
-adapter, normalizes it deterministically (sorted collections, canonical
-lowercase digests, UTC-second timestamps), enforces the v0.1 schema contract's
-semantic rules (fail-closed on missing or malformed digests, duplicate case
-identifiers, contradictory observations, and size bounds), and emits only the
-predicate body. A separate signing step wraps the body in an in-toto Statement
-whose single subject must match the predicate's agent name and artifact digest.
-
-The evidence must never contain raw prompts, tool arguments, credentials, or
-model output — only bounded redacted references and digests.`,
-	RunE: runAgentGovernanceDeployment,
+func main() {
+	os.Exit(execute(os.Args[1:], os.Stderr))
 }
 
-var (
-	agentGovernanceEvidencePath string
-	agentGovernanceOutput       string
-)
-
-func init() {
-	flags := agentGovernanceDeploymentCmd.Flags()
-	flags.StringVar(&agentGovernanceEvidencePath, "evidence-path", "", "Path to the normalized agent-governance evidence JSON emitted by a runtime adapter (required)")
-	flags.StringVar(&agentGovernanceOutput, "output", "", "Output file path (defaults to stdout)")
-	cobra.CheckErr(agentGovernanceDeploymentCmd.MarkFlagRequired("evidence-path"))
+func execute(args []string, stderr io.Writer) int {
+	err := run(args)
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
+	}
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "agent-governance-evidence:", err)
+		return 1
+	}
+	return 0
 }
 
-func runAgentGovernanceDeployment(_ *cobra.Command, _ []string) error {
-	return pred.GenerateAgentGovernanceDeployment(agentGovernanceEvidencePath, agentGovernanceOutput)
+func run(args []string) error {
+	flags := flag.NewFlagSet("agent-governance-evidence", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	evidencePath := flags.String("evidence-path", "", "path to normalized runtime evidence JSON (required)")
+	outputPath := flags.String("output", "", "predicate body output path (defaults to stdout)")
+	flags.Usage = func() {
+		_, _ = fmt.Fprintln(flags.Output(), "Usage: agent-governance-evidence --evidence-path <evidence.json> [--output <predicate.json>]")
+		_, _ = fmt.Fprintln(flags.Output())
+		_, _ = fmt.Fprintln(flags.Output(), "Authors the https://autogov.dev/attestation/agent-governance-deployment/v0.1 predicate body.")
+		flags.PrintDefaults()
+	}
+
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected positional arguments: %v", flags.Args())
+	}
+	if *evidencePath == "" {
+		flags.Usage()
+		return errors.New("--evidence-path is required")
+	}
+	return evidence.GenerateAgentGovernanceDeployment(*evidencePath, *outputPath)
 }

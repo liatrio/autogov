@@ -1,9 +1,9 @@
-# agent-governance evidence spike
+# Agent-governance companion
 
-A repository-local, opt-in demonstration that Auto Gov can admit or reject an
-**agent deployment** from portable, separately signed evidence — without
-becoming a runtime policy engine and without sitting on any tool-call hot
-path.
+A repository-local companion for authoring and demonstrating experimental
+agent-deployment governance evidence. AutoGov remains the generic Sigstore
+verification, OPA admission, and VSA engine; this companion owns the v0.1
+agent model, schema, producer fixtures, authoring CLI, and opt-in policy.
 
 Two evidence producers (one pinned Microsoft AGT fixture, one minimal non-AGT
 fixture) each run the same four controlled conformance cases against the one
@@ -14,8 +14,8 @@ enforced through Auto Gov's **existing** offline path:
 producer evidence JSON (unbound test-result digest)
   -> demo/signing helper normalizes evidence, builds the standard test-result
      payload, and binds its exact payload digest into the deployment evidence
-  -> autogov predicate agent-governance-deployment   (deterministic predicate body;
-     the demo also exercises this real CLI after the evidence is complete)
+  -> agent-governance-evidence                       (deterministic predicate body;
+     the demo exercises this companion CLI as a subprocess)
   -> signed in-toto deployment statement + separately signed standard
      test-result statement (demo signing helper, local demonstration CA)
   -> autogov offline (Sigstore verification)
@@ -57,8 +57,27 @@ the allowed, denied, bypassed, and no-policy cases — plus a failing
   upgraded into a verified wheel-provenance claim.
 - **Identifier, not a hosted schema.** The custom predicate-type URI is an
   identifier in an in-toto statement; it is not fetched or dereferenced. The
-  embedded schema is checked in at
-  `pkg/predicate/schemas/agent-governance-deployment-schema.json`.
+  companion-owned embedded schema is checked in at
+  `internal/evidence/schemas/agent-governance-deployment-schema.json`.
+- **Artifact and CLI boundary.** The supported interface between the companion
+  and AutoGov is JSON/in-toto artifacts plus CLI execution. There is no public
+  Go SDK contract, and neither Go dependency graph imports the other.
+
+## Stewardship and extraction gates
+
+The v0.1 contract remains under the `autogov.dev` namespace with its exact
+published semantics. A community-neutral contract requires a new URI and
+version; v0.1 will not be silently redefined. The companion is incubated in
+this repository and Go module so the existing CI can exercise both sides of
+the artifact boundary.
+
+A later history-preserving move to a separate Apache-2.0 repository is gated
+on all of the following: design-partner validation, an agreed neutral
+namespace, named maintainers and security ownership, and a release/signing
+process. This extraction creates no repository, release, package publication,
+or production policy promotion. [`MOVE_MAP.md`](MOVE_MAP.md) records source
+history, and [`checkpoint.sha256.json`](checkpoint.sha256.json) locks the
+promotion baseline's deterministic outputs, policy digest, and frozen inputs.
 
 ## layout
 
@@ -68,8 +87,14 @@ adapters/agt/        pinned AGT producer: producer.py, runtime_policy.yaml,
                      verify_pins.sh
 adapters/non-agt/    minimal non-AGT producer: producer.py, toy_runtime.py,
                      runtime_policy.json
-cmd/demo/            end-to-end demo runner (drives the built autogov binary)
-demokit/             demo/signing layer: statement building, local CA, bundles
+cmd/demo/            end-to-end demo runner (drives both built binaries)
+cmd/agent-governance-evidence/
+                     standalone predicate-body authoring CLI
+cmd/checkpoint/      verifies the committed pre-extraction SHA-256 manifest
+internal/evidence/  private v0.1 model, validation, schema, and wire helpers
+internal/demokit/   demo/signing layer: statement building, local CA, bundles
+internal/integration/
+                     subprocess-only AutoGov admission and boundary tests
 fixtures/            write_marker.py (the one controlled tool), the agent
                      artifact, and each producer's committed evidence + records
 policy/              the local, opt-in Rego admission gate (NOT part of
@@ -92,7 +117,7 @@ policy/              the local, opt-in Rego admission gate (NOT part of
 Re-verify all pins against their official sources (network required):
 
 ```bash
-./examples/agent-governance/adapters/agt/verify_pins.sh
+./agent-governance/adapters/agt/verify_pins.sh
 ```
 
 A mismatch or missing artifact is a hard stop — never substitute `latest`,
@@ -110,12 +135,9 @@ transitive provenance limitation remains explicit.
 From a clean checkout of this repository:
 
 ```bash
-# 1. build the autogov binary
-task build
-
-# 2. run both producers' four signed cases through offline verification,
-#    the local admission gate, and VSA generation
-go run ./examples/agent-governance/cmd/demo
+# Build both binaries, then run both producers' signed matrices through the
+# companion authoring CLI and AutoGov's offline verifier.
+task agent-governance-demo
 ```
 
 The demo prints one row per case. Expected: `PASSED`, `PASSED`, `FAILED`,
@@ -127,11 +149,10 @@ directory for the signed bundles, trusted root, predicate bodies, and VSA JSON
 files. By default the temporary working directory is removed on exit; pass
 `-keep` only to retain that automatically created temporary directory.
 
-Equivalent focused tests (no prebuilt binary needed; the demo test builds an
-isolated binary itself):
+Equivalent focused tests (the black-box tests build isolated binaries):
 
 ```bash
-go test ./pkg/predicate ./pkg/attestations ./cmd/predicate ./pkg/offline ./pkg/vsa ./examples/agent-governance/demokit ./examples/agent-governance/policy ./examples/agent-governance/cmd/demo
+task agent-governance-test
 ```
 
 Repository-wide verification:
@@ -141,12 +162,13 @@ go test ./...
 go vet ./...
 task lint
 task build
+task agent-governance-build
 ```
 
 ## regenerating producer evidence
 
 The evidence under `fixtures/evidence/` is committed and deterministic
-(timestamps are pinned by each harness). `demokit/fixtures_test.go` verifies
+(timestamps are pinned by each harness). `internal/demokit/fixtures_test.go` verifies
 that the committed evidence and redacted records bind the committed fixture
 files by digest; it does not execute either producer or prove a regenerated
 file byte-for-byte. After regeneration, run the focused tests and review the
@@ -154,12 +176,12 @@ fixture diff. To regenerate:
 
 ```bash
 # non-AGT producer (python 3 stdlib only)
-python3 examples/agent-governance/adapters/non-agt/producer.py
+python3 agent-governance/adapters/non-agt/producer.py
 
 # AGT producer (isolated python 3.13 venv, hash-locked)
-./examples/agent-governance/adapters/agt/setup.sh
-examples/agent-governance/adapters/agt/.venv/bin/python \
-  examples/agent-governance/adapters/agt/producer.py
+./agent-governance/adapters/agt/setup.sh
+agent-governance/adapters/agt/.venv/bin/python \
+  agent-governance/adapters/agt/producer.py
 ```
 
 `setup.sh` refuses to install anything if the downloaded core wheel's sha256
@@ -186,7 +208,7 @@ Both producers must match on the schema contract's policy-semantic
 portability projection for each case kind, while their producer, runtime,
 adapter, runtime-policy, identity, audit, fixture, correlation, and evidence
 digests stay distinct and individually bound
-(`pkg/offline/agent_governance_integration_test.go`).
+(`internal/integration/autogov_e2e_test.go`).
 
 ## evidence states
 
@@ -208,6 +230,6 @@ stronger state than its evidence supports.
   `-keep` is set. A caller-supplied `-workdir` is always retained.
 - Producer harnesses remove their own `write-marker` temporary directories.
 - The AGT fixture is fully contained in
-  `examples/agent-governance/adapters/agt/.venv` and `.wheels`; delete those
+  `agent-governance/adapters/agt/.venv` and `.wheels`; delete those
   directories to remove it. Nothing is installed outside this repository
   checkout.

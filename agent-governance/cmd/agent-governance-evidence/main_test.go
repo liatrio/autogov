@@ -1,6 +1,7 @@
-package predicate
+package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -106,18 +107,6 @@ const agentGovernanceTestEvidence = `{
   }
 }`
 
-func runAgentGovernanceCmd(t *testing.T, args ...string) error {
-	t.Helper()
-	cmd := agentGovernanceDeploymentCmd
-	// reset flag state between runs
-	agentGovernanceEvidencePath = ""
-	agentGovernanceOutput = ""
-	if err := cmd.Flags().Parse(args); err != nil {
-		return err
-	}
-	return cmd.RunE(cmd, nil)
-}
-
 func TestAgentGovernanceDeploymentCommand(t *testing.T) {
 	dir := t.TempDir()
 	evidencePath := filepath.Join(dir, "evidence.json")
@@ -127,7 +116,7 @@ func TestAgentGovernanceDeploymentCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := runAgentGovernanceCmd(t, "--evidence-path", evidencePath, "--output", outputPath); err != nil {
+	if err := run([]string{"--evidence-path", evidencePath, "--output", outputPath}); err != nil {
 		t.Fatalf("command failed: %v", err)
 	}
 
@@ -169,7 +158,7 @@ func TestAgentGovernanceDeploymentCommandFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := runAgentGovernanceCmd(t, "--evidence-path", evidencePath, "--output", outputPath); err == nil {
+	if err := run([]string{"--evidence-path", evidencePath, "--output", outputPath}); err == nil {
 		t.Fatal("expected the command to fail for duplicate case ids")
 	}
 	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
@@ -177,7 +166,36 @@ func TestAgentGovernanceDeploymentCommandFailsClosed(t *testing.T) {
 	}
 
 	// missing evidence file
-	if err := runAgentGovernanceCmd(t, "--evidence-path", filepath.Join(dir, "missing.json")); err == nil {
+	if err := run([]string{"--evidence-path", filepath.Join(dir, "missing.json")}); err == nil {
 		t.Error("expected the command to fail for a missing evidence file")
+	}
+}
+
+func TestAgentGovernanceDeploymentCommandRequiresEvidence(t *testing.T) {
+	if err := run(nil); err == nil {
+		t.Fatal("expected missing --evidence-path to fail")
+	}
+	if err := run([]string{"unexpected"}); err == nil {
+		t.Fatal("expected positional arguments to fail")
+	}
+}
+
+func TestExecuteMapsHelpErrorsAndSuccessToExitCodes(t *testing.T) {
+	var stderr bytes.Buffer
+	if got := execute([]string{"--help"}, &stderr); got != 0 {
+		t.Errorf("help exit = %d, want 0", got)
+	}
+	if got := execute(nil, &stderr); got != 1 {
+		t.Errorf("missing evidence exit = %d, want 1", got)
+	}
+
+	dir := t.TempDir()
+	evidencePath := filepath.Join(dir, "evidence.json")
+	outputPath := filepath.Join(dir, "predicate.json")
+	if err := os.WriteFile(evidencePath, []byte(agentGovernanceTestEvidence), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := execute([]string{"--evidence-path", evidencePath, "--output", outputPath}, &stderr); got != 0 {
+		t.Fatalf("valid evidence exit = %d, want 0; stderr=%s", got, stderr.String())
 	}
 }

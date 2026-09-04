@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/liatrio/autogov/examples/agent-governance/demokit"
+	"github.com/liatrio/autogov/agent-governance/internal/demokit"
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/rego"
 )
@@ -49,6 +49,11 @@ func evaluatePolicy(t *testing.T, statements ...[]byte) policyResult {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return evaluatePolicySource(t, string(module), statements...)
+}
+
+func evaluatePolicySource(t *testing.T, source string, statements ...[]byte) policyResult {
+	t.Helper()
 	input := make([]interface{}, 0, len(statements))
 	for _, statement := range statements {
 		input = append(input, map[string]interface{}{
@@ -60,7 +65,7 @@ func evaluatePolicy(t *testing.T, statements ...[]byte) policyResult {
 	}
 	results, err := rego.New(
 		rego.Query("data.governance"),
-		rego.Module("agent_governance.rego", string(module)),
+		rego.Module("agent_governance.rego", source),
 		rego.Input(input),
 	).Eval(context.Background())
 	if err != nil {
@@ -775,4 +780,128 @@ func TestAgentGovernanceGateAdmitsTwoPositiveCases(t *testing.T) {
 	}
 
 	requireAllowed(t, evaluatePolicy(t, jsonBytes(t, statement), allowed.TestResultStatement, denied.TestResultStatement))
+}
+
+// These in-test source mutants prove four security-critical positive rules are
+// load-bearing. Mutants are materialized only under t.TempDir, outside the
+// loadable and policy-digested directory.
+func TestSecurityCriticalPolicySourceMutantsAreKilled(t *testing.T) {
+	sourceBytes, err := os.ReadFile("agent_governance.rego")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	built := builtCase(t, "allowed-action")
+
+	invalidTool := object(t, built.DeploymentStatement)
+	invalidTool["predicate"].(map[string]interface{})["conformance"].(map[string]interface{})["controlledTool"].(map[string]interface{})["actionClass"] = "filesystem.write.anything"
+
+	notExercised := object(t, built.DeploymentStatement)
+	notExercised["predicate"].(map[string]interface{})["enforcement"].(map[string]interface{})["observedInterventionPoints"] = []interface{}{}
+
+	badLinkage := object(t, built.DeploymentStatement)
+	badLinkageCase := badLinkage["predicate"].(map[string]interface{})["conformance"].(map[string]interface{})["cases"].([]interface{})[0].(map[string]interface{})
+	badLinkageCase["testResult"].(map[string]interface{})["statementDigest"] = "sha256:" + strings.Repeat("f", 64)
+
+	badAnnotationDeployment, badAnnotationResult := mutatedTestResult(t, built, func(predicate map[string]interface{}) {
+		configuration := predicate["configuration"].([]interface{})
+		annotations := configuration[0].(map[string]interface{})["annotations"].(map[string]interface{})
+		annotations["https://autogov.dev/attestation/agent-governance-deployment/v0.1#correlationId"] = "sha256:" + strings.Repeat("f", 64)
+	})
+
+	tests := []struct {
+		name        string
+		start       string
+		next        string
+		replacement string
+		prepare     func(*testing.T, string) string
+		statements  [][]byte
+	}{
+		{
+			name:        "controlled_tool_valid",
+			start:       "controlled_tool_valid(s) if {",
+			next:        "adapter_valid(s) if {",
+			replacement: "controlled_tool_valid(s) if {\n\tis_object(s)\n}",
+			statements:  [][]byte{jsonBytes(t, invalidTool), built.TestResultStatement},
+		},
+		{
+			name:        "deployment_enforcing",
+			start:       "deployment_enforcing(s) if {",
+			next:        "runtime_policy_consistent(s) if {",
+			replacement: "deployment_enforcing(s) if {\n\tis_object(s)\n}",
+			statements:  [][]byte{jsonBytes(t, notExercised), built.TestResultStatement},
+		},
+		{
+			name:        "linkage_valid",
+			start:       "linkage_valid(s, c) if {",
+			next:        "tr_statement_valid(s, c, t) if {",
+			replacement: "linkage_valid(s, c) if {\n\tis_object(s)\n\tis_object(c)\n}",
+			prepare:     routeLinkageViolationThroughRule,
+			statements:  [][]byte{jsonBytes(t, badLinkage), built.TestResultStatement},
+		},
+		{
+			name:        "tr_annotations_valid",
+			start:       "tr_annotations_valid(s, c, d) if {",
+			next:        "expected_annotation_keys(c) :=",
+			replacement: "tr_annotations_valid(s, c, d) if {\n\tis_object(s)\n\tis_object(c)\n\tis_object(d)\n}",
+			statements:  [][]byte{badAnnotationDeployment, badAnnotationResult},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			testSource := source
+			if tc.prepare != nil {
+				testSource = tc.prepare(t, testSource)
+			}
+			if result := evaluatePolicySource(t, testSource, tc.statements...); result.allow {
+				t.Fatalf("checked-in %s accepted the adversarial input", tc.name)
+			}
+			mutant := replacePolicyRule(t, testSource, tc.start, tc.next, tc.replacement)
+			mutantPath := filepath.Join(t.TempDir(), tc.name+".rego")
+			if err := os.WriteFile(mutantPath, []byte(mutant), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			mutantBytes, err := os.ReadFile(mutantPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result := evaluatePolicySource(t, string(mutantBytes), tc.statements...); !result.allow {
+				t.Fatalf("%s mutant did not change the final admission decision: %v", tc.name, result.violations)
+			}
+		})
+	}
+}
+
+// The checked-in policy deliberately reports detailed linkage failures through
+// tr_statement_valid as a defense redundant with linkage_valid. For the
+// linkage mutation only, route that logically equivalent violation check
+// through linkage_valid so the final allow decision proves the named rule is
+// connected to admission rather than merely succeeding in isolation.
+func routeLinkageViolationThroughRule(t *testing.T, source string) string {
+	t.Helper()
+	const original = `	trs := case_test_results(c)
+	count(trs) == 1
+	some t in trs
+	not tr_statement_valid(s, c, t)`
+	const replacement = `	count(case_test_results(c)) == 1
+	not linkage_valid(s, c)`
+	if strings.Count(source, original) != 1 {
+		t.Fatalf("linkage violation block count = %d, want 1", strings.Count(source, original))
+	}
+	return strings.Replace(source, original, replacement, 1)
+}
+
+func replacePolicyRule(t *testing.T, source, start, next, replacement string) string {
+	t.Helper()
+	startIndex := strings.Index(source, start)
+	if startIndex < 0 {
+		t.Fatalf("policy rule %q not found", start)
+	}
+	nextOffset := strings.Index(source[startIndex:], "\n\n"+next)
+	if nextOffset < 0 {
+		t.Fatalf("rule following %q not found", start)
+	}
+	endIndex := startIndex + nextOffset
+	return source[:startIndex] + replacement + source[endIndex:]
 }

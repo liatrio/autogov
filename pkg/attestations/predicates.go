@@ -112,15 +112,12 @@ const (
 	// Spec: https://github.com/liatrio/autogov (custom predicate type)
 	PredicateTypeAutogovSourceReview = "https://autogov.dev/attestation/source-review/v0.2"
 
-	// PredicateTypeAutogovAgentGovernanceDeployment represents AutoGov's experimental
-	// runtime-neutral agent-governance deployment attestation. This custom predicate
-	// type binds an agent artifact to immutable runtime, adapter, runtime-policy,
-	// enforcement, identity, audit, and bounded conformance evidence so a deployment
-	// can be admitted or rejected from portable signed evidence. The runtime-policy
-	// digest inside the predicate identifies the policy governing the agent at
-	// runtime; it is distinct from the AutoGov admission-policy digest recorded in a
-	// VSA. Incompatible semantic changes require a new URI.
-	// Spec: https://github.com/liatrio/autogov (custom predicate type)
+	// PredicateTypeAutogovAgentGovernanceDeployment recognizes the experimental
+	// v0.1 artifact contract stewarded by the repository-local agent-governance
+	// companion. AutoGov verifies and displays this URI through its generic
+	// attestation path; predicate authoring and schema validation live outside the
+	// AutoGov binary. Incompatible or community-neutral semantics require a new URI.
+	// Spec: https://github.com/liatrio/autogov/tree/main/agent-governance
 	PredicateTypeAutogovAgentGovernanceDeployment = "https://autogov.dev/attestation/agent-governance-deployment/v0.1"
 
 	// PredicateTypeSCAI represents SCAI (Software Supply Chain Attribute Integrity) report.
@@ -259,9 +256,9 @@ var PredicateTypeRegistry = map[string]PredicateTypeInfo{
 	},
 	PredicateTypeAutogovAgentGovernanceDeployment: {
 		URI:         PredicateTypeAutogovAgentGovernanceDeployment,
-		ShortName:   "AutoGov Agent Governance Deployment",
-		Description: "AutoGov custom agent-governance deployment attestation binding an agent artifact to runtime, adapter, runtime-policy, enforcement, identity, audit, and bounded conformance evidence",
-		Spec:        "https://github.com/liatrio/autogov",
+		ShortName:   "Agent Governance Deployment v0.1",
+		Description: "Experimental companion-authored deployment evidence consumed through AutoGov's generic signature, policy, and VSA artifact interfaces",
+		Spec:        "https://github.com/liatrio/autogov/tree/main/agent-governance",
 	},
 	PredicateTypeSCAI: {
 		URI:         PredicateTypeSCAI,

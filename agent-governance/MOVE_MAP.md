@@ -25,3 +25,13 @@ changes follow separately.
 
 Ignored environments and caches under `.venv/`, `.wheels/`, and
 `__pycache__/` are deliberately excluded from the move.
+
+The post-move isolation commit also duplicates four small AutoGov-owned
+helpers so neither dependency graph crosses the artifact/CLI boundary:
+
+| AutoGov source | Companion-local copy |
+| --- | --- |
+| `pkg/predicate/predicate.go` (`writeOutput`) | `agent-governance/internal/evidence/output.go` |
+| `pkg/predicate/config.go` (embedded-schema validation) | `agent-governance/internal/evidence/schema.go` |
+| `pkg/predicate/testresult.go` (wire types/constants) | `agent-governance/internal/evidence/testresult.go` |
+| `pkg/predicate/schemas/test-result-schema.json` | `agent-governance/internal/evidence/schemas/test-result-schema.json` |

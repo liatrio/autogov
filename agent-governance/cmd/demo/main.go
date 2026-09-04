@@ -13,19 +13,20 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 
-	"github.com/liatrio/autogov/examples/agent-governance/demokit"
+	"github.com/liatrio/autogov/agent-governance/internal/demokit"
 )
 
 const (
 	demoIdentity = "agent-governance-demo@autogov.local"
 	demoIssuer   = "https://demo.autogov.local/oidc"
-	policyURI    = "https://github.com/liatrio/autogov/examples/agent-governance/policy"
+	policyURI    = "https://github.com/liatrio/autogov/agent-governance/policy"
 )
 
 type caseSpec struct {
@@ -44,23 +45,40 @@ var cases = []caseSpec{
 }
 
 func main() {
-	autogovPath := flag.String("autogov", filepath.Join("bin", "autogov"), "path to the built autogov binary")
-	examplesDir := flag.String("examples", filepath.Join("examples", "agent-governance"), "path to examples/agent-governance")
-	workdir := flag.String("workdir", "", "working directory for signed bundles and VSA output (default: a temp dir; supplied directory is retained)")
-	keep := flag.Bool("keep", false, "keep an automatically created temporary working directory")
-	flag.Parse()
-
-	if err := run(*autogovPath, *examplesDir, *workdir, *keep); err != nil {
+	if err := runCLI(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
 		fmt.Fprintf(os.Stderr, "demo failed: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(autogovPath, examplesDir, workdir string, keep bool) error {
+func runCLI(args []string) error {
+	flags := flag.NewFlagSet("agent-governance-demo", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	autogovPath := flags.String("autogov", filepath.Join("bin", "autogov"), "path to the built autogov binary")
+	evidencePath := flags.String("agent-governance-evidence", filepath.Join("bin", "agent-governance-evidence"), "path to the built agent-governance-evidence companion binary")
+	companionDir := flags.String("companion", "agent-governance", "path to the agent-governance companion directory")
+	workdir := flags.String("workdir", "", "working directory for signed bundles and VSA output (default: a temp dir; supplied directory is retained)")
+	keep := flags.Bool("keep", false, "keep an automatically created temporary working directory")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected positional arguments: %v", flags.Args())
+	}
+	return run(*autogovPath, *evidencePath, *companionDir, *workdir, *keep)
+}
+
+func run(autogovPath, evidencePath, companionDir, workdir string, keep bool) error {
 	if _, err := os.Stat(autogovPath); err != nil {
 		return fmt.Errorf("autogov binary not found at %s (run `task build` first): %w", autogovPath, err)
 	}
-	absExamples, err := filepath.Abs(examplesDir)
+	if _, err := os.Stat(evidencePath); err != nil {
+		return fmt.Errorf("agent-governance-evidence binary not found at %s (run `task agent-governance-build` first): %w", evidencePath, err)
+	}
+	absCompanion, err := filepath.Abs(companionDir)
 	if err != nil {
 		return err
 	}
@@ -91,7 +109,7 @@ func run(autogovPath, examplesDir, workdir string, keep bool) error {
 	failures := 0
 	for _, producer := range []string{"non-agt", "agt"} {
 		for _, tc := range cases {
-			ok, err := runCase(autogovPath, absExamples, workdir, trustedRootPath, signer, producer, tc)
+			ok, err := runCase(autogovPath, evidencePath, absCompanion, workdir, trustedRootPath, signer, producer, tc)
 			if err != nil {
 				return fmt.Errorf("%s/%s: %w", producer, tc.name, err)
 			}
@@ -129,8 +147,8 @@ func prepareWorkdir(workdir string, keep bool) (string, func(), error) {
 	return dir, func() { _ = os.RemoveAll(dir) }, nil
 }
 
-func runCase(autogovPath, examplesDir, workdir, trustedRootPath string, signer *demokit.Signer, producer string, tc caseSpec) (bool, error) {
-	evidencePath := filepath.Join(examplesDir, "fixtures", "evidence", producer, tc.name+".json")
+func runCase(autogovPath, evidenceBinary, companionDir, workdir, trustedRootPath string, signer *demokit.Signer, producer string, tc caseSpec) (bool, error) {
+	evidencePath := filepath.Join(companionDir, "fixtures", "evidence", producer, tc.name+".json")
 	built, err := demokit.BuildCase(evidencePath)
 	if err != nil {
 		return false, err
@@ -147,7 +165,7 @@ func runCase(autogovPath, examplesDir, workdir, trustedRootPath string, signer *
 		return false, err
 	}
 	cliBody := filepath.Join(workdir, producer+"-"+tc.name+"-predicate.json")
-	cmd := exec.Command(autogovPath, "predicate", "agent-governance-deployment",
+	cmd := exec.Command(evidenceBinary,
 		"--evidence-path", completedPath, "--output", cliBody)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return false, fmt.Errorf("predicate command failed: %v\n%s", err, out)
@@ -188,11 +206,14 @@ func runCase(autogovPath, examplesDir, workdir, trustedRootPath string, signer *
 		"--generate-vsa",
 		"--vsa-output", vsaPath,
 		"--policy-uri", policyURI,
-		"--policy-bundle-path", filepath.Join(examplesDir, "policy"),
+		"--policy-bundle-path", filepath.Join(companionDir, "policy"),
 		"--fail-on-policy-error",
 		"--quiet",
 	)
 	output, runErr := offline.CombinedOutput()
+	if offline.ProcessState == nil {
+		return false, fmt.Errorf("offline command did not start: %v\n%s", runErr, output)
+	}
 	exitCode := offline.ProcessState.ExitCode()
 	if runErr != nil && exitCode < 0 {
 		return false, fmt.Errorf("offline command did not run: %v\n%s", runErr, output)

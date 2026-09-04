@@ -1,7 +1,8 @@
 // Package demokit is the demonstration/signing layer of the agent-governance
 // evidence spike. It owns everything the runtime fixtures must not do: it
 // completes producer evidence with the signed test-result statement digest,
-// generates the deterministic deployment predicate body through pkg/predicate,
+// generates the deterministic deployment predicate body through the
+// companion-owned evidence package,
 // wraps both predicate bodies in single-subject in-toto Statements, and signs
 // them into offline-verifiable Sigstore bundles with a local demonstration CA.
 //
@@ -18,7 +19,7 @@ import (
 	"os"
 	"strings"
 
-	pred "github.com/liatrio/autogov/pkg/predicate"
+	pred "github.com/liatrio/autogov/agent-governance/internal/evidence"
 )
 
 // InTotoStatementType is the in-toto v1 statement envelope type.

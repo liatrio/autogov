@@ -1,4 +1,4 @@
-package predicate
+package evidence
 
 import (
 	"bytes"
@@ -232,6 +232,9 @@ type AgentGovernanceDeployment struct {
 // aggregate verdict (e.g. "passed"/"compliant") can never smuggle into the
 // body, and trailing data is rejected.
 func ParseAgentGovernanceEvidence(data []byte) (*AgentGovernanceDeployment, error) {
+	if len(data) > AgentGovernanceMaxPredicateBytes {
+		return nil, fmt.Errorf("agent-governance evidence exceeds the %d byte input bound", AgentGovernanceMaxPredicateBytes)
+	}
 	if err := validateAgentGovernanceEvidencePresence(data); err != nil {
 		return nil, err
 	}
@@ -1038,11 +1041,20 @@ func (d *AgentGovernanceDeployment) Generate() ([]byte, error) {
 
 // GenerateAgentGovernanceDeployment reads normalized evidence input from
 // evidencePath and writes the validated deterministic predicate body to
-// outputFile (or stdout when empty). No partial file is written on error.
+// outputFile (or stdout when empty). Invalid evidence is rejected before an
+// output file is opened.
 func GenerateAgentGovernanceDeployment(evidencePath, outputFile string) error {
-	data, err := os.ReadFile(evidencePath)
+	file, err := os.Open(evidencePath)
 	if err != nil {
 		return fmt.Errorf("failed to read evidence file: %w", err)
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, AgentGovernanceMaxPredicateBytes+1))
+	closeErr := file.Close()
+	if err := errors.Join(readErr, closeErr); err != nil {
+		return fmt.Errorf("failed to read evidence file: %w", err)
+	}
+	if len(data) > AgentGovernanceMaxPredicateBytes {
+		return fmt.Errorf("agent-governance evidence exceeds the %d byte input bound", AgentGovernanceMaxPredicateBytes)
 	}
 
 	d, err := ParseAgentGovernanceEvidence(data)
