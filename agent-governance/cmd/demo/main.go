@@ -71,12 +71,12 @@ func runCLI(args []string) error {
 	return run(*autogovPath, *evidencePath, *companionDir, *workdir, *keep)
 }
 
-func run(autogovPath, evidencePath, companionDir, workdir string, keep bool) error {
+func run(autogovPath, evidenceBinary, companionDir, workdir string, keep bool) error {
 	if _, err := os.Stat(autogovPath); err != nil {
 		return fmt.Errorf("autogov binary not found at %s (run `task build` first): %w", autogovPath, err)
 	}
-	if _, err := os.Stat(evidencePath); err != nil {
-		return fmt.Errorf("agent-governance-evidence binary not found at %s (run `task agent-governance-build` first): %w", evidencePath, err)
+	if _, err := os.Stat(evidenceBinary); err != nil {
+		return fmt.Errorf("agent-governance-evidence binary not found at %s (run `task agent-governance-build` first): %w", evidenceBinary, err)
 	}
 	absCompanion, err := filepath.Abs(companionDir)
 	if err != nil {
@@ -109,7 +109,7 @@ func run(autogovPath, evidencePath, companionDir, workdir string, keep bool) err
 	failures := 0
 	for _, producer := range []string{"non-agt", "agt"} {
 		for _, tc := range cases {
-			ok, err := runCase(autogovPath, evidencePath, absCompanion, workdir, trustedRootPath, signer, producer, tc)
+			ok, err := runCase(autogovPath, evidenceBinary, absCompanion, workdir, trustedRootPath, signer, producer, tc)
 			if err != nil {
 				return fmt.Errorf("%s/%s: %w", producer, tc.name, err)
 			}

@@ -47,3 +47,8 @@ That same isolation commit copied the signer in the other direction: the
 domain-neutral AutoGov-private helper at `pkg/offline/test_signer_test.go`
 originated from `agent-governance/internal/demokit/signer.go`. The copy keeps
 AutoGov's production and test packages independent of companion Go imports.
+
+The demo's VSA policy metadata migration is deliberate: `predicate.policy.uri`
+changed from `https://github.com/liatrio/autogov/examples/agent-governance/policy`
+to `https://github.com/liatrio/autogov/agent-governance/policy`. The policy
+bytes and the content digest recorded by `checkpoint.sha256.json` are unchanged.

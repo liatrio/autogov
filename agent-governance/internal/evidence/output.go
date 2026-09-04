@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 )
 
-// writeOutput duplicates the small file/stdout adapter so the companion does
-// not depend on AutoGov's predicate authoring package.
+// writeOutput is companion-local so artifact output does not couple to
+// AutoGov's predicate authoring package. Both destinations receive exact bytes.
 func writeOutput(output []byte, outputFile string) error {
 	if outputFile == "" {
 		if _, err := os.Stdout.Write(output); err != nil {
