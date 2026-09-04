@@ -10,7 +10,12 @@ import (
 // the agent-governance deployment predicate URI is locked; registry metadata
 // and the docs page must stay in lockstep with the constant.
 func TestAgentGovernanceDeploymentRegistryLockstep(t *testing.T) {
-	const wantURI = "https://autogov.dev/attestation/agent-governance-deployment/v0.1"
+	const (
+		wantURI         = "https://autogov.dev/attestation/agent-governance-deployment/v0.1"
+		wantShortName   = "Agent Governance Deployment v0.1"
+		wantDescription = "Experimental companion-authored deployment evidence consumed through AutoGov's generic signature, policy, and VSA artifact interfaces"
+		wantSpec        = "https://github.com/liatrio/autogov/tree/main/agent-governance"
+	)
 
 	if PredicateTypeAutogovAgentGovernanceDeployment != wantURI {
 		t.Fatalf("PredicateTypeAutogovAgentGovernanceDeployment = %q, want %q",
@@ -24,8 +29,14 @@ func TestAgentGovernanceDeploymentRegistryLockstep(t *testing.T) {
 	if info.URI != wantURI {
 		t.Errorf("registry URI = %q, want %q", info.URI, wantURI)
 	}
-	if info.ShortName == "" || info.Description == "" || info.Spec == "" {
-		t.Errorf("registry metadata incomplete: %+v", info)
+	if info.ShortName != wantShortName {
+		t.Errorf("registry short name = %q, want %q", info.ShortName, wantShortName)
+	}
+	if info.Description != wantDescription {
+		t.Errorf("registry description = %q, want %q", info.Description, wantDescription)
+	}
+	if info.Spec != wantSpec {
+		t.Errorf("registry spec = %q, want %q", info.Spec, wantSpec)
 	}
 
 	docs, err := os.ReadFile(filepath.Join("..", "..", "docs", "predicate-types.md"))

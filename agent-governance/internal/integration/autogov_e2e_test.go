@@ -31,8 +31,12 @@ import (
 // outcome evidence digests at all).
 
 const (
-	agDemoIdentity = "agent-governance-demo@autogov.local"
-	agDemoIssuer   = "https://demo.autogov.local/oidc"
+	agDemoIdentity       = "agent-governance-demo@autogov.local"
+	agDemoIssuer         = "https://demo.autogov.local/oidc"
+	agVSAStatementType   = "https://in-toto.io/Statement/v1"
+	agVSAPredicateType   = "https://slsa.dev/verification_summary/v1"
+	agAdmissionPolicyURI = "https://github.com/liatrio/autogov/agent-governance/policy"
+	agAdmissionPolicySHA = "35ba8fe7713f95c77800f086f3e0af2b7034446770375a52a84debffed2963b6"
 )
 
 var agCaseFiles = []struct {
@@ -48,9 +52,12 @@ var agCaseFiles = []struct {
 var autogovBinary string
 
 type vsaDocument struct {
-	Subject   []resourceDescriptor `json:"subject"`
-	Predicate struct {
+	Type          string               `json:"_type"`
+	PredicateType string               `json:"predicateType"`
+	Subject       []resourceDescriptor `json:"subject"`
+	Predicate     struct {
 		InputAttestations  []resourceDescriptor `json:"inputAttestations"`
+		Policy             resourceDescriptor   `json:"policy"`
 		VerificationResult string               `json:"verificationResult"`
 	} `json:"predicate"`
 	Metadata map[string]interface{} `json:"metadata"`
@@ -77,6 +84,9 @@ func TestMain(m *testing.M) {
 	build.Dir = repoRoot
 	if output, buildErr := build.CombinedOutput(); buildErr != nil {
 		fmt.Fprintf(os.Stderr, "build AutoGov for black-box tests: %v\n%s", buildErr, output)
+		if removeErr := os.RemoveAll(buildDir); removeErr != nil {
+			fmt.Fprintln(os.Stderr, "remove integration build directory after build failure:", removeErr)
+		}
 		os.Exit(1)
 	}
 	code := m.Run()
@@ -172,7 +182,7 @@ func runAgentGovernanceOffline(t *testing.T, attestationsPath, trustedRootPath, 
 		"--cert-issuer", agDemoIssuer,
 		"--image-digest", imageDigest,
 		"--vsa-output", vsaOutput,
-		"--policy-uri", "https://github.com/liatrio/autogov/agent-governance/policy",
+		"--policy-uri", agAdmissionPolicyURI,
 		"--policy-bundle-path", filepath.Join(agCompanionDir(t), "policy"),
 		"--generate-vsa",
 		"--fail-on-policy-error",
@@ -194,6 +204,18 @@ func readVSA(t *testing.T, path string) *vsaDocument {
 	var v vsaDocument
 	if err := json.Unmarshal(data, &v); err != nil {
 		t.Fatalf("VSA JSON did not parse: %v", err)
+	}
+	if v.Type != agVSAStatementType {
+		t.Errorf("VSA _type = %q, want %q", v.Type, agVSAStatementType)
+	}
+	if v.PredicateType != agVSAPredicateType {
+		t.Errorf("VSA predicateType = %q, want %q", v.PredicateType, agVSAPredicateType)
+	}
+	if v.Predicate.Policy.URI != agAdmissionPolicyURI {
+		t.Errorf("VSA policy URI = %q, want relocated policy URI %q", v.Predicate.Policy.URI, agAdmissionPolicyURI)
+	}
+	if got := v.Predicate.Policy.Digest["sha256"]; got != agAdmissionPolicySHA {
+		t.Errorf("VSA policy SHA-256 = %q, want preserved digest %q", got, agAdmissionPolicySHA)
 	}
 	return &v
 }

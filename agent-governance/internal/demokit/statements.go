@@ -16,7 +16,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	pred "github.com/liatrio/autogov/agent-governance/internal/evidence"
@@ -69,9 +68,9 @@ func annKey(suffix string) string {
 // evidence, generates the validated deterministic predicate body, and wraps
 // it in the deployment statement.
 func BuildCase(evidencePath string) (*BuiltCase, error) {
-	data, err := os.ReadFile(evidencePath)
+	data, err := pred.ReadAgentGovernanceEvidenceFile(evidencePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read evidence: %w", err)
+		return nil, err
 	}
 
 	evidence, err := pred.ParseAgentGovernanceEvidence(data)

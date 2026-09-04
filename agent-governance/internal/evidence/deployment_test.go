@@ -841,24 +841,85 @@ func TestGenerateAgentGovernanceDeploymentNoPartialFile(t *testing.T) {
 	}
 }
 
-func TestGenerateAgentGovernanceDeploymentRejectsOversizedInputBeforeOutput(t *testing.T) {
+func TestGenerateAgentGovernanceDeploymentInputBoundIsInclusive(t *testing.T) {
 	dir := t.TempDir()
-	evidencePath := filepath.Join(dir, "oversized.json")
+	evidencePath := filepath.Join(dir, "evidence.json")
 	outputPath := filepath.Join(dir, "predicate.json")
-	oversized := bytes.Repeat([]byte(" "), AgentGovernanceMaxPredicateBytes+1)
+	raw, err := json.Marshal(validAgentGovernanceDeployment())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) >= AgentGovernanceMaxPredicateBytes {
+		t.Fatalf("valid fixture is %d bytes, cannot pad it to the input boundary", len(raw))
+	}
+	exact := append(append([]byte(nil), raw...), bytes.Repeat([]byte(" "), AgentGovernanceMaxPredicateBytes-len(raw))...)
+	if _, err := ParseAgentGovernanceEvidence(exact); err != nil {
+		t.Fatalf("parser rejected evidence at the exact %d-byte limit: %v", AgentGovernanceMaxPredicateBytes, err)
+	}
+	if err := os.WriteFile(evidencePath, exact, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateAgentGovernanceDeployment(evidencePath, outputPath); err != nil {
+		t.Fatalf("generator rejected evidence at the exact %d-byte limit: %v", AgentGovernanceMaxPredicateBytes, err)
+	}
+	got, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := mustGenerate(t, validAgentGovernanceDeployment())
+	if !bytes.Equal(got, want) {
+		t.Fatal("boundary padding changed valid predicate bytes")
+	}
+
+	oversized := append(append([]byte(nil), exact...), ' ')
 	if err := os.WriteFile(evidencePath, oversized, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	oversizedOutputPath := filepath.Join(dir, "oversized-predicate.json")
 
-	err := GenerateAgentGovernanceDeployment(evidencePath, outputPath)
+	err = GenerateAgentGovernanceDeployment(evidencePath, oversizedOutputPath)
 	if err == nil || !strings.Contains(err.Error(), "input bound") {
 		t.Fatalf("oversized evidence error = %v, want bounded-input rejection", err)
 	}
-	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(oversizedOutputPath); !os.IsNotExist(err) {
 		t.Fatalf("oversized evidence created output: %v", err)
 	}
 	if _, err := ParseAgentGovernanceEvidence(oversized); err == nil {
 		t.Fatal("direct parser accepted oversized evidence")
+	}
+}
+
+type boundedReadProbe struct {
+	remaining int
+	overRead  bool
+}
+
+func (r *boundedReadProbe) Read(p []byte) (int, error) {
+	if r.remaining == 0 {
+		r.overRead = true
+		return 0, fmt.Errorf("read after the allowed probe boundary")
+	}
+	if len(p) > r.remaining {
+		p = p[:r.remaining]
+	}
+	for i := range p {
+		p[i] = 'x'
+	}
+	r.remaining -= len(p)
+	return len(p), nil
+}
+
+func TestBoundedEvidenceReaderDoesNotReadPastLimitPlusOne(t *testing.T) {
+	probe := &boundedReadProbe{remaining: AgentGovernanceMaxPredicateBytes + 1}
+	_, err := readBoundedAgentGovernanceEvidence(probe)
+	if err == nil || !strings.Contains(err.Error(), "input bound") {
+		t.Fatalf("bounded reader error = %v, want input-bound rejection", err)
+	}
+	if probe.overRead {
+		t.Fatal("bounded reader requested bytes after consuming limit plus one")
+	}
+	if probe.remaining != 0 {
+		t.Fatalf("bounded reader left %d probe bytes unread, want exactly limit plus one consumed", probe.remaining)
 	}
 }
 

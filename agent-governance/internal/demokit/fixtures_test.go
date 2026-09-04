@@ -2,6 +2,7 @@ package demokit
 
 import (
 	"archive/zip"
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -486,6 +487,43 @@ func TestBuildCaseDeterministic(t *testing.T) {
 	}
 	if string(first.TestResultStatement) != string(second.TestResultStatement) {
 		t.Error("test-result statement generation is not deterministic")
+	}
+}
+
+func TestBuildCaseInputBoundIsInclusive(t *testing.T) {
+	source := filepath.Join(baseDir(t), "fixtures", "evidence", "non-agt", "allowed-action.json")
+	raw, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) >= pred.AgentGovernanceMaxPredicateBytes {
+		t.Fatalf("fixture is %d bytes, cannot pad it to the evidence input boundary", len(raw))
+	}
+	want, err := BuildCase(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exact := append(append([]byte(nil), raw...), bytes.Repeat([]byte(" "), pred.AgentGovernanceMaxPredicateBytes-len(raw))...)
+	path := filepath.Join(t.TempDir(), "evidence.json")
+	if err := os.WriteFile(path, exact, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := BuildCase(path)
+	if err != nil {
+		t.Fatalf("BuildCase rejected evidence at the exact %d-byte limit: %v", pred.AgentGovernanceMaxPredicateBytes, err)
+	}
+	if !bytes.Equal(got.PredicateBody, want.PredicateBody) ||
+		!bytes.Equal(got.DeploymentStatement, want.DeploymentStatement) ||
+		!bytes.Equal(got.TestResultStatement, want.TestResultStatement) {
+		t.Fatal("boundary padding changed BuildCase artifact bytes")
+	}
+
+	if err := os.WriteFile(path, append(exact, ' '), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildCase(path); err == nil || !strings.Contains(err.Error(), "input bound") {
+		t.Fatalf("BuildCase limit-plus-one error = %v, want input-bound rejection", err)
 	}
 }
 

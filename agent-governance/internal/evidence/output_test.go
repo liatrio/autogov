@@ -1,11 +1,40 @@
 package evidence
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestWriteOutputWritesExactStdoutBytes(t *testing.T) {
+	want := []byte(`{"valid":true}`)
+	captured, err := os.CreateTemp(t.TempDir(), "stdout-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stdout
+	os.Stdout = captured
+	t.Cleanup(func() { os.Stdout = original })
+
+	writeErr := writeOutput(want, "")
+	os.Stdout = original
+	if writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	if _, err := captured.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("stdout bytes = %q, want exact predicate bytes %q", got, want)
+	}
+}
 
 func TestWriteOutputReportsStdoutFailure(t *testing.T) {
 	closed, err := os.CreateTemp(t.TempDir(), "closed-stdout-")

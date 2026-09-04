@@ -10,7 +10,7 @@ import (
 // not depend on AutoGov's predicate authoring package.
 func writeOutput(output []byte, outputFile string) error {
 	if outputFile == "" {
-		if _, err := fmt.Fprintln(os.Stdout, string(output)); err != nil {
+		if _, err := os.Stdout.Write(output); err != nil {
 			return fmt.Errorf("failed to write output: %w", err)
 		}
 		return nil

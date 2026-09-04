@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -134,6 +135,46 @@ func TestAgentGovernanceDeploymentCommand(t *testing.T) {
 	}
 	if body["schemaVersion"] != "0.1" {
 		t.Errorf("schemaVersion = %v, want 0.1", body["schemaVersion"])
+	}
+}
+
+func TestAgentGovernanceDeploymentCommandStdoutMatchesFileBytes(t *testing.T) {
+	dir := t.TempDir()
+	evidencePath := filepath.Join(dir, "evidence.json")
+	outputPath := filepath.Join(dir, "predicate.json")
+	if err := os.WriteFile(evidencePath, []byte(agentGovernanceTestEvidence), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"--evidence-path", evidencePath, "--output", outputPath}); err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	captured, err := os.CreateTemp(dir, "stdout-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stdout
+	os.Stdout = captured
+	t.Cleanup(func() { os.Stdout = original })
+	var stderr bytes.Buffer
+	exitCode := execute([]string{"--evidence-path", evidencePath}, &stderr)
+	os.Stdout = original
+	if exitCode != 0 {
+		t.Fatalf("stdout command exit = %d, want 0; stderr=%s", exitCode, stderr.String())
+	}
+	if _, err := captured.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("stdout differs from file output:\nstdout: %q\nfile:   %q", got, want)
 	}
 }
 

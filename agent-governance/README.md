@@ -14,7 +14,8 @@ enforced through Auto Gov's **existing** offline path:
 producer evidence JSON (unbound test-result digest)
   -> demo/signing helper normalizes evidence, builds the standard test-result
      payload, and binds its exact payload digest into the deployment evidence
-  -> agent-governance-evidence                       (deterministic predicate body;
+  -> agent-governance-evidence                       (consumes the completed/bound
+     evidence and emits a deterministic predicate body;
      the demo exercises this companion CLI as a subprocess)
   -> signed in-toto deployment statement + separately signed standard
      test-result statement (demo signing helper, local demonstration CA)
@@ -26,6 +27,12 @@ producer evidence JSON (unbound test-result digest)
 Expected admission per producer: `PASSED`, `PASSED`, `FAILED`, `FAILED` for
 the allowed, denied, bypassed, and no-policy cases — plus a failing
 `unknown-outcome` negative fixture.
+
+The public `agent-governance-evidence` CLI accepts only the completed evidence
+state: `case.testResult.statementDigest` must already bind the exact standard
+test-result statement payload. Producer output is intentionally unbound. In
+the demonstration, the private `internal/demokit` signing helper performs that
+completion step before invoking the CLI; it is not a separate public command.
 
 ## honest scope and limits
 

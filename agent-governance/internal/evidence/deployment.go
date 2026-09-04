@@ -254,6 +254,33 @@ func ParseAgentGovernanceEvidence(data []byte) (*AgentGovernanceDeployment, erro
 	return &d, nil
 }
 
+// ReadAgentGovernanceEvidenceFile reads at most one bounded evidence document.
+// The companion CLI and demonstration helper share this adapter so neither can
+// allocate an unbounded producer-controlled file before parsing it.
+func ReadAgentGovernanceEvidenceFile(evidencePath string) ([]byte, error) {
+	file, err := os.Open(evidencePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read evidence file: %w", err)
+	}
+	data, readErr := readBoundedAgentGovernanceEvidence(file)
+	closeErr := file.Close()
+	if err := errors.Join(readErr, closeErr); err != nil {
+		return nil, fmt.Errorf("failed to read evidence file: %w", err)
+	}
+	return data, nil
+}
+
+func readBoundedAgentGovernanceEvidence(reader io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(reader, AgentGovernanceMaxPredicateBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > AgentGovernanceMaxPredicateBytes {
+		return nil, fmt.Errorf("agent-governance evidence exceeds the %d byte input bound", AgentGovernanceMaxPredicateBytes)
+	}
+	return data, nil
+}
+
 // validateAgentGovernanceEvidencePresence rejects omitted required members
 // before decoding into Go structs. in particular, a missing false/zero member
 // must not become a fabricated no-policy observation through Go's zero-value
@@ -1044,17 +1071,9 @@ func (d *AgentGovernanceDeployment) Generate() ([]byte, error) {
 // outputFile (or stdout when empty). Invalid evidence is rejected before an
 // output file is opened.
 func GenerateAgentGovernanceDeployment(evidencePath, outputFile string) error {
-	file, err := os.Open(evidencePath)
+	data, err := ReadAgentGovernanceEvidenceFile(evidencePath)
 	if err != nil {
-		return fmt.Errorf("failed to read evidence file: %w", err)
-	}
-	data, readErr := io.ReadAll(io.LimitReader(file, AgentGovernanceMaxPredicateBytes+1))
-	closeErr := file.Close()
-	if err := errors.Join(readErr, closeErr); err != nil {
-		return fmt.Errorf("failed to read evidence file: %w", err)
-	}
-	if len(data) > AgentGovernanceMaxPredicateBytes {
-		return fmt.Errorf("agent-governance evidence exceeds the %d byte input bound", AgentGovernanceMaxPredicateBytes)
+		return err
 	}
 
 	d, err := ParseAgentGovernanceEvidence(data)

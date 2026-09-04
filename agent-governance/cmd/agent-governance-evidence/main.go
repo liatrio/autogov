@@ -1,5 +1,6 @@
 // Command agent-governance-evidence authors the experimental v0.1 deployment
-// predicate body from one runtime-produced JSON evidence document.
+// predicate body from one completed evidence document whose test-result
+// statement digest is already bound.
 package main
 
 import (
@@ -31,12 +32,12 @@ func execute(args []string, stderr io.Writer) int {
 func run(args []string) error {
 	flags := flag.NewFlagSet("agent-governance-evidence", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
-	evidencePath := flags.String("evidence-path", "", "path to normalized runtime evidence JSON (required)")
+	evidencePath := flags.String("evidence-path", "", "path to completed, test-result-bound evidence JSON (required)")
 	outputPath := flags.String("output", "", "predicate body output path (defaults to stdout)")
 	flags.Usage = func() {
 		_, _ = fmt.Fprintln(flags.Output(), "Usage: agent-governance-evidence --evidence-path <evidence.json> [--output <predicate.json>]")
 		_, _ = fmt.Fprintln(flags.Output())
-		_, _ = fmt.Fprintln(flags.Output(), "Authors the https://autogov.dev/attestation/agent-governance-deployment/v0.1 predicate body.")
+		_, _ = fmt.Fprintln(flags.Output(), "Consumes completed, test-result-bound evidence and authors the https://autogov.dev/attestation/agent-governance-deployment/v0.1 predicate body.")
 		flags.PrintDefaults()
 	}
 

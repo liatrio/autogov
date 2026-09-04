@@ -8,14 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
-
-type checkpointErrorWriter struct{}
-
-func (checkpointErrorWriter) Write([]byte) (int, error) {
-	return 0, errors.New("write failed")
-}
 
 func TestCommittedCheckpointMatchesGeneratedArtifacts(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
@@ -73,54 +68,66 @@ func TestCheckpointCommandModesAndFailures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := os.ReadFile(filepath.Join(root, manifestFilename))
-	if err != nil {
+	var stderr bytes.Buffer
+	if err := run([]string{"-root", root, "-verify"}, &stderr); err != nil {
 		t.Fatal(err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	if err := run([]string{"-root", root}, &stdout, &stderr); err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(stdout.Bytes(), want) {
-		t.Fatal("stdout mode did not emit the committed manifest")
-	}
-	if err := run([]string{"-root", root, "-verify"}, &stdout, &stderr); err != nil {
-		t.Fatal(err)
-	}
-	if err := run([]string{"-root", root}, checkpointErrorWriter{}, &stderr); err == nil {
-		t.Fatal("stdout write failure was not propagated")
 	}
 
 	for _, args := range [][]string{
 		nil,
+		{"-root", root},
+		{"-root", root, "-write"},
 		{"-root", root, "-write", "-verify"},
 		{"-root", root, "unexpected"},
 	} {
-		if err := run(args, &stdout, &stderr); err == nil {
+		if err := run(args, &stderr); err == nil {
 			t.Errorf("run(%v) unexpectedly succeeded", args)
 		}
 	}
-	if err := run([]string{"-help"}, &stdout, &stderr); !errors.Is(err, flag.ErrHelp) {
+	if err := run([]string{"-help"}, &stderr); !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("help error = %v, want flag.ErrHelp", err)
 	}
 
 	copyRoot := copyCheckpointInputs(t, root)
-	if err := run([]string{"-root", copyRoot, "-write"}, &stdout, &stderr); err != nil {
-		t.Fatal(err)
-	}
 	manifestPath := filepath.Join(copyRoot, manifestFilename)
-	if got, err := os.ReadFile(manifestPath); err != nil || !bytes.Equal(got, want) {
-		t.Fatalf("write mode manifest mismatch: err=%v", err)
-	}
-	if err := os.WriteFile(manifestPath, []byte("{}\n"), 0o600); err != nil {
+	immutable := []byte("immutable checkpoint sentinel\n")
+	if err := os.WriteFile(manifestPath, immutable, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := run([]string{"-root", copyRoot, "-verify"}, &stdout, &stderr); err == nil {
+	if err := run([]string{"-root", copyRoot, "-write"}, &stderr); err == nil {
+		t.Fatal("write mode unexpectedly succeeded")
+	}
+	if got, err := os.ReadFile(manifestPath); err != nil || !bytes.Equal(got, immutable) {
+		t.Fatalf("rejected write mode changed checkpoint: got=%q err=%v", got, err)
+	}
+	if err := run([]string{"-root", copyRoot, "-verify"}, &stderr); err == nil {
 		t.Fatal("verify mode accepted a mismatched manifest")
 	}
-	if err := run([]string{"-root", t.TempDir()}, &stdout, &stderr); err == nil {
+	if err := run([]string{"-root", t.TempDir(), "-verify"}, &stderr); err == nil {
 		t.Fatal("checkpoint accepted a root with missing frozen inputs")
+	}
+}
+
+func TestCheckpointRejectsSymlinkedFrozenInput(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyRoot := copyCheckpointInputs(t, root)
+	path := filepath.Join(copyRoot, filepath.FromSlash(frozenInputs[0]))
+	external := filepath.Join(t.TempDir(), "external-input")
+	if err := os.WriteFile(external, []byte("outside extraction tree"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, path); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	if err := run([]string{"-root", copyRoot, "-verify"}, &stderr); err == nil || !strings.Contains(err.Error(), "regular non-symlink file") {
+		t.Fatalf("symlinked frozen input error = %v, want regular-file rejection", err)
 	}
 }
 
