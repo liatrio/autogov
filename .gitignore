@@ -36,3 +36,11 @@ build-errors.log
 
 # build output
 bin/
+# agent-governance spike: isolated AGT fixture environment
+examples/agent-governance/adapters/agt/.venv/
+examples/agent-governance/adapters/agt/.wheels/
+examples/agent-governance/**/__pycache__/
+# repository-local agent-governance companion caches
+agent-governance/adapters/agt/.venv/
+agent-governance/adapters/agt/.wheels/
+agent-governance/**/__pycache__/

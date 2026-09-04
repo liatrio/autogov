@@ -1,0 +1,1 @@
+{"caseId":"agt-unknown-outcome-001","engine":"agent-os-policy-evaluator","matchedRule":"allow-sanctioned-write-marker","policyArtifactDigest":"sha256:5444ca7781cce3bed4236ee405c7fc0d2db9fe086f9e8d99c5bbaa1fcf5dec6c","verdict":"allow","viaDefault":false}

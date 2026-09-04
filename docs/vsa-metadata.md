@@ -46,6 +46,28 @@ The generated VSA includes comprehensive metadata about the verification and pol
 }
 ```
 
+## Offline input-attestation binding
+
+When offline verification generates a VSA, every verified statement admitted
+to OPA evaluation is also recorded in `predicate.inputAttestations`. Its
+resource descriptor uses the exact DSSE payload bytes:
+
+```json
+{
+  "uri": "urn:attestation:sha256:<payload-sha256>",
+  "digest": {"sha256": "<payload-sha256>"}
+}
+```
+
+This additive binding applies to all predicate types handled by the offline
+path. The resource URI identifies one immutable statement; it is not the
+statement's `predicateType` and is not a schema URL. Predicate types continue
+to contribute separately to the VSA's verification facts. Offline VSA output
+remains unsigned. The repository-local [agent-governance companion](../agent-governance/)
+exercises this generic contract with a custom deployment statement and a
+standard test-result statement; AutoGov contains no companion-specific input
+binding code.
+
 ## Metadata Fields
 
 - **`autogov.policy.evaluation`**: Core policy evaluation results including pass/fail status, violations, and policy details

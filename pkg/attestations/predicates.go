@@ -112,6 +112,14 @@ const (
 	// Spec: https://github.com/liatrio/autogov (custom predicate type)
 	PredicateTypeAutogovSourceReview = "https://autogov.dev/attestation/source-review/v0.2"
 
+	// PredicateTypeAutogovAgentGovernanceDeployment recognizes the experimental
+	// v0.1 artifact contract stewarded by the repository-local agent-governance
+	// companion. AutoGov verifies and displays this URI through its generic
+	// attestation path; predicate authoring and schema validation live outside the
+	// AutoGov binary. Incompatible or community-neutral semantics require a new URI.
+	// Spec: https://github.com/liatrio/autogov/tree/main/agent-governance
+	PredicateTypeAutogovAgentGovernanceDeployment = "https://autogov.dev/attestation/agent-governance-deployment/v0.1"
+
 	// PredicateTypeSCAI represents SCAI (Software Supply Chain Attribute Integrity) report.
 	// This predicate type provides evidence-based assertions about software artifact and
 	// supply chain attributes or behavior.
@@ -245,6 +253,12 @@ var PredicateTypeRegistry = map[string]PredicateTypeInfo{
 		ShortName:   "AutoGov Source Review",
 		Description: "AutoGov custom source-review attestation recording PR-approval evidence (approvers, distinct approvals, changes-requested) and fail-closed L3 continuity for the source revision",
 		Spec:        "https://github.com/liatrio/autogov",
+	},
+	PredicateTypeAutogovAgentGovernanceDeployment: {
+		URI:         PredicateTypeAutogovAgentGovernanceDeployment,
+		ShortName:   "Agent Governance Deployment v0.1",
+		Description: "Experimental companion-authored deployment evidence consumed through AutoGov's generic signature, policy, and VSA artifact interfaces",
+		Spec:        "https://github.com/liatrio/autogov/tree/main/agent-governance",
 	},
 	PredicateTypeSCAI: {
 		URI:         PredicateTypeSCAI,

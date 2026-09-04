@@ -17,6 +17,7 @@ The tool recognizes all standard in-toto attestation framework predicate types:
 | `https://autogov.dev/attestation/metadata/v1` | AutoGov Metadata | Custom autogov metadata with artifact/workflow/compliance details |
 | `https://autogov.dev/attestation/code-scan/v0.1` | AutoGov Code Scan | Custom autogov static-analysis (SARIF) summary by level and security-severity |
 | `https://autogov.dev/attestation/source-review/v0.2` | AutoGov Source Review | Custom autogov PR-approval evidence (approvers, distinct approvals, changes-requested) plus fail-closed SLSA Source-L3 continuity for the source revision |
+| `https://autogov.dev/attestation/agent-governance-deployment/v0.1` | Agent Governance Deployment v0.1 | Experimental deployment evidence authored and schema-validated by the repository-local [`agent-governance/`](../agent-governance/) companion; AutoGov consumes it through generic signed artifacts, policy evaluation, and unsigned VSA output |
 | `https://in-toto.io/attestation/scai/v0.3` | SCAI Report | Software supply chain attribute integrity assertions |
 | `https://in-toto.io/attestation/runtime-trace/v0.1` | Runtime Trace | Runtime traces of supply chain operations |
 | `https://in-toto.io/attestation/release/v0.1` | Release | Release version and artifact hash linkage |
@@ -24,7 +25,7 @@ The tool recognizes all standard in-toto attestation framework predicate types:
 | `https://in-toto.io/attestation/link/v0.3` | in-toto Link | Legacy in-toto 0.9 format (migration support) |
 | `https://cosign.sigstore.dev/attestation/v1` | Cosign Custom | Cosign generic custom attestation |
 
-> **Note:** Predicate types are URIs that *identify* an attestation's schema (the in-toto `predicateType` value); they are not necessarily browsable web pages. The `https://autogov.dev/attestation/...` entries are autogov's own custom predicate-type identifiers.
+> **Note:** Predicate types are URIs that *identify* an attestation's schema (the in-toto `predicateType` value); they are not necessarily browsable web pages. The `https://autogov.dev/attestation/...` entries are autogov's own custom predicate-type identifiers. AutoGov's generic verifier never dereferences or schema-validates the agent-governance body: it authenticates the signed Statement and passes the payload to the selected policy, which may enforce its own structure. The companion authoring command validates v0.1 against its [checked-in schema](../agent-governance/internal/evidence/schemas/agent-governance-deployment-schema.json).
 
 ## How It Works
 

@@ -1,0 +1,105 @@
+{
+  "adapter": {
+    "artifact": {
+      "digest": "sha256:87531b9e783dd7f0b050ab9736b8f337e59ae58dedd4276527b562cb3bc418c0",
+      "uri": "urn:autogov:example:agent-governance:non-agt:adapter:0.1"
+    },
+    "contractVersion": "0.1",
+    "name": "non-agt-fixture-adapter",
+    "runtimeDigest": "sha256:b4f01ba0a9f3e05c553571f9593ad29a230d5b0b6971f763a26fb6157ae55c91"
+  },
+  "agent": {
+    "artifactDigest": "sha256:57273906dbc9eb12e7a400158a8a73bc8fd3a499a0c6508119935786d4a71e10",
+    "name": "agent-image",
+    "uri": "urn:autogov:example:agent-governance:agent-image"
+  },
+  "audit": {
+    "configurationDigest": "sha256:1fd1480f33008e2e5cc18b6da4b3c98b78515ee7134f0cf231e6c156e3af5ff8",
+    "sink": {
+      "digest": "sha256:511e0fcfe0be437ac8c101f2cc47f4ed88a1440173465382e43da471bb7bffb1",
+      "id": "redacted:non-agt-audit-sink"
+    },
+    "sinkKind": "file"
+  },
+  "conformance": {
+    "cases": [
+      {
+        "completedAt": "2026-08-26T20:00:03Z",
+        "correlationId": "sha256:3ddb94989aec126b9354e7337a817507ffa77c41cf6aafae9be09fa6b9b34b45",
+        "decision": {
+          "observedAt": "2026-08-26T20:00:02Z",
+          "reference": {
+            "digest": "sha256:bd599a997616b4f77ad4e79affc321d82e81f7fe1e88998808bb0e0996e1ad58",
+            "id": "redacted:non-agt-denied-action-001-decision"
+          },
+          "state": "observed",
+          "verdict": "deny"
+        },
+        "id": "non-agt-denied-action-001",
+        "kind": "denied-action",
+        "outcome": {
+          "observedAt": "2026-08-26T20:00:03Z",
+          "reference": {
+            "digest": "sha256:e553dd10db7f4d0b2077ba27af4451793661d2bf6ca3e76d8b6f630f0d957189",
+            "id": "redacted:non-agt-denied-action-001-outcome"
+          },
+          "result": "blocked",
+          "state": "verified"
+        },
+        "startedAt": "2026-08-26T20:00:02Z",
+        "testResult": {
+          "predicateType": "https://in-toto.io/attestation/test-result/v0.1",
+          "testId": "non-agt-denied-action-001"
+        }
+      }
+    ],
+    "controlledTool": {
+      "actionClass": "filesystem.write.marker",
+      "artifact": {
+        "digest": "sha256:9df776a3bb10bd24bb1693b274a49a1a0e3e74b391d24171f35fc88d77e0b8da",
+        "uri": "urn:autogov:fixture:write-marker"
+      },
+      "name": "write-marker"
+    },
+    "fixture": {
+      "id": "non-agt-fixture-001",
+      "producer": "non-agt"
+    }
+  },
+  "enforcement": {
+    "defaultBehavior": "deny",
+    "mode": "enforce",
+    "observedInterventionPoints": [
+      "tool.pre"
+    ],
+    "requiredInterventionPoints": [
+      "tool.pre"
+    ]
+  },
+  "identity": {
+    "providerUri": "urn:autogov:example:agent-governance:identity:local-demo",
+    "subject": {
+      "digest": "sha256:f081efa350e01deda339a071f6dd2db627a7422dd2a70f9aa06d4dac9c153744",
+      "id": "redacted:non-agt-fixture-workload"
+    },
+    "subjectKind": "workload"
+  },
+  "runtime": {
+    "artifact": {
+      "digest": "sha256:b4f01ba0a9f3e05c553571f9593ad29a230d5b0b6971f763a26fb6157ae55c91",
+      "uri": "urn:autogov:example:agent-governance:non-agt:runtime:1.0.0"
+    },
+    "name": "toy-runtime",
+    "version": "1.0.0"
+  },
+  "runtimePolicy": {
+    "artifact": {
+      "digest": "sha256:874d825f3cad0134979cc8291d5b045928dfa19d26012bf0db0d228371a31bf9",
+      "uri": "urn:autogov:example:agent-governance:non-agt:runtime-policy:write-marker"
+    },
+    "count": 1,
+    "engine": "toy-json-rules",
+    "loaded": true
+  },
+  "schemaVersion": "0.1"
+}

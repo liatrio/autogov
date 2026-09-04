@@ -1,0 +1,287 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "definitions": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:/-]{0,127}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "absoluteURI": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:([^\\s\\x00-\\x1F\\x7F-\\x9F%]|%[0-9A-Fa-f]{2})+$",
+      "allOf": [
+        {
+          "if": { "pattern": "^([Hh][Tt][Tt][Pp][Ss]|[Oo][Cc][Ii]):" },
+          "then": { "pattern": "^([Hh][Tt][Tt][Pp][Ss]|[Oo][Cc][Ii])://[A-Za-z0-9]([A-Za-z0-9._~-]*[A-Za-z0-9])?(:[0-9]{1,5})?([/?#][^\\s\\x00-\\x1F\\x7F-\\x9F]*)?$" }
+        }
+      ]
+    },
+    "artifactReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "digest"],
+      "properties": {
+        "uri": {
+          "allOf": [
+            { "$ref": "#/definitions/absoluteURI" },
+            { "pattern": "^(https|oci|urn):" }
+          ]
+        },
+        "digest": { "$ref": "#/definitions/digest" }
+      }
+    },
+    "redactedReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "digest"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^redacted:[A-Za-z0-9._~-]{1,112}$"
+        },
+        "digest": { "$ref": "#/definitions/digest" }
+      }
+    },
+    "conformanceCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "correlationId", "startedAt", "completedAt", "decision", "outcome", "testResult"],
+      "properties": {
+        "id": { "$ref": "#/definitions/id" },
+        "kind": {
+          "type": "string",
+          "enum": ["allowed-action", "denied-action", "adapter-bypass", "no-policy-loaded"]
+        },
+        "correlationId": { "$ref": "#/definitions/digest" },
+        "startedAt": { "$ref": "#/definitions/timestamp" },
+        "completedAt": { "$ref": "#/definitions/timestamp" },
+        "decision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "verdict"],
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": ["observed", "not-observed"]
+            },
+            "verdict": {
+              "type": "string",
+              "enum": ["allow", "deny", "unknown"]
+            },
+            "reference": { "$ref": "#/definitions/redactedReference" },
+            "observedAt": { "$ref": "#/definitions/timestamp" }
+          }
+        },
+        "outcome": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "result"],
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": ["verified", "unknown"]
+            },
+            "result": {
+              "type": "string",
+              "enum": ["occurred", "blocked", "unknown"]
+            },
+            "reference": { "$ref": "#/definitions/redactedReference" },
+            "observedAt": { "$ref": "#/definitions/timestamp" }
+          }
+        },
+        "testResult": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["predicateType", "testId", "statementDigest"],
+          "properties": {
+            "predicateType": {
+              "type": "string",
+              "const": "https://in-toto.io/attestation/test-result/v0.1"
+            },
+            "testId": { "$ref": "#/definitions/id" },
+            "statementDigest": { "$ref": "#/definitions/digest" }
+          }
+        }
+      }
+    }
+  },
+  "properties": {
+    "_type": {
+      "type": "string",
+      "const": "https://in-toto.io/Statement/v1"
+    },
+    "subject": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "digest"],
+        "properties": {
+          "name": { "type": "string" },
+          "digest": {
+            "type": "object",
+            "required": ["sha256"],
+            "properties": {
+              "sha256": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "predicateType": {
+      "type": "string",
+      "const": "https://autogov.dev/attestation/agent-governance-deployment/v0.1"
+    },
+    "predicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "agent", "runtime", "adapter", "runtimePolicy", "enforcement", "identity", "audit", "conformance"],
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "const": "0.1"
+        },
+        "agent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "uri", "artifactDigest"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\x00-\\x1F\\x7F-\\x9F]+$" },
+            "uri": { "$ref": "#/definitions/absoluteURI" },
+            "artifactDigest": { "$ref": "#/definitions/digest" }
+          }
+        },
+        "runtime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version", "artifact"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\x00-\\x1F\\x7F-\\x9F]+$" },
+            "version": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\x00-\\x1F\\x7F-\\x9F]+$" },
+            "framework": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\x00-\\x1F\\x7F-\\x9F]+$" },
+            "artifact": { "$ref": "#/definitions/artifactReference" }
+          }
+        },
+        "adapter": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "artifact", "contractVersion", "runtimeDigest"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\x00-\\x1F\\x7F-\\x9F]+$" },
+            "artifact": { "$ref": "#/definitions/artifactReference" },
+            "contractVersion": { "type": "string", "const": "0.1" },
+            "runtimeDigest": { "$ref": "#/definitions/digest" }
+          }
+        },
+        "runtimePolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["engine", "artifact", "count", "loaded"],
+          "properties": {
+            "engine": { "$ref": "#/definitions/id" },
+            "artifact": { "$ref": "#/definitions/artifactReference" },
+            "count": { "type": "integer", "minimum": 0, "maximum": 64 },
+            "loaded": { "type": "boolean" }
+          }
+        },
+        "enforcement": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "defaultBehavior", "requiredInterventionPoints", "observedInterventionPoints"],
+          "properties": {
+            "mode": { "type": "string", "enum": ["enforce", "monitor"] },
+            "defaultBehavior": { "type": "string", "enum": ["allow", "deny"] },
+            "requiredInterventionPoints": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": { "$ref": "#/definitions/id" }
+            },
+            "observedInterventionPoints": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": { "$ref": "#/definitions/id" }
+            }
+          }
+        },
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["providerUri", "subjectKind", "subject"],
+          "properties": {
+            "providerUri": { "$ref": "#/definitions/absoluteURI" },
+            "subjectKind": { "type": "string", "enum": ["agent", "workload"] },
+            "subject": { "$ref": "#/definitions/redactedReference" }
+          }
+        },
+        "audit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sinkKind", "sink", "configurationDigest"],
+          "properties": {
+            "sinkKind": { "$ref": "#/definitions/id" },
+            "sink": { "$ref": "#/definitions/redactedReference" },
+            "configurationDigest": { "$ref": "#/definitions/digest" }
+          }
+        },
+        "conformance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["fixture", "controlledTool", "cases"],
+          "properties": {
+            "fixture": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "producer"],
+              "properties": {
+                "id": { "$ref": "#/definitions/id" },
+                "producer": { "type": "string", "enum": ["agt", "non-agt"] }
+              }
+            },
+            "controlledTool": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "actionClass", "artifact"],
+              "properties": {
+                "name": { "type": "string", "const": "write-marker" },
+                "actionClass": { "type": "string", "const": "filesystem.write.marker" },
+                "artifact": { "$ref": "#/definitions/artifactReference" }
+              }
+            },
+            "cases": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 4,
+              "items": { "$ref": "#/definitions/conformanceCase" }
+            }
+          }
+        },
+        "extensions": {
+          "type": "object",
+          "maxProperties": 8,
+          "propertyNames": {
+            "allOf": [
+              { "$ref": "#/definitions/absoluteURI" },
+              { "maxLength": 256 }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "required": ["_type", "subject", "predicateType", "predicate"]
+}

@@ -1,0 +1,7 @@
+autogov agent-governance evidence spike — demonstration agent artifact v0.1
+
+this file stands in for an agent release artifact (the signed in-toto subject
+of every deployment and test-result statement in the demonstration). the spike
+binds exactly this one explicit test artifact; it does not claim the broader
+agent-release subject boundary (code, prompts, models, skills, tools, MCP
+servers, data, runtime configuration) is settled.

@@ -114,7 +114,13 @@ func ValidateJSON(data []byte, schemaName string) error {
 	if err != nil {
 		return err
 	}
+	return validateJSONAgainstSchema(data, schemaContent)
+}
 
+// validateJSONAgainstSchema validates JSON data against the given schema
+// content. When the schema wraps a full in-toto Statement, its predicate
+// object is extracted so predicate bodies validate directly.
+func validateJSONAgainstSchema(data []byte, schemaContent string) error {
 	var schema map[string]interface{}
 	if err := json.Unmarshal([]byte(schemaContent), &schema); err != nil {
 		return fmt.Errorf("failed to parse schema: %w", err)
@@ -124,6 +130,13 @@ func ValidateJSON(data []byte, schemaName string) error {
 	if props, ok := schema["properties"].(map[string]interface{}); ok {
 		if predicateObj, ok := props["predicate"].(map[string]interface{}); ok {
 			predicateSchema = predicateObj
+			// carry shared definitions into the extracted predicate schema so
+			// $ref pointers (e.g. #/definitions/digest) keep resolving
+			if defs, ok := schema["definitions"]; ok {
+				if _, exists := predicateSchema["definitions"]; !exists {
+					predicateSchema["definitions"] = defs
+				}
+			}
 		}
 	}
 

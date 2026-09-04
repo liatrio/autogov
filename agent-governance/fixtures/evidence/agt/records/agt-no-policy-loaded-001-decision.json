@@ -1,0 +1,1 @@
+{"caseId":"agt-no-policy-loaded-001","engine":"agent-os-policy-evaluator","matchedRule":null,"policyArtifactDigest":"sha256:e5c6eb3b3fe9e15461ce9cb074fff8cd96854bf83a721bec17d9ae13ca4b36be","verdict":"allow","viaDefault":true}

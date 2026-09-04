@@ -1,0 +1,24 @@
+# fixture runtime policy for the pinned AGT core PolicyEvaluator.
+# governs only the write-marker conformance tool; defaults deny.
+version: "1.0"
+name: agt-write-marker-policy
+description: fixture policy governing only the write-marker conformance tool
+defaults:
+  action: deny
+rules:
+  - name: allow-sanctioned-write-marker
+    condition:
+      field: purpose
+      operator: eq
+      value: sanctioned-write
+    action: allow
+    priority: 10
+    message: sanctioned write-marker conformance case
+  - name: deny-blocked-write-marker
+    condition:
+      field: purpose
+      operator: eq
+      value: blocked-write
+    action: deny
+    priority: 10
+    message: blocked write-marker conformance case

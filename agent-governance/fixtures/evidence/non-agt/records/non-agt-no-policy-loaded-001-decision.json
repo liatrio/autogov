@@ -1,0 +1,1 @@
+{"caseId":"non-agt-no-policy-loaded-001","engine":"toy-json-rules","matchedRule":null,"policyArtifactDigest":"sha256:aae65a9d94f767497506044aba4621b84d4bc8f21b248f6f40215cc2aa474180","verdict":"allow","viaDefault":true}
