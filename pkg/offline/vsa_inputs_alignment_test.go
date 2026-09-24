@@ -2,6 +2,7 @@ package offline
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -30,9 +31,7 @@ type offlineTestSubject struct {
 	Digest map[string]string `json:"digest"`
 }
 
-// buildVSAInputs pairs result.Attestations[i] with bundles[i] by index. This
-// probes whether the real verification paths can hand it two slices whose
-// indices do not correspond.
+// Exercise real verification paths where result order differs from bundle order.
 
 func alignmentSignedStatement(t *testing.T, signer *offlineTestSigner, name, digestHex, predicateType string) (statement, signed []byte) {
 	t.Helper()
@@ -80,8 +79,8 @@ func writeFileDigest(t *testing.T, path, content string) string {
 
 // TestBuildVSAInputsAlignmentMultiFileDirectory drives the real multi-file
 // directory verification path (no hand-built VerificationResult) and checks
-// that every emitted inputAttestations descriptor is self-consistent: its
-// resource URI and digest must identify the same verified statement bytes.
+// that each result, OPA input, and inputAttestations descriptor identify the
+// same verified statement, even when unrelated bundles are filtered out.
 func TestBuildVSAInputsAlignmentMultiFileDirectory(t *testing.T) {
 	signer, err := newOfflineTestSigner(offlineTestIdentity, offlineTestIssuer)
 	if err != nil {
@@ -105,7 +104,8 @@ func TestBuildVSAInputsAlignmentMultiFileDirectory(t *testing.T) {
 	// load the bundles in the OPPOSITE order to the directory's file order, so
 	// the per-file attestation results and the loaded bundle slice diverge
 	attestations := filepath.Join(dir, "attestations.jsonl")
-	writeBundleLines(t, attestations, signedB, signedA)
+	_, unrelated := alignmentSignedStatement(t, signer, "unrelated.txt", strings.Repeat("c", 64), "https://example.test/unrelated/v1")
+	writeBundleLines(t, attestations, unrelated, signedB, signedA)
 
 	trustedRoot := filepath.Join(dir, "trusted-root.json")
 	rootJSON, err := signer.TrustedRootJSON()
@@ -140,38 +140,40 @@ func TestBuildVSAInputsAlignmentMultiFileDirectory(t *testing.T) {
 		t.Fatalf("expected 2 attestation results, got %d", len(result.Attestations))
 	}
 
-	knownPayloadDigests := map[string]struct{}{
-		sha256Hex(stmtA): {},
-		sha256Hex(stmtB): {},
-	}
-
-	attestationTypes, _, _, inputAttestations, err := buildVSAInputs(result, ov.Bundles())
-	if err != nil {
-		t.Fatalf("build VSA inputs: %v", err)
-	}
-	gotTypes := make(map[string]bool, len(attestationTypes))
-	for _, predicateType := range attestationTypes {
-		gotTypes[predicateType] = true
-	}
-	for _, want := range []string{typeA, typeB} {
-		if !gotTypes[want] {
-			t.Errorf("verified custom predicate types = %v, missing %q", attestationTypes, want)
-		}
-	}
-	if len(inputAttestations) == 0 {
-		t.Fatal("no inputAttestations were produced")
-	}
-	for _, ia := range inputAttestations {
-		got := ia.Digest["sha256"]
-		_, known := knownPayloadDigests[got]
-		if !known {
-			t.Errorf("inputAttestation digest %s matches no signed statement payload", got)
-			continue
-		}
-		wantURI := "urn:attestation:sha256:" + got
-		if ia.URI != wantURI {
-			t.Errorf("inputAttestation URI %s does not identify its payload digest %s", ia.URI, got)
-		}
+	wantStatements := map[string][]byte{typeA: stmtA, typeB: stmtB}
+	for _, tc := range []struct {
+		name         string
+		attestations []AttestationResult
+	}{
+		{"directory order", result.Attestations},
+		{"reordered", []AttestationResult{result.Attestations[1], result.Attestations[0]}},
+		{"filtered", result.Attestations[1:]},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			filtered := &VerificationResult{Attestations: tc.attestations}
+			types, _, opaBundles, descriptors, err := buildVSAInputs(filtered)
+			if err != nil {
+				t.Fatalf("build VSA inputs: %v", err)
+			}
+			if len(types) != len(tc.attestations) || len(opaBundles) != len(types) || len(descriptors) != len(types) {
+				t.Fatalf("incoherent counts: types=%d OPA=%d descriptors=%d", len(types), len(opaBundles), len(descriptors))
+			}
+			for i, att := range tc.attestations {
+				wantStatement := wantStatements[att.Type]
+				if types[i] != att.Type {
+					t.Errorf("type[%d] = %q, want %q", i, types[i], att.Type)
+				}
+				envelope := opaBundles[i]["dsseEnvelope"].(map[string]interface{})
+				payload, err := base64.StdEncoding.DecodeString(envelope["payload"].(string))
+				if err != nil || string(payload) != string(wantStatement) {
+					t.Errorf("OPA payload[%d] does not match result type %q: %s (error %v)", i, att.Type, payload, err)
+				}
+				wantDigest := sha256Hex(wantStatement)
+				if descriptors[i].Digest["sha256"] != wantDigest || descriptors[i].URI != "urn:attestation:sha256:"+wantDigest {
+					t.Errorf("descriptor[%d] = %+v, want statement digest %s", i, descriptors[i], wantDigest)
+				}
+			}
+		})
 	}
 }
 
@@ -346,12 +348,13 @@ func TestBuildVSAInputsRejectsVerifiedRowsWithoutDescriptors(t *testing.T) {
 	// type or OPA input that lacks the matching VSA resource descriptor.
 	bundles[0].GetDsseEnvelope().Payload = []byte("not JSON")
 	result := &VerificationResult{Attestations: []AttestationResult{{
-		Type:     "https://example.test/attestation/type-a/v1",
-		Subject:  &Subject{Name: "artifact", Digest: map[string]string{"sha256": strings.Repeat("b", 64)}},
-		Verified: true,
+		verifiedBundle: bundles[0],
+		Type:           "https://example.test/attestation/type-a/v1",
+		Subject:        &Subject{Name: "artifact", Digest: map[string]string{"sha256": strings.Repeat("b", 64)}},
+		Verified:       true,
 	}}}
 
-	types, subjects, opaBundles, descriptors, err := buildVSAInputs(result, bundles)
+	types, subjects, opaBundles, descriptors, err := buildVSAInputs(result)
 	if err == nil {
 		t.Fatal("verified attestation without a descriptor was silently dropped")
 	}
@@ -375,7 +378,8 @@ func TestBuildVSAInputsRejectsNilBundleWithoutPanic(t *testing.T) {
 		{name: "empty", bundle: &bundle.Bundle{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			types, subjects, opaBundles, descriptors, err := buildVSAInputs(result, []*bundle.Bundle{tc.bundle})
+			result.Attestations[0].verifiedBundle = tc.bundle
+			types, subjects, opaBundles, descriptors, err := buildVSAInputs(result)
 			if err == nil {
 				t.Fatal("verified attestation with an unusable bundle was accepted")
 			}
