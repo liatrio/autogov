@@ -62,6 +62,10 @@ type CertificateIdentity struct {
 
 // result of verifying a single attestation
 type AttestationResult struct {
+	// verifiedBundle keeps evidence attached when results are filtered or reordered.
+	// It is internal and is never serialized into the public verification result.
+	verifiedBundle *bundle.Bundle
+
 	Type             string   `json:"type"`
 	Subject          *Subject `json:"subject,omitempty"`
 	Verified         bool     `json:"verified"`
@@ -627,6 +631,7 @@ func (ov *OfflineVerifier) verifyBundle(v *verify.Verifier, b *bundle.Bundle, ex
 	res.SignatureValid = true
 	res.CertificateValid = true
 	res.Verified = true
+	res.verifiedBundle = b
 
 	// verified identity if available
 	if verificationResult.VerifiedIdentity != nil {

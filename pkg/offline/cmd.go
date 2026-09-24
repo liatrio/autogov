@@ -48,6 +48,8 @@ type runCommandFlags struct {
 	noCache           bool
 	certIssuer        string
 	sourceRef         string
+	version           string
+	opaVersion        string
 }
 
 // resolveRunCommandFlags resolves the offline command flags into viper and a
@@ -222,7 +224,7 @@ func bundleToOPA(b *bundle.Bundle) (map[string]interface{}, bool) {
 // list, VSA subjects, OPA bundle inputs, and the input-attestation resource
 // descriptors that bind each verified statement's exact payload digest into
 // the generated VSA (standard SLSA VSA inputAttestations).
-func buildVSAInputs(result *VerificationResult, bundles []*bundle.Bundle) (attestationTypes []string, vsaSubjects []vsa.VSASubject, bundlesForOPA []map[string]interface{}, inputAttestations []vsa.ResourceDescriptor, err error) {
+func buildVSAInputs(result *VerificationResult) (attestationTypes []string, vsaSubjects []vsa.VSASubject, bundlesForOPA []map[string]interface{}, inputAttestations []vsa.ResourceDescriptor, err error) {
 	// builds VSA subjects from verified attestations and convert for OPA
 	subjectsMap := make(map[string]vsa.VSASubject)
 
@@ -230,15 +232,15 @@ func buildVSAInputs(result *VerificationResult, bundles []*bundle.Bundle) (attes
 		if !attestation.Verified {
 			continue
 		}
-		if i >= len(bundles) {
+		if attestation.verifiedBundle == nil {
 			return nil, nil, nil, nil, fmt.Errorf("verified attestation %d has no matching bundle", i)
 		}
 
 		// each VSA fact is admitted atomically: a verified result must have a
 		// usable OPA envelope and a self-consistent statement descriptor before
 		// its type/subject can affect the generated VSA.
-		opaBundle, opaOK := bundleToOPA(bundles[i])
-		descriptor, descriptorOK := bundleInputDescriptor(bundles[i])
+		opaBundle, opaOK := bundleToOPA(attestation.verifiedBundle)
+		descriptor, descriptorOK := bundleInputDescriptor(attestation.verifiedBundle)
 		if !opaOK {
 			return nil, nil, nil, nil, fmt.Errorf("verified attestation %d cannot be represented for policy evaluation", i)
 		}
@@ -288,10 +290,8 @@ func buildVSAInputs(result *VerificationResult, bundles []*bundle.Bundle) (attes
 // resource locator, and is recorded separately in the VSA verification facts.
 //
 // the payload is parsed to require a typed in-toto statement, while both the
-// resource URI and digest are derived from those same bytes. callers currently
-// pair attestation results and bundles by slice index; making the descriptor
-// self-identifying prevents that separate, pre-existing alignment hazard from
-// cross-wiring the descriptor itself.
+// resource URI and digest are derived from those same bytes. The bundle is
+// carried by its verified result, independent of loaded-bundle or result order.
 func bundleInputDescriptor(b *bundle.Bundle) (vsa.ResourceDescriptor, bool) {
 	if b == nil || b.Bundle == nil {
 		return vsa.ResourceDescriptor{}, false
@@ -358,7 +358,7 @@ func resolveVSAResourceURI(artifactPath string, vsaSubjects []vsa.VSASubject) st
 }
 
 // generateOfflineVSA generates the VSA for a verified artifact when requested.
-func generateOfflineVSA(cmd *cobra.Command, f runCommandFlags, artifactPath string, verifier *OfflineVerifier, result *VerificationResult) error {
+func generateOfflineVSA(cmd *cobra.Command, f runCommandFlags, artifactPath string, result *VerificationResult) error {
 	generateVSA, _ := cmd.Flags().GetBool("generate-vsa")
 	if !generateVSA {
 		return nil
@@ -374,11 +374,8 @@ func generateOfflineVSA(cmd *cobra.Command, f runCommandFlags, artifactPath stri
 		return fmt.Errorf("policy URI is required when --generate-vsa is used")
 	}
 
-	// reuse already-loaded bundles from verifier (avoids reloading from file)
-	bundles := verifier.Bundles()
-
 	// attestation types and create VSA subjects (also converted for OPA)
-	attestationTypes, vsaSubjects, bundlesForOPA, inputAttestations, err := buildVSAInputs(result, bundles)
+	attestationTypes, vsaSubjects, bundlesForOPA, inputAttestations, err := buildVSAInputs(result)
 	if err != nil {
 		return fmt.Errorf("failed to build coherent VSA inputs: %w", err)
 	}
@@ -408,6 +405,8 @@ func generateOfflineVSA(cmd *cobra.Command, f runCommandFlags, artifactPath stri
 		PolicyURI:         policyURI,
 		VSAOutput:         vsaOutput,
 		Quiet:             f.quiet,
+		Version:           f.version,
+		OpaVersion:        f.opaVersion,
 	}
 
 	// pass attestations to viper for OPA evaluation
@@ -439,7 +438,7 @@ func generateOfflineVSA(cmd *cobra.Command, f runCommandFlags, artifactPath stri
 // processArtifact verifies a single artifact and, when requested, generates its
 // VSA.
 func processArtifact(cmd *cobra.Command, f runCommandFlags, artifactPath string, acceptedIdentities []string) error {
-	verifier, result, err := runVerification(f, artifactPath, acceptedIdentities)
+	_, result, err := runVerification(f, artifactPath, acceptedIdentities)
 	if err != nil {
 		return err
 	}
@@ -456,12 +455,21 @@ func processArtifact(cmd *cobra.Command, f runCommandFlags, artifactPath string,
 		logVerificationSummary(result)
 	}
 
-	return generateOfflineVSA(cmd, f, artifactPath, verifier, result)
+	return generateOfflineVSA(cmd, f, artifactPath, result)
 }
 
 // handles the offline command execution
 func RunCommand(cmd *cobra.Command, args []string) error {
+	return RunCommandWithBuildInfo(cmd, args, "", "")
+}
+
+// RunCommandWithBuildInfo runs offline verification with the invoking CLI's
+// build versions for VSA metadata. RunCommand remains available to callers
+// that do not supply build information.
+func RunCommandWithBuildInfo(cmd *cobra.Command, args []string, version, opaVersion string) error {
 	f := resolveRunCommandFlags(cmd, args)
+	f.version = version
+	f.opaVersion = opaVersion
 
 	if f.attestationsPath == "" {
 		return fmt.Errorf("attestations is required")

@@ -218,7 +218,7 @@ func srReview(u *gh.User, state, commitID string, at time.Time) *gh.PullRequestR
 		State:             gh.Ptr(state),
 		SubmittedAt:       &gh.Timestamp{Time: at},
 		CommitID:          gh.Ptr(commitID),
-		AuthorAssociation: gh.Ptr("MEMBER"),
+		AuthorAssociation: gh.Ptr("MEMBER"), //nolint:staticcheck // SA1019 concerns Events API; this fixture models the Reviews REST response, where author_association remains available.
 	}
 }
 
