@@ -14,7 +14,9 @@ import (
 func TestOfflineCLIEmitsVSAWithNamedAndUnnamedSubjects(t *testing.T) {
 	dir := t.TempDir()
 	binary := filepath.Join(dir, "autogov")
-	build := exec.Command("go", "build", "-o", binary, "../..")
+	const cliVersion = "v9.8.7-offline-test"
+	const opaVersion = "v1.19.0-offline-test"
+	build := exec.Command("go", "build", "-ldflags", "-X main.version="+cliVersion+" -X main.OpaVersion="+opaVersion, "-o", binary, "../..")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build AutoGov: %v\n%s", err, output)
 	}
@@ -113,6 +115,10 @@ allow if {
 			var summary vsa.VSA
 			if err := json.Unmarshal(vsaJSON, &summary); err != nil {
 				t.Fatal(err)
+			}
+			versions := summary.Predicate.Verifier.Version
+			if versions["autogov"] != cliVersion || versions["opa"] != opaVersion {
+				t.Errorf("VSA verifier versions = %v, want autogov=%q opa=%q", versions, cliVersion, opaVersion)
 			}
 			if summary.Predicate.VerificationResult != "PASSED" {
 				t.Errorf("verification result = %q, want PASSED", summary.Predicate.VerificationResult)

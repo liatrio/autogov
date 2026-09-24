@@ -48,6 +48,8 @@ type runCommandFlags struct {
 	noCache           bool
 	certIssuer        string
 	sourceRef         string
+	version           string
+	opaVersion        string
 }
 
 // resolveRunCommandFlags resolves the offline command flags into viper and a
@@ -403,6 +405,8 @@ func generateOfflineVSA(cmd *cobra.Command, f runCommandFlags, artifactPath stri
 		PolicyURI:         policyURI,
 		VSAOutput:         vsaOutput,
 		Quiet:             f.quiet,
+		Version:           f.version,
+		OpaVersion:        f.opaVersion,
 	}
 
 	// pass attestations to viper for OPA evaluation
@@ -456,7 +460,16 @@ func processArtifact(cmd *cobra.Command, f runCommandFlags, artifactPath string,
 
 // handles the offline command execution
 func RunCommand(cmd *cobra.Command, args []string) error {
+	return RunCommandWithBuildInfo(cmd, args, "", "")
+}
+
+// RunCommandWithBuildInfo runs offline verification with the invoking CLI's
+// build versions for VSA metadata. RunCommand remains available to callers
+// that do not supply build information.
+func RunCommandWithBuildInfo(cmd *cobra.Command, args []string, version, opaVersion string) error {
 	f := resolveRunCommandFlags(cmd, args)
+	f.version = version
+	f.opaVersion = opaVersion
 
 	if f.attestationsPath == "" {
 		return fmt.Errorf("attestations is required")

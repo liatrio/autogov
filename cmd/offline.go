@@ -75,5 +75,5 @@ func init() {
 }
 
 func runOffline(cmd *cobra.Command, args []string) error {
-	return offline.RunCommand(cmd, args)
+	return offline.RunCommandWithBuildInfo(cmd, args, Version, OpaVersion)
 }
