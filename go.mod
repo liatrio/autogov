@@ -10,7 +10,7 @@ require (
 	github.com/go-git/go-billy/v5 v5.9.1
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/go-openapi/strfmt v0.27.0
-	github.com/google/go-github/v89 v89.0.0
+	github.com/google/go-github/v91 v91.0.0
 	github.com/open-policy-agent/opa v1.19.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/sigstore/cosign/v3 v3.1.3

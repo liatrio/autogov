@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	gh "github.com/google/go-github/v89/github"
+	gh "github.com/google/go-github/v91/github"
 	"github.com/liatrio/autogov/pkg/attestations"
 )
 
@@ -189,7 +189,7 @@ func (m *mockReviewService) GetRepository(_ context.Context, _, _ string) (*gh.R
 	if db == "" {
 		db = "main"
 	}
-	return &gh.Repository{DefaultBranch: gh.Ptr(db)}, srResp(), nil
+	return &gh.Repository{DefaultBranch: new(db)}, srResp(), nil
 }
 
 func (m *mockReviewService) GetPullRequest(_ context.Context, _, _ string, _ int) (*gh.PullRequest, *gh.Response, error) {
@@ -200,7 +200,7 @@ func (m *mockReviewService) GetPullRequest(_ context.Context, _, _ string, _ int
 	if m.getPRCallCount <= m.getPRFailAttempts {
 		// simulate the propagation race: the PR resolves but merged_by hasn't
 		// propagated on this attempt yet.
-		return &gh.PullRequest{Number: gh.Ptr(0)}, srResp(), nil
+		return &gh.PullRequest{Number: new(0)}, srResp(), nil
 	}
 	// nil getPR is the default: the best-effort caller tolerates a nil PR and simply
 	// records no merger, so existing tests that never set getPR do not panic.
@@ -208,31 +208,31 @@ func (m *mockReviewService) GetPullRequest(_ context.Context, _, _ string, _ int
 }
 
 func srUser(login string, id int64, typ string) *gh.User {
-	return &gh.User{Login: gh.Ptr(login), ID: gh.Ptr(id), Type: gh.Ptr(typ)}
+	return &gh.User{Login: new(login), ID: new(id), Type: new(typ)}
 }
 
 func srReview(u *gh.User, state, commitID string, at time.Time) *gh.PullRequestReview {
 	return &gh.PullRequestReview{
-		ID:                gh.Ptr(at.UnixNano()),
+		ID:                new(at.UnixNano()),
 		User:              u,
-		State:             gh.Ptr(state),
+		State:             new(state),
 		SubmittedAt:       &gh.Timestamp{Time: at},
-		CommitID:          gh.Ptr(commitID),
-		AuthorAssociation: gh.Ptr("MEMBER"),
+		CommitID:          new(commitID),
+		AuthorAssociation: new("MEMBER"), //nolint:staticcheck // SA1019 concerns Events API; this fixture models the Reviews REST response, where author_association remains available.
 	}
 }
 
 // srMergedPR builds the merged PR whose merge produced srSourceSHA.
 func srMergedPR() *gh.PullRequest {
 	return &gh.PullRequest{
-		Number:         gh.Ptr(7),
+		Number:         new(7),
 		User:           srUser("author", srAuthorID, "User"),
-		Head:           &gh.PullRequestBranch{SHA: gh.Ptr(srHeadSHA)},
-		Base:           &gh.PullRequestBranch{Ref: gh.Ptr("main")},
-		MergeCommitSHA: gh.Ptr(srSourceSHA),
+		Head:           &gh.PullRequestBranch{SHA: new(srHeadSHA)},
+		Base:           &gh.PullRequestBranch{Ref: new("main")},
+		MergeCommitSHA: new(srSourceSHA),
 		MergedAt:       &gh.Timestamp{Time: srBaseTime.Add(time.Hour)},
-		HTMLURL:        gh.Ptr("https://github.com/liatrio/autogov/pull/7"),
-		Title:          gh.Ptr("a change"),
+		HTMLURL:        new("https://github.com/liatrio/autogov/pull/7"),
+		Title:          new("a change"),
 	}
 }
 
@@ -275,7 +275,7 @@ func srValidate(t *testing.T, c *SourceReview) {
 func srBypassActor(actorType string, id int64, mode string) *gh.BypassActor {
 	at := gh.BypassActorType(actorType)
 	bm := gh.BypassMode(mode)
-	return &gh.BypassActor{ActorID: gh.Ptr(id), ActorType: &at, BypassMode: &bm}
+	return &gh.BypassActor{ActorID: new(id), ActorType: &at, BypassMode: &bm}
 }
 
 func TestFetchTechnicalControls(t *testing.T) {
@@ -505,7 +505,7 @@ var continuityCommitTime = continuityStart.Add(1000 * time.Hour)
 // srR0Commit is the single R0 commit returned by ListCommits in continuity tests.
 func srR0Commit() *gh.RepositoryCommit {
 	return &gh.RepositoryCommit{
-		SHA:    gh.Ptr("r0commit00000000000000000000000000000000"),
+		SHA:    new("r0commit00000000000000000000000000000000"),
 		Commit: &gh.Commit{Committer: &gh.CommitAuthor{Date: &gh.Timestamp{Time: continuityCommitTime}}},
 	}
 }
@@ -735,7 +735,7 @@ func TestContinuity_P9b_CommitWalkTruncated(t *testing.T) {
 	// P9b: the commit list keeps advertising more pages past the cap -> fail closed.
 	pages := make([][]*gh.RepositoryCommit, continuityMaxCommitPages+1)
 	for i := range pages {
-		pages[i] = []*gh.RepositoryCommit{{SHA: gh.Ptr(fmt.Sprintf("c%039d", i))}}
+		pages[i] = []*gh.RepositoryCommit{{SHA: new(fmt.Sprintf("c%039d", i))}}
 	}
 	hist := []*RulesetVersion{srVersion(1, continuityStart)}
 	states := map[int64]*RulesetVersionState{1: cleanL3State()}
@@ -908,7 +908,7 @@ func TestContinuity_P17_CommitDateBeforeStartFailsClosed(t *testing.T) {
 	states := map[int64]*RulesetVersionState{1: cleanL3State()}
 	m := continuityMock(hist, states, &gh.RepositoryRuleset{})
 	m.commits = []*gh.RepositoryCommit{{
-		SHA:    gh.Ptr("tooold00000000000000000000000000000000aa"),
+		SHA:    new("tooold00000000000000000000000000000000aa"),
 		Commit: &gh.Commit{Committer: &gh.CommitAuthor{Date: &gh.Timestamp{Time: continuityStart.Add(-time.Hour)}}},
 	}}
 	c := srBuildContinuity(t, m)
@@ -1277,10 +1277,10 @@ func TestNewSourceReview_OnlyOpenPRs_QuirkIncomplete(t *testing.T) {
 	// the ListPullRequestsWithCommit default-branch quirk returns only OPEN PRs
 	// for a SHA not on the default branch -> incompleteness, NOT a false hard fail.
 	open := &gh.PullRequest{
-		Number: gh.Ptr(9),
+		Number: new(9),
 		User:   srUser("author", srAuthorID, "User"),
-		Head:   &gh.PullRequestBranch{SHA: gh.Ptr(srHeadSHA)},
-		Base:   &gh.PullRequestBranch{Ref: gh.Ptr("main")},
+		Head:   &gh.PullRequestBranch{SHA: new(srHeadSHA)},
+		Base:   &gh.PullRequestBranch{Ref: new("main")},
 		// no MergedAt, no matching MergeCommitSHA -> not selected.
 	}
 	c := srBuild(t, &mockReviewService{prs: []*gh.PullRequest{open}}, srOpts())
@@ -1425,7 +1425,7 @@ func TestNewSourceReview_ApproversDeterministicOrder(t *testing.T) {
 func TestNewSourceReview_BoundsUntrustedStrings(t *testing.T) {
 	longLogin := strings.Repeat("L", 5000)
 	pr := srMergedPR()
-	pr.HTMLURL = gh.Ptr("https://example.com/" + strings.Repeat("u", 5000))
+	pr.HTMLURL = new("https://example.com/" + strings.Repeat("u", 5000))
 	m := &mockReviewService{
 		prs:     []*gh.PullRequest{pr},
 		reviews: []*gh.PullRequestReview{srReview(srUser(longLogin, 2, "User"), reviewStateApproved, srHeadSHA, srBaseTime.Add(time.Minute))},
@@ -1457,11 +1457,11 @@ func TestNewSourceReview_PRNumberDoesNotBypassMergeMatch(t *testing.T) {
 	// queried source revision (and is not even merged) must NOT be bound to it via
 	// --pr-number. Otherwise an unreviewed commit could borrow another PR's approvals.
 	wellReviewedButUnrelated := &gh.PullRequest{
-		Number:         gh.Ptr(99),
+		Number:         new(99),
 		User:           srUser("author", srAuthorID, "User"),
-		Head:           &gh.PullRequestBranch{SHA: gh.Ptr(srHeadSHA)},
-		Base:           &gh.PullRequestBranch{Ref: gh.Ptr("main")},
-		MergeCommitSHA: gh.Ptr("a-totally-different-commit-sha"),
+		Head:           &gh.PullRequestBranch{SHA: new(srHeadSHA)},
+		Base:           &gh.PullRequestBranch{Ref: new("main")},
+		MergeCommitSHA: new("a-totally-different-commit-sha"),
 		// not merged (zero MergedAt)
 	}
 	opts := srOpts()
