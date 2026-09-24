@@ -443,6 +443,10 @@ The tool supports generating SLSA v1.2 Verification Summary Attestations (VSAs) 
 - `--fail-on-policy-error`: Exit with error code 1 when policy evaluation fails (default: false - exit code 0)
 - `--attestations-path`: Path to directory containing attestation files for offline verification
 
+An untagged `ghrel://owner/repo` reference continues to select GitHub's latest release. It emits a warning naming the resolved tag because that selection may change on future runs; use `@tag` to select a release explicitly.
+
+The legacy `metadata["autogov.policy.metrics"].policy_compliance_rate` is retained for compatibility. With `A` verified attestations and `V` policy violations, it is `max(0, (A - V) / A * 100)` when both counts are positive, and `100` otherwise (including when `A` is zero). Violations are not necessarily one per attestation, so this value is not a percentage of policies or attestations that passed; it can be fractional or reach zero when several violations concern one attestation. Gate on `predicate.verificationResult` and inspect `metadata["autogov.policy.evaluation"]` (`result` and `violations`) for the policy outcome and details.
+
 For enhanced VSA features and SLSA v1.2 compliance details, see [docs/vsa-metadata.md](docs/vsa-metadata.md).
 
 The certificate identity source of truth is a JSON file with the following structure:
@@ -556,6 +560,8 @@ autogov release plan [flags]
 ```
 
 Analyzes commits since the last tag, determines the next semantic version, and shows what would be included in a release.
+
+Breaking changes always cause a major bump, including before 1.0: for example, a breaking change at `v0.4.2` produces `v1.0.0`. There is no special pre-1.0 minor-bump rule. Non-breaking `feat` commits cause a minor bump, while `fix` and `perf` commits cause a patch bump.
 
 **Flags:**
 
