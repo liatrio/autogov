@@ -3,6 +3,7 @@ package release
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,6 +28,7 @@ func mockResp(code int) *gogithub.Response {
 
 // mockReleaseService implements ReleaseService for testing
 type mockReleaseService struct {
+	mutationCalls int // every mutating API request, including failed requests
 	// release operations
 	getRelease         *gogithub.RepositoryRelease
 	getReleaseErr      error
@@ -112,6 +114,7 @@ func (m *mockReleaseService) GetBranch(_ context.Context, _, _, _ string, _ int)
 }
 
 func (m *mockReleaseService) CreateRelease(_ context.Context, _, _ string, _ gogithub.CreateReleaseRequest) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
+	m.mutationCalls++
 	m.createReleaseCalls++
 	code := 201
 	if m.createErr != nil {
@@ -121,6 +124,7 @@ func (m *mockReleaseService) CreateRelease(_ context.Context, _, _ string, _ gog
 }
 
 func (m *mockReleaseService) UpdateRelease(_ context.Context, _, _ string, _ int64, _ gogithub.UpdateReleaseRequest) (*gogithub.RepositoryRelease, *gogithub.Response, error) {
+	m.mutationCalls++
 	code := 200
 	if m.updateErr != nil {
 		code = 500
@@ -137,6 +141,7 @@ func (m *mockReleaseService) ListReleases(_ context.Context, _, _ string, _ *gog
 }
 
 func (m *mockReleaseService) UploadReleaseAsset(_ context.Context, _, _ string, _ int64, opts *gogithub.UploadOptions, _ *os.File) (*gogithub.ReleaseAsset, *gogithub.Response, error) {
+	m.mutationCalls++
 	if m.uploadAssetErr != nil && len(m.uploadedAssetNames) >= m.uploadAssetFailAfter {
 		return nil, mockResp(500), m.uploadAssetErr
 	}
@@ -146,28 +151,34 @@ func (m *mockReleaseService) UploadReleaseAsset(_ context.Context, _, _ string, 
 }
 
 func (m *mockReleaseService) CreateTree(_ context.Context, _, _, _ string, _ []*gogithub.TreeEntry) (*gogithub.Tree, *gogithub.Response, error) {
+	m.mutationCalls++
 	return m.createTreeResult, mockResp(201), m.createTreeErr
 }
 
 func (m *mockReleaseService) CreateCommit(_ context.Context, _, _ string, _ gogithub.Commit, _ *gogithub.CreateCommitOptions) (*gogithub.Commit, *gogithub.Response, error) {
+	m.mutationCalls++
 	return m.createCommitResult, mockResp(201), m.createCommitErr
 }
 
 func (m *mockReleaseService) CreateTag(_ context.Context, _, _ string, tag gogithub.CreateTag) (*gogithub.Tag, *gogithub.Response, error) {
+	m.mutationCalls++
 	m.createTagCalls++
 	m.lastCreateTagArg = tag
 	return m.createTagResult, mockResp(201), m.createTagErr
 }
 
 func (m *mockReleaseService) CreateRef(_ context.Context, _, _ string, _ gogithub.CreateRef) (*gogithub.Reference, *gogithub.Response, error) {
+	m.mutationCalls++
 	return m.createRefResult, mockResp(201), m.createRefErr
 }
 
 func (m *mockReleaseService) UpdateRef(_ context.Context, _, _, _ string, _ gogithub.UpdateRef) (*gogithub.Reference, *gogithub.Response, error) {
+	m.mutationCalls++
 	return m.updateRefResult, mockResp(200), m.updateRefErr
 }
 
 func (m *mockReleaseService) DeleteRef(_ context.Context, _, _, ref string) (*gogithub.Response, error) {
+	m.mutationCalls++
 	if m.deleteRefErr != nil {
 		return mockResp(500), m.deleteRefErr
 	}
@@ -1450,4 +1461,63 @@ func TestExecuteCutResumeDryRunMakesNoWrites(t *testing.T) {
 	assert.Equal(t, int64(777), result.ReleaseID, "reports the draft it would resume")
 	assert.Empty(t, mock.uploadedAssetNames, "dry-run resume must not upload")
 	assert.False(t, result.Published, "dry-run must not publish")
+}
+
+// Remote-tag observation must succeed before either file or API mutations.
+// A plan file ensures the error is exercised in immutability checking, not
+// swallowed or returned earlier by automatic plan discovery.
+func TestExecuteCutAPITagObservationBeforeMutations(t *testing.T) {
+	apiFailure := errors.New("tag listing unavailable")
+	for _, tc := range []struct {
+		name      string
+		listErr   error
+		tags      []*gogithub.RepositoryTag
+		wantError string
+	}{
+		{name: "API failure", listErr: apiFailure, wantError: "could not check remote tag"},
+		{name: "existing tag", tags: []*gogithub.RepositoryTag{{Name: gogithub.Ptr("v1.1.0")}}, wantError: "tag v1.1.0 already exists"},
+		{name: "observed empty tags permit cut"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, mock := setupCutScenario(t)
+			mock.listTagsErr = tc.listErr
+			mock.listTagsResult = tc.tags
+			configDir := t.TempDir()
+			planPath := filepath.Join(configDir, "plan.json")
+			require.NoError(t, os.WriteFile(planPath, []byte(`{"next_version":"v1.1.0","release_needed":true}`), 0o600))
+			configPath := filepath.Join(configDir, "mutations.yaml")
+			require.NoError(t, os.WriteFile(configPath, []byte(`mutations:
+  - path: README.md
+    type: regexReplace
+    field: '^# test repo$'
+`), 0o600))
+			readmePath := filepath.Join(dir, "README.md")
+			before, err := os.ReadFile(readmePath)
+			require.NoError(t, err)
+			result, err := ExecuteCut(&CutOptions{
+				RepoPath: dir, Branch: "master", Remote: "origin",
+				Mode: ModeAPI, ReleaseAPI: mock, Token: "test-token",
+				PlanFile: planPath, MutationsConfig: configPath,
+			})
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				if tc.listErr != nil {
+					assert.ErrorIs(t, err, tc.listErr)
+				}
+				assert.Nil(t, result)
+				assert.Zero(t, mock.mutationCalls, "tag observation must precede every mutating API call")
+				after, readErr := os.ReadFile(readmePath)
+				require.NoError(t, readErr)
+				assert.Equal(t, before, after, "tag observation must precede file mutations")
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				assert.Equal(t, "v1.1.0", result.TagName)
+				assert.Positive(t, mock.mutationCalls)
+				after, readErr := os.ReadFile(readmePath)
+				require.NoError(t, readErr)
+				assert.Equal(t, "1.1.0", string(after))
+			}
+		})
+	}
 }

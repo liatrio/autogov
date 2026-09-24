@@ -701,12 +701,11 @@ func validateBranchViaAPI(ctx context.Context, svc ReleaseService, owner, repoNa
 }
 
 // checkRemoteTagViaAPI checks whether a tag already exists on the remote using the GitHub API.
-// Returns an error if the tag exists; nil if it doesn't.
+// Returns an error if the tag exists or remote tags cannot be observed.
 func checkRemoteTagViaAPI(ctx context.Context, svc ReleaseService, owner, repo, tagName string) error {
 	tags, err := listTagsFromAPI(ctx, svc, owner, repo)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not check remote tags via API: %v\n", err)
-		return nil // non-fatal: allow the cut to proceed
+		return fmt.Errorf("could not check remote tag %s via GitHub API: %w", tagName, err)
 	}
 	for _, t := range tags {
 		if t == tagName {
