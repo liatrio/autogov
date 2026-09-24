@@ -284,3 +284,44 @@ func TestExtractRefFromURI(t *testing.T) {
 		})
 	}
 }
+
+func TestVerifySourceProvenance_RequestedSourceRefMissingFails(t *testing.T) {
+	path := filepath.Join("testdata", "bundle-public-good.jsonl")
+	// This signed fixture verifies against the embedded root but has no ref.
+	optional, err := VerifySourceProvenance(path, VerifyOptions{})
+	require.NoError(t, err)
+	require.True(t, optional.Verified, optional.ErrorMsg)
+	require.Empty(t, optional.SourceRef)
+
+	result, err := VerifySourceProvenance(path, VerifyOptions{SourceRef: "refs/heads/main"})
+	require.NoError(t, err)
+	assert.False(t, result.Verified)
+	assert.Equal(t, SLSASourceLevel0, result.SLSASourceLevel)
+	assert.Contains(t, result.ErrorMsg, "source ref not found")
+	assert.Contains(t, result.ErrorMsg, "refs/heads/main")
+	for _, warning := range result.Warnings {
+		assert.NotContains(t, warning, "check skipped")
+	}
+}
+
+func TestValidateSourceRef(t *testing.T) {
+	for _, tc := range []struct {
+		name, found, expected, wantError string
+	}{
+		{"matching", "refs/heads/main", "refs/heads/main", ""},
+		{"mismatching", "refs/heads/other", "refs/heads/main", "source ref mismatch"},
+		{"missing", "", "refs/heads/main", "source ref not found"},
+		{"optional absent", "", "", ""},
+		{"optional present", "refs/heads/main", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateSourceRef(tc.found, tc.expected)
+			if tc.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.wantError)
+				assert.Contains(t, err.Error(), tc.expected)
+			}
+		})
+	}
+}
