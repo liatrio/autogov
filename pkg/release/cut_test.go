@@ -1475,7 +1475,7 @@ func TestExecuteCutAPITagObservationBeforeMutations(t *testing.T) {
 		wantError string
 	}{
 		{name: "API failure", listErr: apiFailure, wantError: "could not check remote tag"},
-		{name: "existing tag", tags: []*gogithub.RepositoryTag{{Name: gogithub.Ptr("v1.1.0")}}, wantError: "tag v1.1.0 already exists"},
+		{name: "existing tag", tags: []*gogithub.RepositoryTag{{Name: new("v1.1.0")}}, wantError: "tag v1.1.0 already exists"},
 		{name: "observed empty tags permit cut"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
