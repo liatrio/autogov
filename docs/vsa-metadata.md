@@ -46,6 +46,18 @@ The generated VSA records verification and policy-evaluation metadata:
 }
 ```
 
+## Predicate and specification versions
+
+The VSA predicate type is `https://slsa.dev/verification_summary/v1`, as
+described in the [SLSA v1.2 specification](https://slsa.dev/spec/v1.2/verification_summary).
+The URI's `/v1` identifies the predicate's major schema version. Compatible
+minor revisions of the specification retain that URI.
+
+The separate `predicate.slsaVersion` field records the SLSA specification
+version used by the verifier. Both artifact and source VSAs currently emit
+`"slsaVersion": "1.1"`. References here to the SLSA v1.2 documentation do not
+change that emitted value or the `/v1` predicate URI.
+
 ## Offline input-attestation binding
 
 When offline verification generates a VSA, every verified statement admitted
@@ -78,8 +90,9 @@ companion-specific input-binding code.
 
 ## VSA generation with policy evaluation
 
-The tool generates SLSA v1.2 Verification Summary Attestations (VSAs) and can
-include OPA policy evaluation:
+The tool generates Verification Summary Attestations (VSAs) using the
+`https://slsa.dev/verification_summary/v1` predicate and can include OPA policy
+evaluation:
 
 ```go
 // Verification workflow
