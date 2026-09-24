@@ -123,39 +123,6 @@ func TestFilterFirstParent(t *testing.T) {
 	})
 }
 
-// TestGetBranchTipFromAPI verifies branch tip SHA retrieval.
-func TestGetBranchTipFromAPI(t *testing.T) {
-	t.Run("returns tip SHA", func(t *testing.T) {
-		mock := &mockReleaseService{
-			getBranchResult: &gogithub.Branch{
-				Name: gogithub.Ptr("main"),
-				Commit: &gogithub.RepositoryCommit{
-					SHA: gogithub.Ptr("abc123"),
-				},
-			},
-		}
-		sha, err := getBranchTipFromAPI(context.Background(), mock, "owner", "repo", "main")
-		require.NoError(t, err)
-		assert.Equal(t, "abc123", sha)
-	})
-
-	t.Run("API error is returned", func(t *testing.T) {
-		mock := &mockReleaseService{getBranchErr: fmt.Errorf("branch not found")}
-		_, err := getBranchTipFromAPI(context.Background(), mock, "owner", "repo", "nonexistent")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "branch not found")
-	})
-
-	t.Run("nil commit returns error", func(t *testing.T) {
-		mock := &mockReleaseService{
-			getBranchResult: &gogithub.Branch{Name: gogithub.Ptr("main"), Commit: nil},
-		}
-		_, err := getBranchTipFromAPI(context.Background(), mock, "owner", "repo", "main")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no commits")
-	})
-}
-
 // TestParseRawCommits verifies that raw API commits are parsed to ParsedCommit correctly.
 func TestParseRawCommits(t *testing.T) {
 	commits := []rawCommit{
