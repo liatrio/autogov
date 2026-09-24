@@ -136,21 +136,6 @@ func filterFirstParent(commits []*gogithub.RepositoryCommit, headSHA string) []r
 	return chain
 }
 
-// getBranchTipFromAPI fetches the tip commit SHA of a branch via the GitHub API.
-func getBranchTipFromAPI(ctx context.Context, svc ReleaseService, owner, repo, branch string) (string, error) {
-	b, resp, err := svc.GetBranch(ctx, owner, repo, branch, 0)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	if err != nil {
-		return "", fmt.Errorf("failed to get branch %q: %w", branch, err)
-	}
-	if b == nil || b.Commit == nil {
-		return "", fmt.Errorf("branch %q has no commits", branch)
-	}
-	return b.Commit.GetSHA(), nil
-}
-
 // parseRawCommits converts a slice of rawCommit to version.ParsedCommit.
 // Used for API-mode commit parsing; mirrors ParseCommits for go-git commits.
 func parseRawCommits(commits []rawCommit) []version.ParsedCommit {

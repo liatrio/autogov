@@ -38,22 +38,28 @@ func ValidateMode(mode ReleaseMode) error {
 
 // CutOptions contains configuration for executing a release cut
 type CutOptions struct {
-	RepoPath        string            // path to git repo (default ".")
-	Branch          string            // expected branch (default "main")
-	Remote          string            // git remote name (default "origin")
-	PlanFile        string            // path to pre-generated plan JSON/YAML
-	MutationsConfig string            // path to mutations config file
-	DryRun          bool              // show what would happen without side effects
-	Publish         bool              // create published release directly (no draft)
-	Mode            ReleaseMode       // "auto" (default), "api", "local"
-	CommitAuthor    string            // bot commit author name
-	CommitEmail     string            // bot commit author email
-	Token           string            // GitHub token for API and push
-	ReleaseAPI      ReleaseService    // optional; created from Token if nil
-	Assets          []string          // file paths to upload as release assets
-	AssetSources    []AssetSource     // local directories to recursively collect release assets from
-	AssetLabels     map[string]string // optional asset name -> display label
-	ResolvedAssets  []ResolvedAsset   // validated assets paired with their final upload names
+	RepoPath        string      // path to git repo (default ".")
+	Branch          string      // expected branch (default "main")
+	Remote          string      // git remote name (default "origin")
+	PlanFile        string      // path to pre-generated plan JSON/YAML
+	MutationsConfig string      // path to mutations config file
+	DryRun          bool        // show what would happen without side effects
+	Publish         bool        // create published release directly (no draft)
+	Mode            ReleaseMode // "auto" (default), "api", "local"
+	// CommitAuthor is ignored; GitHub uses the authenticated identity for release commits.
+	//
+	// Deprecated: retained only for source compatibility.
+	CommitAuthor string
+	// CommitEmail is ignored; GitHub uses the authenticated identity for release commits.
+	//
+	// Deprecated: retained only for source compatibility.
+	CommitEmail    string
+	Token          string            // GitHub token for API and push
+	ReleaseAPI     ReleaseService    // optional; created from Token if nil
+	Assets         []string          // file paths to upload as release assets
+	AssetSources   []AssetSource     // local directories to recursively collect release assets from
+	AssetLabels    map[string]string // optional asset name -> display label
+	ResolvedAssets []ResolvedAsset   // validated assets paired with their final upload names
 }
 
 // CutResult captures the outcome of a release cut
@@ -701,12 +707,11 @@ func validateBranchViaAPI(ctx context.Context, svc ReleaseService, owner, repoNa
 }
 
 // checkRemoteTagViaAPI checks whether a tag already exists on the remote using the GitHub API.
-// Returns an error if the tag exists; nil if it doesn't.
+// Returns an error if the tag exists or remote tags cannot be observed.
 func checkRemoteTagViaAPI(ctx context.Context, svc ReleaseService, owner, repo, tagName string) error {
 	tags, err := listTagsFromAPI(ctx, svc, owner, repo)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not check remote tags via API: %v\n", err)
-		return nil // non-fatal: allow the cut to proceed
+		return fmt.Errorf("could not check remote tag %s via GitHub API: %w", tagName, err)
 	}
 	for _, t := range tags {
 		if t == tagName {
