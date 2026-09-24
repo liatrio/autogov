@@ -15,7 +15,7 @@ import (
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	gogithub "github.com/google/go-github/v89/github"
+	gogithub "github.com/google/go-github/v91/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -142,7 +142,7 @@ func (m *mockReleaseService) UploadReleaseAsset(_ context.Context, _, _ string, 
 	}
 	m.uploadedAssetNames = append(m.uploadedAssetNames, opts.Name)
 	m.uploadedAssetLabels = append(m.uploadedAssetLabels, opts.Label)
-	return &gogithub.ReleaseAsset{Name: gogithub.Ptr(opts.Name)}, mockResp(201), nil
+	return &gogithub.ReleaseAsset{Name: new(opts.Name)}, mockResp(201), nil
 }
 
 func (m *mockReleaseService) CreateTree(_ context.Context, _, _, _ string, _ []*gogithub.TreeEntry) (*gogithub.Tree, *gogithub.Response, error) {
@@ -542,9 +542,9 @@ func TestExecuteCutFullFlowViaAPI(t *testing.T) {
 	tagSHA := "def456789012345678901234567890abcdef1234"
 
 	mock := &mockReleaseService{
-		createTreeResult:   &gogithub.Tree{SHA: gogithub.Ptr("tree-sha-123")},
-		createCommitResult: &gogithub.Commit{SHA: gogithub.Ptr(commitSHA)},
-		createTagResult:    &gogithub.Tag{SHA: gogithub.Ptr(tagSHA)},
+		createTreeResult:   &gogithub.Tree{SHA: new("tree-sha-123")},
+		createCommitResult: &gogithub.Commit{SHA: new(commitSHA)},
+		createTagResult:    &gogithub.Tag{SHA: new(tagSHA)},
 		createRefResult:    &gogithub.Reference{},
 		updateRefResult:    &gogithub.Reference{},
 		createRelease: &gogithub.RepositoryRelease{
@@ -817,9 +817,9 @@ func TestExecuteCutWithPublish(t *testing.T) {
 	tagSHA := "def456789012345678901234567890abcdef1234"
 
 	mock := &mockReleaseService{
-		createTreeResult:   &gogithub.Tree{SHA: gogithub.Ptr("tree-sha-123")},
-		createCommitResult: &gogithub.Commit{SHA: gogithub.Ptr(commitSHA)},
-		createTagResult:    &gogithub.Tag{SHA: gogithub.Ptr(tagSHA)},
+		createTreeResult:   &gogithub.Tree{SHA: new("tree-sha-123")},
+		createCommitResult: &gogithub.Commit{SHA: new(commitSHA)},
+		createTagResult:    &gogithub.Tag{SHA: new(tagSHA)},
 		createRefResult:    &gogithub.Reference{},
 		updateRefResult:    &gogithub.Reference{},
 		createRelease: &gogithub.RepositoryRelease{
@@ -879,9 +879,9 @@ func TestExecuteCutTagPlacement(t *testing.T) {
 	tagSHA := "tag0000def456789012345678901234567890abcd"
 
 	mock := &mockReleaseService{
-		createTreeResult:   &gogithub.Tree{SHA: gogithub.Ptr("tree-sha")},
-		createCommitResult: &gogithub.Commit{SHA: gogithub.Ptr(releaseCommitSHA)},
-		createTagResult:    &gogithub.Tag{SHA: gogithub.Ptr(tagSHA)},
+		createTreeResult:   &gogithub.Tree{SHA: new("tree-sha")},
+		createCommitResult: &gogithub.Commit{SHA: new(releaseCommitSHA)},
+		createTagResult:    &gogithub.Tag{SHA: new(tagSHA)},
 		createRefResult:    &gogithub.Reference{},
 		updateRefResult:    &gogithub.Reference{},
 		createRelease: &gogithub.RepositoryRelease{
@@ -1070,9 +1070,9 @@ func setupCutScenario(t *testing.T) (string, *mockReleaseService) {
 	})
 	require.NoError(t, err)
 	mock := &mockReleaseService{
-		createTreeResult:   &gogithub.Tree{SHA: gogithub.Ptr("tree-sha-123")},
-		createCommitResult: &gogithub.Commit{SHA: gogithub.Ptr("abc123def456789012345678901234567890abcd")},
-		createTagResult:    &gogithub.Tag{SHA: gogithub.Ptr("def456789012345678901234567890abcdef1234")},
+		createTreeResult:   &gogithub.Tree{SHA: new("tree-sha-123")},
+		createCommitResult: &gogithub.Commit{SHA: new("abc123def456789012345678901234567890abcd")},
+		createTagResult:    &gogithub.Tag{SHA: new("def456789012345678901234567890abcdef1234")},
 		createRefResult:    &gogithub.Reference{},
 		updateRefResult:    &gogithub.Reference{},
 		createRelease: &gogithub.RepositoryRelease{
@@ -1277,7 +1277,7 @@ func TestExecuteCutResumeUploadsMissingAssets(t *testing.T) {
 		TagName: "v1.1.0",
 		HTMLURL: "https://github.com/test/repo/releases/tag/v1.1.0",
 		Draft:   true,
-		Assets:  []*gogithub.ReleaseAsset{{Name: gogithub.Ptr("first"), State: gogithub.Ptr("uploaded")}},
+		Assets:  []*gogithub.ReleaseAsset{{Name: new("first"), State: new("uploaded")}},
 	}}
 
 	a := filepath.Join(t.TempDir(), "first")
@@ -1312,8 +1312,8 @@ func TestExecuteCutResumeSkipsAttachedResolvedSourceVSA(t *testing.T) {
 		HTMLURL: "https://github.com/test/repo/releases/tag/v1.1.0",
 		Draft:   true,
 		Assets: []*gogithub.ReleaseAsset{{
-			Name:  gogithub.Ptr("vsa-image-PASSED.json"),
-			State: gogithub.Ptr("uploaded"),
+			Name:  new("vsa-image-PASSED.json"),
+			State: new("uploaded"),
 		}},
 	}}
 	sourceDir := t.TempDir()
@@ -1344,8 +1344,8 @@ func TestExecuteCutResumePublishesWhenAllAssetsPresent(t *testing.T) {
 		HTMLURL: "https://github.com/test/repo/releases/tag/v1.1.0",
 		Draft:   true,
 		Assets: []*gogithub.ReleaseAsset{
-			{Name: gogithub.Ptr("first"), State: gogithub.Ptr("uploaded")},
-			{Name: gogithub.Ptr("second"), State: gogithub.Ptr("uploaded")},
+			{Name: new("first"), State: new("uploaded")},
+			{Name: new("second"), State: new("uploaded")},
 		},
 	}}
 
@@ -1378,7 +1378,7 @@ func TestExecuteCutResumeReuploadsIncompleteAsset(t *testing.T) {
 		TagName: "v1.1.0",
 		HTMLURL: "https://github.com/test/repo/releases/tag/v1.1.0",
 		Draft:   true,
-		Assets:  []*gogithub.ReleaseAsset{{Name: gogithub.Ptr("first"), State: gogithub.Ptr("open")}},
+		Assets:  []*gogithub.ReleaseAsset{{Name: new("first"), State: new("open")}},
 	}}
 
 	a := filepath.Join(t.TempDir(), "first")

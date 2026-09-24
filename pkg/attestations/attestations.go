@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/go-github/v89/github"
+	"github.com/google/go-github/v91/github"
 	bundleutils "github.com/liatrio/autogov/pkg/bundle"
 	"github.com/liatrio/autogov/pkg/certid"
 	"github.com/liatrio/autogov/pkg/digest"
