@@ -10,7 +10,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
-	gogithub "github.com/google/go-github/v89/github"
+	gogithub "github.com/google/go-github/v91/github"
 	githelper "github.com/liatrio/autogov/pkg/helper/git"
 )
 
@@ -277,7 +277,7 @@ func verifyTagExists(repo *git.Repository, opts *PublishOptions, tagName string)
 // publishRelease flips draft → false via GitHub API
 func publishRelease(ctx context.Context, opts *PublishOptions, owner, repo string, release *gogithub.RepositoryRelease) (*gogithub.RepositoryRelease, error) {
 	update := gogithub.UpdateReleaseRequest{
-		Draft: gogithub.Ptr(false), // flip to published
+		Draft: new(false), // flip to published
 	}
 
 	published, resp, err := opts.ReleaseAPI.UpdateRelease(ctx, owner, repo, release.GetID(), update)

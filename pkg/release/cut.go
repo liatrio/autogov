@@ -11,7 +11,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
-	gogithub "github.com/google/go-github/v89/github"
+	gogithub "github.com/google/go-github/v91/github"
 	githelper "github.com/liatrio/autogov/pkg/helper/git"
 	"github.com/liatrio/autogov/pkg/mutate"
 	"gopkg.in/yaml.v3"
@@ -452,7 +452,7 @@ func performCutSideEffects(repo *git.Repository, opts *CutOptions, plan *Release
 
 // markReleasePublished flips a draft release to published via the GitHub API.
 func markReleasePublished(ctx context.Context, svc ReleaseService, owner, repo string, releaseID int64) error {
-	rel := gogithub.UpdateReleaseRequest{Draft: gogithub.Ptr(false)}
+	rel := gogithub.UpdateReleaseRequest{Draft: new(false)}
 	_, resp, err := svc.UpdateRelease(ctx, owner, repo, releaseID, rel)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -914,10 +914,10 @@ func createReleaseCommitViaAPI(ctx context.Context, repo *git.Repository, opts *
 			return "", "", fmt.Errorf("failed to read mutated file %s: %w", filePath, err)
 		}
 		entries = append(entries, &gogithub.TreeEntry{
-			Path:    gogithub.Ptr(filePath),
-			Mode:    gogithub.Ptr("100644"),
-			Type:    gogithub.Ptr("blob"),
-			Content: gogithub.Ptr(string(content)),
+			Path:    new(filePath),
+			Mode:    new("100644"),
+			Type:    new("blob"),
+			Content: new(string(content)),
 		})
 	}
 
@@ -937,9 +937,9 @@ func createReleaseCommitViaAPI(ctx context.Context, repo *git.Repository, opts *
 	// create commit via API; omit author/committer so GitHub auto-signs as the
 	// authenticated identity (SLSA v1.2 verified commits for bots)
 	commit := gogithub.Commit{
-		Message: gogithub.Ptr(buildCommitMessage(plan)),
-		Tree:    &gogithub.Tree{SHA: gogithub.Ptr(treeSHA)},
-		Parents: []*gogithub.Commit{{SHA: gogithub.Ptr(headSHA)}},
+		Message: new(buildCommitMessage(plan)),
+		Tree:    &gogithub.Tree{SHA: new(treeSHA)},
+		Parents: []*gogithub.Commit{{SHA: new(headSHA)}},
 	}
 
 	created, resp, err := opts.ReleaseAPI.CreateCommit(ctx, owner, repoName, commit, nil)
@@ -1017,7 +1017,7 @@ func createAnnotatedTagViaAPI(ctx context.Context, opts *CutOptions, tagName, co
 func updateBranchRef(ctx context.Context, opts *CutOptions, owner, repoName, branch, commitSHA string) error {
 	updateRef := gogithub.UpdateRef{
 		SHA:   commitSHA,
-		Force: gogithub.Ptr(false),
+		Force: new(false),
 	}
 
 	_, resp, err := opts.ReleaseAPI.UpdateRef(ctx, owner, repoName, "refs/heads/"+branch, updateRef)
@@ -1059,11 +1059,11 @@ func createGitHubRelease(repo *git.Repository, opts *CutOptions, plan *ReleasePl
 
 	release := gogithub.CreateReleaseRequest{
 		TagName:              plan.NextVersion,
-		Name:                 gogithub.Ptr(plan.NextVersion),
-		Body:                 gogithub.Ptr(plan.ChangelogPreview),
-		Draft:                gogithub.Ptr(draft),
-		Prerelease:           gogithub.Ptr(false),
-		GenerateReleaseNotes: gogithub.Ptr(false),
+		Name:                 new(plan.NextVersion),
+		Body:                 new(plan.ChangelogPreview),
+		Draft:                new(draft),
+		Prerelease:           new(false),
+		GenerateReleaseNotes: new(false),
 	}
 
 	created, resp, err := opts.ReleaseAPI.CreateRelease(ctx, parts[0], parts[1], release)

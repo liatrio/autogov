@@ -10,7 +10,7 @@ require (
 	github.com/go-git/go-billy/v5 v5.9.1
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/go-openapi/strfmt v0.27.2
-	github.com/google/go-github/v89 v89.0.0
+	github.com/google/go-github/v91 v91.0.0
 	github.com/open-policy-agent/opa v1.20.2
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/sigstore/cosign/v3 v3.1.3
@@ -35,7 +35,6 @@ require (
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
-	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/x/ansi v0.10.2 // indirect
@@ -43,8 +42,6 @@ require (
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/coreos/go-oidc/v3 v3.20.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
-	github.com/danieljoos/wincred v1.2.2 // indirect
-	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
@@ -61,15 +58,11 @@ require (
 	github.com/go-openapi/runtime v0.33.0 // indirect
 	github.com/go-openapi/runtime/server-middleware v0.30.0 // indirect
 	github.com/go-openapi/spec v0.22.9 // indirect
-	github.com/go-openapi/swag v0.28.0 // indirect
-	github.com/go-openapi/swag/cmdutils v0.28.0 // indirect
 	github.com/go-openapi/swag/conv v0.28.0 // indirect
 	github.com/go-openapi/swag/fileutils v0.28.0 // indirect
-	github.com/go-openapi/swag/jsonname v0.26.1 // indirect
 	github.com/go-openapi/swag/jsonutils v0.28.0 // indirect
 	github.com/go-openapi/swag/loading v0.28.0 // indirect
 	github.com/go-openapi/swag/mangling v0.28.0 // indirect
-	github.com/go-openapi/swag/netutils v0.28.0 // indirect
 	github.com/go-openapi/swag/pools v0.28.0 // indirect
 	github.com/go-openapi/swag/stringutils v0.28.0 // indirect
 	github.com/go-openapi/swag/typeutils v0.28.0 // indirect
@@ -110,10 +103,8 @@ require (
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
-	github.com/sassoftware/relic v7.2.1+incompatible // indirect
 	github.com/sassoftware/relic/v8 v8.2.0 // indirect
 	github.com/secure-systems-lab/go-securesystemslib v0.11.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect

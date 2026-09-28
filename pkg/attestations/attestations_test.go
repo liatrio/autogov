@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-github/v89/github"
+	"github.com/google/go-github/v91/github"
 	"github.com/liatrio/autogov/pkg/certid"
 	"github.com/liatrio/autogov/pkg/root"
 )
