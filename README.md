@@ -60,14 +60,14 @@ Start here. `autogov` is the CLI at the center of the four-repo autogov stack. T
 ## Features
 
 - **Multi-attestation verification**: Supports standard in-toto predicate types, including SLSA, SBOM, vulnerability, and custom predicates
-- **SLSA v1.2 VSA generation**: Generates Verification Summary Attestations
+- **VSA generation**: Generates Verification Summary Attestations using the `https://slsa.dev/verification_summary/v1` predicate described in the [SLSA v1.2 specification](https://slsa.dev/spec/v1.2/verification_summary)
 - **OPA policy integration**: Evaluates Rego policies and records the result in VSA metadata
 - **Signer allowlist**: Enforces an approved set of signer certificate identities via `--cert-identity-list` (a URL or local file). Accepts the union of `--cert-identity` and the list (multiple signers per run), and fails closed when a configured list resolves to zero valid identities.
 - **Offline verification**: Supports pre-downloaded attestation artifacts (verify container images by digest without pulling the image)
 - **Attestation download**: Download attestations from GitHub for offline verification workflows
 - **Per-attestation trusted root**: Selects the trusted root for each attestation from its signing certificate's Fulcio issuer — public-good Sigstore (`sigstore.dev`) or GitHub (`fulcio.githubapp.com`) — with `--trusted-root`/`--trusted-root-source` overrides
 - **VSA validation**: Validates VSA fields and supports multiple digest formats
-- **Release management**: Plan, cut, and publish releases with GitHub API-signed commits (SLSA v1.2 provenance)
+- **Release management**: Plan, cut, and publish releases with GitHub API-signed commits
 - **Changelog generation**: Automatic changelog from conventional commits with markdown or JSON output
 - **Configuration mutations**: Update version strings across JSON, YAML, and TOML files during releases
 - **Operational basics**: Error handling, caching, and monitoring support
@@ -432,7 +432,7 @@ The tool supports enforcing a signer allowlist via a certificate identity list:
 
 #### VSA and Policy Flags
 
-The tool supports generating SLSA v1.2 Verification Summary Attestations (VSAs) with enhanced validation and evaluating OPA policies:
+The tool generates Verification Summary Attestations (VSAs) using the `https://slsa.dev/verification_summary/v1` predicate with field validation and evaluates OPA policies. The predicate's `/v1` identifies its major schema version; the linked [SLSA v1.2 specification](https://slsa.dev/spec/v1.2/verification_summary) has a separate version. Generated VSAs currently record `predicate.slsaVersion: "1.1"`.
 
 - `--generate-vsa`: Generate a VSA after successful verification with field validation
 - `--vsa-output`: Path to save the generated VSA (e.g., `./verification-summary.json`)
@@ -443,7 +443,7 @@ The tool supports generating SLSA v1.2 Verification Summary Attestations (VSAs) 
 - `--fail-on-policy-error`: Exit with error code 1 when policy evaluation fails (default: false - exit code 0)
 - `--attestations-path`: Path to directory containing attestation files for offline verification
 
-For enhanced VSA features and SLSA v1.2 compliance details, see [docs/vsa-metadata.md](docs/vsa-metadata.md).
+For VSA features, version fields, and validation details, see [docs/vsa-metadata.md](docs/vsa-metadata.md).
 
 The certificate identity source of truth is a JSON file with the following structure:
 
@@ -573,7 +573,7 @@ Analyzes commits since the last tag, determines the next semantic version, and s
 autogov release cut [flags]
 ```
 
-Applies file mutations, creates a release commit and tag via GitHub API (providing SLSA v1.2 provenance through GitHub's auto-signing), and creates a draft GitHub release.
+Applies file mutations, creates a GitHub API-signed release commit and an unsigned annotated tag, and creates a draft GitHub release. The commit signature authenticates the Git commit; it does not itself provide SLSA build provenance. Build provenance is a separate attestation using the `https://slsa.dev/provenance/v1` predicate described in the [SLSA v1.2 specification](https://slsa.dev/spec/v1.2/build-provenance), produced by the build workflow.
 
 **Flags:**
 
@@ -760,7 +760,7 @@ autogov verify attestation \
 - Positive number: Maximum allowed count
 - `-1`: Unlimited (disable check for that severity)
 
-For VSA output features, metadata structure, and SLSA v1.2 compliance details, see [docs/vsa-metadata.md](docs/vsa-metadata.md).
+For VSA output features, metadata structure, and version fields, see [docs/vsa-metadata.md](docs/vsa-metadata.md).
 
 ## Output
 
@@ -963,7 +963,7 @@ The tool is organized into several key packages:
 - **`pkg/policy/`**: OPA integration for policy evaluation
 - **`pkg/release/`**: Release management (plan, cut, publish, changelog, version bumping)
 - **`pkg/root/`**: Trusted root management with dynamic fetching and fallback
-- **`pkg/vsa/`**: SLSA v1.2 VSA generation with field validation
+- **`pkg/vsa/`**: VSA generation using the `verification_summary/v1` predicate with field validation
 
 ### Predicate Type Standardization
 
