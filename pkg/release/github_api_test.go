@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
-	gogithub "github.com/google/go-github/v89/github"
+	gogithub "github.com/google/go-github/v91/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,10 +17,10 @@ func TestListTagsFromAPI(t *testing.T) {
 	t.Run("returns sorted semver tags descending", func(t *testing.T) {
 		mock := &mockReleaseService{
 			listTagsResult: []*gogithub.RepositoryTag{
-				{Name: gogithub.Ptr("v1.0.0")},
-				{Name: gogithub.Ptr("v2.0.0")},
-				{Name: gogithub.Ptr("v1.5.0")},
-				{Name: gogithub.Ptr("not-semver")},
+				{Name: new("v1.0.0")},
+				{Name: new("v2.0.0")},
+				{Name: new("v1.5.0")},
+				{Name: new("not-semver")},
 			},
 		}
 		tags, err := listTagsFromAPI(context.Background(), mock, "owner", "repo")
@@ -55,25 +55,25 @@ func TestFilterFirstParent(t *testing.T) {
 		// First-parent walk: E → B → A (not in list, stop). Result: B, E (skip D).
 		commits := []*gogithub.RepositoryCommit{
 			{
-				SHA:    gogithub.Ptr("D"),
-				Commit: &gogithub.Commit{Message: gogithub.Ptr("feat: branch work")},
+				SHA:    new("D"),
+				Commit: &gogithub.Commit{Message: new("feat: branch work")},
 				Parents: []*gogithub.Commit{
-					{SHA: gogithub.Ptr("A")},
+					{SHA: new("A")},
 				},
 			},
 			{
-				SHA:    gogithub.Ptr("B"),
-				Commit: &gogithub.Commit{Message: gogithub.Ptr("fix: merge branch")},
+				SHA:    new("B"),
+				Commit: &gogithub.Commit{Message: new("fix: merge branch")},
 				Parents: []*gogithub.Commit{
-					{SHA: gogithub.Ptr("A")}, // first parent is main line
-					{SHA: gogithub.Ptr("D")}, // second parent is merged branch
+					{SHA: new("A")}, // first parent is main line
+					{SHA: new("D")}, // second parent is merged branch
 				},
 			},
 			{
-				SHA:    gogithub.Ptr("E"),
-				Commit: &gogithub.Commit{Message: gogithub.Ptr("feat: after merge")},
+				SHA:    new("E"),
+				Commit: &gogithub.Commit{Message: new("feat: after merge")},
 				Parents: []*gogithub.Commit{
-					{SHA: gogithub.Ptr("B")},
+					{SHA: new("B")},
 				},
 			},
 		}
@@ -87,18 +87,18 @@ func TestFilterFirstParent(t *testing.T) {
 	t.Run("linear history returns all commits", func(t *testing.T) {
 		commits := []*gogithub.RepositoryCommit{
 			{
-				SHA:    gogithub.Ptr("A"),
-				Commit: &gogithub.Commit{Message: gogithub.Ptr("feat: first")},
+				SHA:    new("A"),
+				Commit: &gogithub.Commit{Message: new("feat: first")},
 			},
 			{
-				SHA:     gogithub.Ptr("B"),
-				Commit:  &gogithub.Commit{Message: gogithub.Ptr("fix: second")},
-				Parents: []*gogithub.Commit{{SHA: gogithub.Ptr("A")}},
+				SHA:     new("B"),
+				Commit:  &gogithub.Commit{Message: new("fix: second")},
+				Parents: []*gogithub.Commit{{SHA: new("A")}},
 			},
 			{
-				SHA:     gogithub.Ptr("C"),
-				Commit:  &gogithub.Commit{Message: gogithub.Ptr("feat: third")},
-				Parents: []*gogithub.Commit{{SHA: gogithub.Ptr("B")}},
+				SHA:     new("C"),
+				Commit:  &gogithub.Commit{Message: new("feat: third")},
+				Parents: []*gogithub.Commit{{SHA: new("B")}},
 			},
 		}
 
@@ -116,7 +116,7 @@ func TestFilterFirstParent(t *testing.T) {
 
 	t.Run("unknown head SHA returns empty", func(t *testing.T) {
 		commits := []*gogithub.RepositoryCommit{
-			{SHA: gogithub.Ptr("A"), Commit: &gogithub.Commit{Message: gogithub.Ptr("feat: something")}},
+			{SHA: new("A"), Commit: &gogithub.Commit{Message: new("feat: something")}},
 		}
 		result := filterFirstParent(commits, "UNKNOWN")
 		assert.Empty(t, result)
@@ -150,9 +150,9 @@ func TestGetCommitsFromAPITruncated(t *testing.T) {
 	totalCommits := 300
 	mock := &mockReleaseService{
 		compareResult: &gogithub.CommitsComparison{
-			TotalCommits: gogithub.Ptr(totalCommits),
+			TotalCommits: new(totalCommits),
 			Commits: []*gogithub.RepositoryCommit{
-				{SHA: gogithub.Ptr("A"), Commit: &gogithub.Commit{Message: gogithub.Ptr("feat: one")}},
+				{SHA: new("A"), Commit: &gogithub.Commit{Message: new("feat: one")}},
 			},
 		},
 	}
@@ -167,16 +167,16 @@ func TestGetCommitsFromAPITruncated(t *testing.T) {
 func TestGetCommitsFromAPINonTruncated(t *testing.T) {
 	mock := &mockReleaseService{
 		compareResult: &gogithub.CommitsComparison{
-			TotalCommits: gogithub.Ptr(2),
+			TotalCommits: new(2),
 			Commits: []*gogithub.RepositoryCommit{
 				{
-					SHA:    gogithub.Ptr("A"),
-					Commit: &gogithub.Commit{Message: gogithub.Ptr("feat: first")},
+					SHA:    new("A"),
+					Commit: &gogithub.Commit{Message: new("feat: first")},
 				},
 				{
-					SHA:     gogithub.Ptr("B"),
-					Commit:  &gogithub.Commit{Message: gogithub.Ptr("fix: second")},
-					Parents: []*gogithub.Commit{{SHA: gogithub.Ptr("A")}},
+					SHA:     new("B"),
+					Commit:  &gogithub.Commit{Message: new("fix: second")},
+					Parents: []*gogithub.Commit{{SHA: new("A")}},
 				},
 			},
 		},
@@ -249,12 +249,12 @@ func TestGeneratePlanAPIModeSuccess(t *testing.T) {
 
 	mock := &mockReleaseService{
 		listTagsResult: []*gogithub.RepositoryTag{
-			{Name: gogithub.Ptr("v1.0.0")},
+			{Name: new("v1.0.0")},
 		},
 		compareResult: &gogithub.CommitsComparison{
-			TotalCommits: gogithub.Ptr(1),
+			TotalCommits: new(1),
 			Commits: []*gogithub.RepositoryCommit{
-				{SHA: gogithub.Ptr(headSHA), Commit: &gogithub.Commit{Message: gogithub.Ptr("feat: add a thing")}},
+				{SHA: new(headSHA), Commit: &gogithub.Commit{Message: new("feat: add a thing")}},
 			},
 		},
 	}
