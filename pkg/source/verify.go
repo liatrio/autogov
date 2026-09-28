@@ -221,15 +221,10 @@ func VerifySourceProvenance(bundlePath string, opts VerifyOptions) (*Verificatio
 		}
 	}
 
-	// Validate source ref.
-	if opts.SourceRef != "" {
-		if sourceRef == "" {
-			result.Warnings = append(result.Warnings,
-				"source ref not found in predicate; --source-ref check skipped")
-		} else if sourceRef != opts.SourceRef {
-			result.ErrorMsg = fmt.Sprintf("source ref mismatch: attestation has %q, expected %q", sourceRef, opts.SourceRef)
-			return result, nil
-		}
+	// An explicitly requested ref is required evidence, including when absent.
+	if err := validateSourceRef(sourceRef, opts.SourceRef); err != nil {
+		result.ErrorMsg = err.Error()
+		return result, nil
 	}
 
 	result.Verified = true
@@ -242,6 +237,20 @@ func VerifySourceProvenance(bundlePath string, opts VerifyOptions) (*Verificatio
 	result.SLSASourceLevel = MapToCanonicalSourceLevel(result.Verified)
 
 	return result, nil
+}
+
+// validateSourceRef requires a matching claim when an expected ref is supplied.
+func validateSourceRef(found, expected string) error {
+	if expected == "" {
+		return nil
+	}
+	if found == "" {
+		return fmt.Errorf("source ref not found in predicate: expected %q", expected)
+	}
+	if found != expected {
+		return fmt.Errorf("source ref mismatch: attestation has %q, expected %q", found, expected)
+	}
+	return nil
 }
 
 // Canonical SLSA source-track levels (https://slsa.dev/spec/v1.2/source-requirements).
