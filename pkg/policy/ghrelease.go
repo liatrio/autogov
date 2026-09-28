@@ -187,6 +187,11 @@ func resolveGHReleaseToDir(ctx context.Context, client ghReleaseClient, ref ghRe
 		return "", nil, fmt.Errorf("failed to resolve release tag %q for %s/%s: %w", ref.Tag, ref.Owner, ref.Repo, err)
 	}
 
+	if ref.Tag == "" {
+		log.Printf("warning: ghrel://%s/%s has no release tag; latest resolved to %q and may change on future runs; specify @tag to pin the release", ref.Owner, ref.Repo, release.GetTagName())
+		ref.Tag = release.GetTagName()
+	}
+
 	assetID, err := findGHReleaseAssetID(release, ref, assetName)
 	if err != nil {
 		return "", nil, err

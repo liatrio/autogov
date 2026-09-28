@@ -50,8 +50,13 @@ func registerCutFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("publish", false, "Publish release directly (skip draft state)")
 	cmd.Flags().String("mode", "auto", "Git read mode: auto (default), api (require GitHub API), local (go-git only)")
 	cmd.Flags().String("repo", ".", "Path to git repository")
-	cmd.Flags().String("commit-author", "autogov[bot]", "Author name for release commit")
-	cmd.Flags().String("commit-email", "autogov[bot]@users.noreply.github.com", "Author email for release commit")
+	cmd.Flags().String("commit-author", "autogov[bot]", "Deprecated and ignored; GitHub uses the authenticated identity")
+	cmd.Flags().String("commit-email", "autogov[bot]@users.noreply.github.com", "Deprecated and ignored; GitHub uses the authenticated identity")
+	for _, name := range []string{"commit-author", "commit-email"} {
+		if err := cmd.Flags().MarkDeprecated(name, "ignored; GitHub uses the authenticated identity for release commits"); err != nil {
+			panic(err)
+		}
+	}
 	cmd.Flags().StringP("output", "o", "text", "Output format: text, json")
 	cmd.Flags().StringArray("asset", nil, "File to upload as a release asset (repeatable)")
 	cmd.Flags().StringArray("asset-source", nil, "Local source directory to recursively collect release assets from as ID=DIR (repeatable)")
@@ -125,8 +130,6 @@ func cutOptionsFromFlags(cmd *cobra.Command) (*release.CutOptions, error) {
 	publish, _ := cmd.Flags().GetBool("publish")
 	modeStr, _ := cmd.Flags().GetString("mode")
 	repoPath, _ := cmd.Flags().GetString("repo")
-	commitAuthor, _ := cmd.Flags().GetString("commit-author")
-	commitEmail, _ := cmd.Flags().GetString("commit-email")
 	assets, _ := cmd.Flags().GetStringArray("asset")
 	assetSourcePairs, _ := cmd.Flags().GetStringArray("asset-source")
 	assetLabelPairs, _ := cmd.Flags().GetStringArray("asset-label")
@@ -151,8 +154,6 @@ func cutOptionsFromFlags(cmd *cobra.Command) (*release.CutOptions, error) {
 		DryRun:          dryRun,
 		Publish:         publish,
 		Mode:            release.ReleaseMode(modeStr),
-		CommitAuthor:    commitAuthor,
-		CommitEmail:     commitEmail,
 		Token:           token,
 		Assets:          assets,
 		AssetSources:    assetSources,

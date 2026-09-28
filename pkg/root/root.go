@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
@@ -129,12 +130,12 @@ func GetTrustedRoot() ([]byte, error) {
 	// try to fetch dynamically first
 	trustedRoot, err := FetchTrustedRoot()
 	if err == nil {
-		fmt.Println("✓ Using dynamically fetched trusted root")
+		fmt.Fprintln(os.Stderr, "✓ Using dynamically fetched trusted root")
 		return trustedRoot, nil
 	}
 
 	// fallback to the embedded root if fetching fails
-	fmt.Printf("! Failed to fetch dynamic trusted root (%v), falling back to embedded version\n", err)
+	fmt.Fprintf(os.Stderr, "! Failed to fetch dynamic trusted root (%v), falling back to embedded version\n", err)
 	return GithubTrustedRoot, nil
 }
 
@@ -142,10 +143,10 @@ func GetTrustedRoot() ([]byte, error) {
 func SelectTrustedRoot(source TrustedRootSource, certPEM []byte) ([]byte, TrustedRootSource, error) {
 	switch source {
 	case TrustedRootSourceGitHub:
-		fmt.Println("✓ Using GitHub trusted root (explicit)")
+		fmt.Fprintln(os.Stderr, "✓ Using GitHub trusted root (explicit)")
 		return GithubTrustedRoot, TrustedRootSourceGitHub, nil
 	case TrustedRootSourcePublic:
-		fmt.Println("✓ Using public Sigstore trusted root (explicit)")
+		fmt.Fprintln(os.Stderr, "✓ Using public Sigstore trusted root (explicit)")
 		return PublicSigstoreTrustedRoot, TrustedRootSourcePublic, nil
 	case TrustedRootSourceAuto:
 		// auto-detect from cert issuer
@@ -153,16 +154,16 @@ func SelectTrustedRoot(source TrustedRootSource, certPEM []byte) ([]byte, Truste
 			detectedSource, err := DetectTrustedRootFromCert(certPEM)
 			if err == nil {
 				if detectedSource == TrustedRootSourceGitHub {
-					fmt.Println("✓ Using GitHub trusted root (auto-detected from certificate)")
+					fmt.Fprintln(os.Stderr, "✓ Using GitHub trusted root (auto-detected from certificate)")
 					return GithubTrustedRoot, TrustedRootSourceGitHub, nil
 				}
-				fmt.Println("✓ Using public Sigstore trusted root (auto-detected from certificate)")
+				fmt.Fprintln(os.Stderr, "✓ Using public Sigstore trusted root (auto-detected from certificate)")
 				return PublicSigstoreTrustedRoot, TrustedRootSourcePublic, nil
 			}
-			fmt.Printf("! Could not auto-detect trusted root from certificate: %v\n", err)
+			fmt.Fprintf(os.Stderr, "! Could not auto-detect trusted root from certificate: %v\n", err)
 		}
 		// default to github for backward compatibility
-		fmt.Println("✓ Using GitHub trusted root (default)")
+		fmt.Fprintln(os.Stderr, "✓ Using GitHub trusted root (default)")
 		return GithubTrustedRoot, TrustedRootSourceGitHub, nil
 	default:
 		return nil, "", fmt.Errorf("unknown trusted root source: %s", source)
