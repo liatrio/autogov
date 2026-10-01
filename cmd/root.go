@@ -44,9 +44,6 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// propagate build-time version info to verify package for VSA generation
-	verify.SetBuildInfo(Version, OpaVersion)
-
 	// add subcommands
 	rootCmd.AddCommand(verify.VerifyCmd)
 	rootCmd.AddCommand(downloadCmd)
@@ -56,11 +53,15 @@ func init() {
 	rootCmd.AddCommand(predicate.PredicateCmd)
 	rootCmd.AddCommand(changelogCmd)
 
-	// set opa version in viper for policy package to use
-	viper.Set("opa-version", OpaVersion)
 }
 
 func initConfig() {
+	// main assigns linker-provided values after package initialization. Propagate
+	// them when Cobra begins an invocation so generated VSAs and OPA evaluation
+	// metadata describe the running binary rather than package defaults.
+	verify.SetBuildInfo(Version, OpaVersion)
+	viper.Set("opa-version", OpaVersion)
+
 	// bind environment variables
 	envBinds := map[string]string{
 		"image-digest":         "IMAGE_DIGEST",
