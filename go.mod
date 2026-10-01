@@ -11,6 +11,7 @@ require (
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/go-openapi/strfmt v0.27.2
 	github.com/google/go-github/v91 v91.0.0
+	github.com/google/go-github/v92 v92.0.0
 	github.com/open-policy-agent/opa v1.20.2
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/sigstore/cosign/v3 v3.1.3
