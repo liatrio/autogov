@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	gh "github.com/google/go-github/v91/github"
+	gh "github.com/google/go-github/v93/github"
 )
 
 func TestAddPage(t *testing.T) {

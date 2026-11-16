@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	gogithub "github.com/google/go-github/v91/github"
+	gogithub "github.com/google/go-github/v93/github"
 
 	"github.com/liatrio/autogov/pkg/digest"
 )
