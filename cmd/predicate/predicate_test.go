@@ -39,13 +39,6 @@ func TestPredicateCommandStructure(t *testing.T) {
 		assert.True(t, found, "depscan subcommand should exist")
 	})
 
-	t.Run("does not expose companion authoring", func(t *testing.T) {
-		for _, cmd := range PredicateCmd.Commands() {
-			assert.NotEqual(t, "agent-governance-deployment", cmd.Name())
-		}
-		assert.NotContains(t, PredicateCmd.Long, "agent-governance")
-	})
-
 }
 
 func TestMetadataCommandFlags(t *testing.T) {

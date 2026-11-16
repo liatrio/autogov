@@ -75,11 +75,7 @@ This applies to every predicate type handled by the offline path. The resource
 URI identifies one immutable statement; it is not the statement's
 `predicateType` and it is not a schema URL. Predicate types still contribute
 separately to the VSA's verification facts. Offline VSA output remains
-unsigned. The standalone
-[`agent-governance-evidence`](https://github.com/liatrio/agent-governance-evidence)
-repository exercises this generic contract with a custom deployment statement
-and a standard test-result statement; `autogov` contains no
-companion-specific input-binding code.
+unsigned.
 
 ## Metadata fields
 
