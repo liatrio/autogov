@@ -10,7 +10,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
-	gogithub "github.com/google/go-github/v91/github"
+	gogithub "github.com/google/go-github/v93/github"
 	githelper "github.com/liatrio/autogov/pkg/helper/git"
 )
 

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	gh "github.com/google/go-github/v91/github"
+	gh "github.com/google/go-github/v93/github"
 	ghclient "github.com/liatrio/autogov/pkg/github"
 )
 

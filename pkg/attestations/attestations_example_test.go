@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/google/go-github/v91/github"
+	"github.com/google/go-github/v93/github"
 )
 
 // ExampleGetFromGitHub shows verifying GitHub attestations with sigstore-go (trusted

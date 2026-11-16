@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	gh "github.com/google/go-github/v91/github"
+	gh "github.com/google/go-github/v93/github"
 )
 
 // ReviewService abstracts the GitHub REST calls the source-review predicate
