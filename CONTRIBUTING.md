@@ -7,7 +7,7 @@ reduce regression risk, and update user-facing docs when behavior changes.
 
 Prerequisites:
 
-- Go 1.26 or higher
+- Go 1.27 or higher
 - GitHub CLI (`gh`) for trusted root fetching
 - Docker for container registry access
 - `golangci-lint`
