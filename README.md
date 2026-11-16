@@ -52,7 +52,7 @@ Start here. `autogov` is the CLI at the center of the four-repo autogov stack. T
 
 ## Requirements
 
-- Go 1.26 or higher
+- Go 1.27 or higher
 - GitHub personal access token with read access to packages
 - Access to the GitHub Container Registry (ghcr.io)
 - Docker login to ghcr.io (`docker login ghcr.io`) for container image verification
@@ -868,7 +868,7 @@ If you encounter any other issues, please [open an issue](https://github.com/lia
 
 ### Prerequisites
 
-- Go 1.26 or higher
+- Go 1.27 or higher
 - GitHub CLI (`gh`) for trusted root fetching
 - Docker for container registry access
 - golangci-lint for code quality checks
