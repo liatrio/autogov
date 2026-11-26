@@ -40,7 +40,7 @@ jobs:
       - name: Re-vendor public-good trusted root
         run: task vendor-public-trusted-root
       - name: Open PR if the embedded snapshot changed
-        uses: peter-evans/create-pull-request@v8.1.1
+        uses: peter-evans/create-pull-request@v8.1.3
         with:
           add-paths: pkg/root/public-trusted-root.json
           branch: chore/refresh-trusted-root
